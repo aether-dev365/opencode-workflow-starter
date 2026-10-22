@@ -183,3 +183,33 @@ test('doctor warns about rule files over half the injection limit', () => {
     assert.match(check.message, /本检出的所有修改都会被拒绝/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('doctor treats empty reviewer model values as unspecified', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const config = join(root, 'opencode.jsonc'), agent = join(root, '.opencode/agents/reviewer.md')
+    const [originalConfig, originalAgent] = [readFileSync(config, 'utf8'), readFileSync(agent, 'utf8')]
+    const reviewer = () => JSON.parse(spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'], { encoding: 'utf8' }).stdout).checks.find(c => c.id === 'reviewer-model')
+    const withConfigModel = model => originalConfig.replace('"worktree":', `"agents": { "reviewer": { "model": ${model} } }, "worktree":`)
+    for (const model of ['"   "', 'null', '{}', '[]']) {
+      writeFileSync(config, withConfigModel(model))
+      assert.equal(reviewer()?.status, 'warn', model)
+    }
+    // OpenCode 会忽略 model 为空的整个代理文件，连同其中的只读权限；opencode.jsonc 已指定模型时也要提示。
+    writeFileSync(config, withConfigModel('"openai/gpt-fixture"'))
+    for (const value of ['""', "''", '"   "', 'null', '~', '# 待定', '']) {
+      writeFileSync(agent, originalAgent.replace('mode: subagent', `model: ${value}\nmode: subagent`))
+      const check = reviewer()
+      assert.equal(check?.status, 'warn', value)
+      assert.match(check.message, /reviewer\.md/, value)
+    }
+    writeFileSync(agent, '---\n{\n  "mode": "subagent",\n  "model": "  "\n}\n---\n只读审核。\n')
+    assert.equal(reviewer()?.status, 'warn')
+    // 写在下一行缩进块里的对象形式不是空值。
+    writeFileSync(config, originalConfig)
+    writeFileSync(agent, originalAgent.replace('mode: subagent', 'mode: subagent\nmodel:\n  providerID: openai\n  model: gpt-fixture'))
+    assert.equal(reviewer()?.status, 'pass')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

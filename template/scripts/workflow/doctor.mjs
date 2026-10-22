@@ -41,6 +41,22 @@ async function check(id, run) {
   try { const result = await run(); checks.push({ id, ...(result ?? { status: 'pass', message: '通过' }) }) }
   catch (error) { checks.push({ id, status: 'fail', message: String(error.message) }) }
 }
+// 与 OpenCode 接受的模型写法一致：provider/model 字符串，或带 providerID 与 model 的对象。
+const modelSet = value => typeof value === 'string' ? !!value.trim() : [value?.providerID, value?.model].every(part => typeof part === 'string' && part.trim())
+// 代理文件 frontmatter 中的 model：没有这个键返回 undefined，值为空返回 ''。
+function frontmatterModel(text) {
+  const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1]
+  if (front === undefined) return undefined
+  let json
+  try { json = JSON.parse(front) } catch {}
+  if (json && typeof json === 'object') return 'model' in json ? (modelSet(json.model) ? json.model : '') : undefined
+  const line = front.match(/^model[ \t]*:(.*)$/m)
+  if (!line) return undefined
+  const value = line[1].replace(/(?:^|\s)#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2').trim()
+  // 同一行没有值而下一行缩进时，模型写成了多行对象。
+  if (!value && /^[ \t]+\S/.test(front.slice(line.index + line[0].length + 1))) return 'block'
+  return /^(?:null|Null|NULL|~)?$/.test(value) ? '' : value
+}
 
 async function printPermissions() {
   try { console.log(JSON.stringify(protectionPermissions(await loadProjectConfig(root)), null, 2)) }
@@ -72,13 +88,11 @@ async function diagnose() {
   })
   await check('reviewer-model', async () => {
     const native = await readJson(join(root, 'opencode.jsonc'))
-    const model = native.agents?.reviewer?.model
-    if (typeof model === 'string' ? model.trim() : model && typeof model === 'object') return
     // 代理文件的 frontmatter 与 agents 配置项接受相同字段，写在那里也算显式指定。
-    let front = '', json
-    try { front = readFileSync(join(root, '.opencode/agents/reviewer.md'), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? '' } catch {}
-    try { json = JSON.parse(front) } catch {}
-    if (json && typeof json === 'object' ? json.model : /^model\s*:\s*\S/m.test(front)) return
+    let file
+    try { file = frontmatterModel(readFileSync(join(root, '.opencode/agents/reviewer.md'), 'utf8')) } catch {}
+    if (file === '') return { status: 'warn', message: 'reviewer.md 的 frontmatter 中 model 为空：OpenCode 会忽略整个代理文件，包括其中的只读权限和审核说明；删除这一行或填写模型' }
+    if (modelSet(native.agents?.reviewer?.model) || file) return
     return { status: 'warn', message: 'reviewer 未指定模型，审核时会继承发起会话的模型，通常与实现是同一个；在 opencode.jsonc 的 agents.reviewer.model 指定（只有一个可用模型时也写上），或在接入报告中说明原因' }
   })
   await check('node', () => { if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('需要 Node.js 24 或更新版本') })
