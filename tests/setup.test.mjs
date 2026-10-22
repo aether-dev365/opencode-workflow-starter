@@ -50,10 +50,12 @@ function fixture({ opencode, deps = true, scanner: placement = 'path' } = {}) {
   const python = pythonCommand()
   const interpreter = findExecutable(python.command)
   assert.ok(interpreter, `找不到 ${python.command}`)
+  // 不放 Node 的目录：npm 全局安装的 opencode 常和 node 在同一目录（如 CI 的 macOS），会让“缺少 CLI”的场景失真。
   // Windows 上 .cmd 经 cmd.exe 启动，libuv 只按子进程 PATH 查找它，所以保留 System32。
-  const path = [bin, dirname(process.execPath), dirname(findExecutable('git')), dirname(interpreter), ...(windows ? [join(process.env.SystemRoot, 'System32')] : [])]
+  const path = [bin, dirname(findExecutable('git')), dirname(interpreter), ...(windows ? [join(process.env.SystemRoot, 'System32')] : [])]
   const env = { ...essentialEnv(), PATH: path.join(delimiter), HOME: home, USERPROFILE: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
     FAKE_NPM_LOG: join(temp, 'npm.log'), FAKE_NPM_MODULES: modules, FAKE_NPM_BIN: bin }
+  if (!opencode) assert.equal(findExecutable('opencode', { env }), undefined, 'Git 或 Python 所在目录里有 opencode，无法模拟“缺少 CLI”')
   const setup = (...args) => {
     const result = spawnSync(process.execPath, ['scripts/workflow/setup.mjs', ...args], { cwd: root, env, encoding: 'utf8', timeout: 120000 })
     return { status: result.status, output: result.stdout + result.stderr, npm: existsSync(env.FAKE_NPM_LOG) ? readFileSync(env.FAKE_NPM_LOG, 'utf8') : '' }

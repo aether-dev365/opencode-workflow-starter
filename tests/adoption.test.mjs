@@ -10,7 +10,8 @@ import { commandLine, findExecutable, pythonCommand } from '../template/.opencod
 
 const windows = process.platform === 'win32'
 
-test('a separately installed copy passes doctor without source checkout configuration', { timeout: 180000 }, () => {
+// Windows runner 上在临时项目里 npm ci 可能超过 2 分钟。
+test('a separately installed copy passes doctor without source checkout configuration', { timeout: 600000 }, () => {
   const temp = mkdtempSync(join(tmpdir(), 'workflow-adoption-'))
   const root = join(temp, 'repo')
   const home = join(temp, 'home')
@@ -21,7 +22,7 @@ test('a separately installed copy passes doctor without source checkout configur
   const run = (cmd, args, extra = {}) => {
     // Windows 上 npm 是 .cmd 启动器，经 commandLine 交给 cmd.exe。
     const invocation = commandLine(findExecutable(cmd) ?? cmd, args)
-    const result = spawnSync(invocation.command, invocation.args, { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 120000, windowsVerbatimArguments: invocation.windowsVerbatimArguments })
+    const result = spawnSync(invocation.command, invocation.args, { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 300000, windowsVerbatimArguments: invocation.windowsVerbatimArguments })
     assert.equal(result.status, 0, `${cmd} ${args.join(' ')}\n${result.stderr}\n${result.stdout}${result.error ? '\n' + result.error.message : ''}`)
     return result.stdout
   }
