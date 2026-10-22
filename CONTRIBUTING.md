@@ -42,4 +42,4 @@ node scripts/verify.mjs --windows
 ## 提交与发布
 
 - 一个提交只做一件事，提交说明用中文概括改动。
-- 发布前更新 `CHANGELOG.md`，同步插件 `package.json` 的 `version`，创建 annotated tag，再按 README「本地交付」一节生成分发包和 SHA-256。
+- 发布前更新 `CHANGELOG.md`，同步插件 `package.json` 的 `version`，创建 annotated tag，再按 README「发布与分发」一节生成分发包和 SHA-256。
