@@ -585,6 +585,105 @@ def _lift_substitutions(text, inners):
     return "".join(out), bad or quote is not None
 
 
+def _shell_eval_features(text):
+    """返回隐藏命令替换与运行时求值特征；引号内的普通文字不充当语法，活动子命令递归检查。"""
+    hidden, runtime = False, False
+    code, i, quote = [], 0, None
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            hidden = hidden or c == '`' or (text.startswith('$(', i) and not text.startswith('$((', i))
+            if c == "'":
+                quote = None
+            code.append(c)
+            i += 1
+            continue
+        if c == '\\' and i + 1 < len(text):
+            hidden = hidden or text[i + 1] == '`' or bool(re.match(r'\$\\?\(', text[i + 1:]))
+            # 引号外的转义字符等价地加引号，避免切段器把字面分隔符当作语法。
+            if text[i + 1] != '\n':
+                code.append(shlex.quote(text[i + 1]) if quote is None else text[i:i + 2])
+            i += 2
+            continue
+        if c == "'" and quote is None:
+            quote = c
+        elif c == '"':
+            quote = None if quote else c
+        elif c == '#' and quote is None and (i == 0 or text[i - 1] in ' \t\n;|&'):
+            end = text.find('\n', i)
+            i = len(text) if end < 0 else end
+            continue
+        elif text.startswith('$(', i) or (quote is None and text[i:i + 2] in ('<(', '>(')):
+            end = _close_paren(text, i + 1)
+            if end < 0:
+                raise ValueError('命令展开未闭合')
+            arithmetic = text.startswith('$((', i)
+            if arithmetic and text[end - 1] != ')':
+                raise ValueError('算术展开未闭合')
+            sub_hidden, sub_runtime = _shell_eval_features(text[i + (3 if arithmetic else 2):end - (1 if arithmetic else 0)])
+            hidden = hidden or sub_hidden
+            runtime = runtime or arithmetic or sub_runtime
+            code.append('x')
+            i = end + 1
+            continue
+        elif c == '`':
+            end = i + 1
+            while end < len(text) and text[end] != '`':
+                end += 2 if text[end] == '\\' else 1
+            if end >= len(text):
+                raise ValueError('命令展开未闭合')
+            sub_hidden, sub_runtime = _shell_eval_features(text[i + 1:end])
+            hidden = hidden or sub_hidden
+            runtime = runtime or sub_runtime
+            code.append('x')
+            i = end + 1
+            continue
+        elif text.startswith('$[', i):
+            runtime = True
+        elif text.startswith('${', i):
+            end = text.find('}', i + 2)
+            if end < 0:
+                raise ValueError('参数展开未闭合')
+            runtime = runtime or any(ch in text[i + 2:end] for ch in '[:!')
+        code.append(c)
+        i += 1
+    if quote is not None:
+        raise ValueError('引号未闭合')
+    outer = ''.join(code)
+    visible = _mask_quotes(outer)
+    runtime = runtime or bool(re.search(r'\(\(|\b\w+\s*\[', visible))
+    for segment in split_segments(outer):
+        core = segment.lstrip('({ \t')
+        if re.match(r'^\w+=', core) and ASSIGN.fullmatch(core):
+            continue
+        while True:
+            stripped = PREFIX.sub('', core, count=1).strip()
+            stripped = stripped.lstrip('({ \t')
+            if stripped == core:
+                break
+            core = stripped
+        words = shlex.split(core)
+        while words and words[0] in ('command', 'builtin', 'exec'):
+            words.pop(0)
+        if not words:
+            continue
+        head = SYS_BIN.sub('', words[0], count=1)
+        if head in ('eval', 'let', 'unset', 'bash', 'sh', 'dash', 'zsh', 'ksh'):
+            runtime = True
+        elif head == '[[':
+            runtime = runtime or any(word in ('-eq', '-ne', '-lt', '-le', '-gt', '-ge', '-v', '-R') for word in words[1:])
+        elif head in ('declare', 'typeset', 'local', 'readonly'):
+            runtime = runtime or any(re.fullmatch(r'-[a-zA-Z]*[iaAn][a-zA-Z]*', word) for word in words[1:])
+    return hidden, bool(runtime)
+
+
+def has_hidden_shell_eval(command):
+    """仅识别同一命令中的危险组合，不推断完整数据流，也不改变路径与只读分析。"""
+    text = '\n'.join(_command_lines(command.splitlines()))
+    hidden, runtime = _shell_eval_features(text)
+    return hidden and runtime
+
+
 def _analyze(command, cwd, env):
     """返回 (重定向目标, 其余 token, 是否确认只读)。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
     内层的重定向目标照样是候选，内层不只读整条就不只读；命令替换的结果当重定向目标时解不开，按不只读处理。"""

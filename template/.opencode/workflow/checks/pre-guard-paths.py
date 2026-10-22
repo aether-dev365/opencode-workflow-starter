@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import shlex
-from hooklib import candidates_from, split_segments, _command_lines, PREFIX, SYS_BIN, _cd, windows_path
+from hooklib import candidates_from, split_segments, _command_lines, PREFIX, SYS_BIN, _cd, windows_path, has_hidden_shell_eval
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -37,6 +37,13 @@ def check_event(event):
         return False
     cwd = str(Path(event['directory']) / windows_path(event['input'].get('workdir', '')))
     command = event['input'].get('command', '')
+    reason = '无法静态检查这条 shell 命令，请改写成直接的命令'
+    try:
+        hidden_eval = has_hidden_shell_eval(command)
+    except (ValueError, RecursionError) as error:
+        raise ValueError(reason) from error
+    if hidden_eval:
+        raise ValueError(reason)
     segments = split_segments('\n'.join(_command_lines(command.splitlines())))
     filtered = []
     volatile = False

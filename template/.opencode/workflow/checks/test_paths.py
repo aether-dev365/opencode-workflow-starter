@@ -118,6 +118,61 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'allow')
 
+    def test_hidden_command_substitutions_with_runtime_evaluation_are_denied(self):
+        for command in [
+            "x='a[$(printf marker)]'; y=$((x))",
+            'x="a[\\$(printf marker)]"; y=$((x))',
+            r'x=a[\$\(printf\ marker\)]; y=$((x))',
+            "x='a[`printf marker`]'; y=$((x))",
+            'x="a[\\`printf marker\\`]"; y=$((x))',
+            "x='a[$(printf marker)]'; ((x))",
+            "x='a[$(printf marker)]'; y=$[x]",
+            "x='a[$(printf marker)]'; echo \"${value:x}\"",
+            "x='$(printf marker)'; a[x]=0",
+            "x='$(printf marker)'; echo \"${a[x]}\"",
+            "x='a[$(printf marker)]'; let y=x",
+            "x='a[$(printf marker)]'; declare -i y=x",
+            "x='$(printf marker)'; eval \"$x\"",
+            "bash -c 'echo $(printf marker)'",
+            "x='a[$(printf marker)]'; [[ \"$x\" -eq 0 ]]",
+            "x='a[$(printf marker)]'; [[ 0 -lt x ]]",
+            "x='a[$(printf marker)]'; [[ -v $x ]]",
+            "x='$(printf marker)'; unset 'a[x]'",
+            "\"eval\" 'printf \"%s\" \"$(printf marker)\"'",
+            "e'va'l 'printf \"%s\" \"$(printf marker)\"'",
+            r"e\val 'printf \"%s\" \"$(printf marker)\"'",
+            "(eval 'printf \"%s\" \"$(printf marker)\"')",
+            "{ eval 'printf \"%s\" \"$(printf marker)\"'; }",
+            "echo \"$(x='a[$(printf marker)]'; y=$((x)))\"",
+            "x='$(printf marker)",
+            "x='$(printf marker)'; echo $((x)",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'deny')
+
+    def test_literal_substitutions_and_ordinary_expansions_are_allowed(self):
+        for command in [
+            "sed -i 's/$(CC)/clang/' Makefile",
+            'echo $((1+2))',
+            'echo "$((1+2))"',
+            "git commit -m '保留 $(CC) 字样以及 $((1+2)) 示例'",
+            "git commit -m '说明 `marker`、eval 和 a[index] 字样'",
+            "echo '$(printf marker)'",
+            r'echo "\$(printf marker)"',
+            r'echo \$\(marker\)',
+            "x='$(printf marker)'; printf '%s' \"$x\"",
+            "echo '$(marker)' eval let 'a[index]'",
+            "echo '$(marker)' '[[' -eq ']]'",
+            "git commit -m '说明 [[ x -eq 0 ]] 和 eval 字样'",
+            r"printf '%s\n' foo\;bar",
+            r"printf '%s\n' '$(marker)' foo\&bar",
+            'echo "${value}"',
+            'echo "$(printf marker)"',
+            "cat > notes.txt <<'EOF'\n$(marker)\n$((1+2))\nEOF",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'allow')
+
     def test_all_patch_paths_and_symlink_targets_are_checked(self):
         self.assertEqual(self.guard(tool='patch', paths=[str(self.root / 'safe.txt'), str(self.root / 'vendor/new.txt')]), 'deny')
         (self.root / 'vendor').mkdir()

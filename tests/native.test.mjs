@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { start, runCase, put, git, batches, baseline } from './fixtures/native-harness.mjs'
 
@@ -33,7 +33,7 @@ test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 
     })
 
     await t.test('shell statements without a command and workflow tools are denied too', async () => {
-      // OpenCode 不对这些调用做权限判定：裸重定向直接写文件，算术展开里的命令替换会执行任意命令。
+      // 即使原生权限判定没有触发，工具调用前的只读限制也必须生效。
       const arithmetic = `x='a[$(echo $((40+2))ARITH > reviewer-arith.txt)]'; y=$((x))`
       const result = await runCase(h, [
         [{ name: 'shell', input: { command: '> reviewer-redirect.txt', workdir: h.directory } }],
@@ -117,9 +117,17 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
     })
 
     await t.test('a native shell rule keeps the release script behind the gated entry', async () => {
+      mkdirSync(join(h.directory, '.opencode/workflow/.state'), { recursive: true })
       const result = await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }], [{ name: 'shell', input: { command: 'cd . && node publish.mjs', workdir: h.directory } }]])
       assert.doesNotMatch(result.toolResults, /范围规则尚未进入/)
       assert.equal(existsSync(join(h.directory, '.opencode/workflow/.state/deployed')), false)
+      const command = "x='a[$(node publish.mjs)]'; y=$((x))"
+      for (const agent of ['build', 'implementer']) {
+        const hidden = await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }],
+          [{ name: 'shell', input: { command, workdir: h.directory } }]], { agent })
+        assert.equal(existsSync(join(h.directory, '.opencode/workflow/.state/deployed')), false)
+        assert.match(hidden.toolResults, /文件保护检查拒绝.*无法静态检查.*直接的命令/)
+      }
     })
 
     await t.test('release stays blocked until the candidate is approved and asks before its fixed entry', async () => {
