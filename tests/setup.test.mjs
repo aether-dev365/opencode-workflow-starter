@@ -27,7 +27,8 @@ const cli = args.find(arg => arg.startsWith('@opencode/cli@'))
 if (args[0] === 'install' && args.includes('-g') && cli) require('./fake-opencode.cjs')(process.env.FAKE_NPM_BIN, cli.split('@')[2])
 `
 
-function fixture({ opencode, deps = true } = {}) {
+// scanner：path 放在 PATH 上；fallback 只放在 ~/.local/bin；shadowed 时 PATH 上是另一个版本，固定版本在 ~/.local/bin。
+function fixture({ opencode, deps = true, scanner: placement = 'path' } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'workflow-setup-'))
   const root = join(temp, 'repo'), bin = join(temp, 'bin'), home = join(temp, 'home')
   for (const path of [bin, home]) mkdirSync(path)
@@ -36,7 +37,11 @@ function fixture({ opencode, deps = true } = {}) {
   execFileSync('git', ['init', '-q', root])
   const scanner = findExecutable('gitleaks')
   assert.ok(scanner, '需要已安装的固定版 Gitleaks')
-  copyFileSync(scanner, join(bin, basename(scanner)))
+  const local = join(home, '.local', 'bin')
+  mkdirSync(local, { recursive: true })
+  if (placement === 'path') copyFileSync(scanner, join(bin, basename(scanner)))
+  else copyFileSync(scanner, join(local, basename(scanner)))
+  if (placement === 'shadowed') writeFileSync(join(bin, basename(scanner)), 'not the pinned scanner\n', { mode: 0o755 })
   writeFileSync(join(temp, 'fake-opencode.cjs'), fakeOpencode)
   writeFileSync(join(temp, 'fake-npm.cjs'), fakeNpm)
   if (windows) writeFileSync(join(bin, 'npm.cmd'), `@"${process.execPath}" "${join(temp, 'fake-npm.cjs')}" %*\r\n`)
@@ -53,7 +58,7 @@ function fixture({ opencode, deps = true } = {}) {
     const result = spawnSync(process.execPath, ['scripts/workflow/setup.mjs', ...args], { cwd: root, env, encoding: 'utf8', timeout: 120000 })
     return { status: result.status, output: result.stdout + result.stderr, npm: existsSync(env.FAKE_NPM_LOG) ? readFileSync(env.FAKE_NPM_LOG, 'utf8') : '' }
   }
-  return { setup, cleanup: () => rmSync(temp, { recursive: true, force: true }) }
+  return { setup, home, cleanup: () => rmSync(temp, { recursive: true, force: true }) }
 }
 
 test('a ready checkout installs nothing and ends with a passing doctor', { timeout: 120000 }, () => {
@@ -64,6 +69,27 @@ test('a ready checkout installs nothing and ends with a passing doctor', { timeo
     assert.equal(npm, '')
     assert.match(output, /pass opencode-version/)
     assert.match(output, /Gitleaks .*checksum OK/)
+  } finally { f.cleanup() }
+})
+
+test('a pinned scanner in ~/.local/bin is used without reinstalling or restart advice', { timeout: 120000 }, () => {
+  const f = fixture({ opencode: baseline, scanner: 'fallback' })
+  try {
+    const { status, output } = f.setup()
+    assert.equal(status, 0, output)
+    assert.match(output, /checksum OK/)
+    assert.doesNotMatch(output, /service restart/)
+  } finally { f.cleanup() }
+})
+
+test('another Gitleaks earlier on PATH is reported with the pinned copy it shadows', { timeout: 120000 }, () => {
+  const f = fixture({ opencode: baseline, scanner: 'shadowed' })
+  try {
+    const { status, output } = f.setup()
+    assert.equal(status, 1)
+    const local = join(f.home, '.local', 'bin')
+    assert.ok(output.includes(`checksum OK: ${local}`), output)
+    assert.ok(output.includes(`把 ${local} 放到 PATH 中`), output)
   } finally { f.cleanup() }
 })
 

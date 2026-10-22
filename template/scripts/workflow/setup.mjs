@@ -11,7 +11,7 @@ if (Number(process.versions.node.split('.')[0]) < 24) {
   console.error(`需要 Node.js 24 或更新版本，当前为 ${process.version}。下载：https://nodejs.org/en/download`)
   process.exit(1)
 }
-const { commandLine, findExecutable, pythonCommand, pythonEnv } = await import('../../.opencode/plugins/workflow/platform.ts')
+const { commandLine, findExecutable, pythonCommand, pythonEnv, samePath } = await import('../../.opencode/plugins/workflow/platform.ts')
 
 const docs = 'https://opencode.ai/v2/docs/'
 const hints = {
@@ -81,15 +81,21 @@ async function main() {
   }
 
   console.log('==> 固定版 Gitleaks')
-  // PATH 上已有 gitleaks 时就地校验；否则装到 ~/.local/bin，提交扫描在 PATH 中找不到时会回退到这里。
+  // 提交扫描先用 PATH 中第一个 gitleaks，找不到时回退到 ~/.local/bin。install.py 只校验已有文件，不覆盖。
+  const fallback = join(homedir(), '.local', 'bin')
   const scanner = findExecutable('gitleaks')
-  const binDir = scanner ? dirname(scanner) : join(homedir(), '.local', 'bin')
-  const scan = run(python.command, [...python.args, join(root, '.opencode/secret-scan/install.py'), '--bin-dir', binDir], { cwd: root, env: pythonEnv(), timeout: 120000 })
-  process.stdout.write(scan.stdout ?? '')
-  if (scan.status !== 0) {
-    console.log(`fail ${(scan.stderr || scan.error?.message || '').trim()}`)
-    if (scanner) console.log(`  PATH 上的 ${scanner} 不是固定版本；提交扫描使用 PATH 中第一个 gitleaks，请卸载它或把固定版本所在目录排到前面`)
-  } else if (!scanner) installed = true
+  const pin = directory => {
+    const result = run(python.command, [...python.args, join(root, '.opencode/secret-scan/install.py'), '--bin-dir', directory], { cwd: root, env: pythonEnv(), timeout: 120000 })
+    process.stdout.write(result.stdout ?? '')
+    if (result.status === 0 && /^Installed /m.test(result.stdout ?? '')) installed = true
+    return result.status === 0 ? undefined : (result.stderr || result.error?.message || '').trim()
+  }
+  const problem = pin(scanner ? dirname(scanner) : fallback)
+  if (problem && scanner && !samePath(dirname(scanner), fallback)) {
+    // PATH 上是其他版本：固定版本装到 ~/.local/bin，由用户决定卸载旧版本还是调整 PATH 顺序。
+    const pinned = pin(fallback)
+    console.log(pinned ? `fail ${pinned}` : `fail PATH 上的 ${scanner} 不是固定版本，提交扫描会先用它并因版本不符拒绝提交；卸载它，或把 ${fallback} 放到 PATH 中它所在目录之前`)
+  } else if (problem) console.log(`fail ${problem}`)
 
   console.log('==> OpenCode')
   const binary = process.env.WORKFLOW_OPENCODE_BIN || findExecutable('opencode')
