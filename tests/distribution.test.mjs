@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 
 const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md']
@@ -39,6 +40,26 @@ test('maintainer-local forbidden patterns stay out of tracked files', () => {
     const text = readFileSync(path, 'utf8').toLowerCase()
     assert.ok(!patterns.some(pattern => text.includes(pattern)), `${path} 含本地禁用词`)
   }
+})
+
+test('workflow scripts keep LF line endings on every checkout', () => {
+  // Git for Windows 默认 core.autocrlf=true；CRLF 会让 bash 报 `set: pipefail: invalid option name`。
+  for (const line of execFileSync('git', ['check-attr', 'eol', '--', 'template/.opencode/workflow/checks/run-tests.sh', 'scripts/verify.mjs'], { encoding: 'utf8' }).trim().split('\n')) {
+    assert.match(line, /: eol: lf$/, line)
+  }
+  const root = mkdtempSync(join(tmpdir(), 'workflow-eol-'))
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'core.autocrlf=true', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { encoding: 'utf8' })
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    git('init', '-q')
+    git('add', '.')
+    git('commit', '-qm', 'adopt')
+    for (const path of ['.opencode/workflow/checks/run-tests.sh', 'scripts/workflow/doctor.mjs']) {
+      rmSync(join(root, path))
+      git('checkout', '--', path)
+      assert.ok(!readFileSync(join(root, path), 'utf8').includes('\r'), path)
+    }
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the template carries the suite license', () => {

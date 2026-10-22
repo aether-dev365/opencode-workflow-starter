@@ -25,7 +25,7 @@
 
 ## 3. 合并模板
 
-空项目可以复制 template 全部内容；已有项目逐项合并 AGENTS.md、opencode.jsonc 和 .gitignore，保留注释、无关 MCP、已有模型与用户改动。遇到同名 workflow.starter 或同名代理先确定升级/保留方式，不能重复加载。
+空项目可以复制 template 全部内容；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter 或同名代理先确定升级/保留方式，不能重复加载。
 
 可执行插件放 `.opencode/plugins/workflow/`，依赖锁文件一起复制。其他目录内容不是活动配置，不自动复制可选扩展到启用位置。
 
