@@ -46,3 +46,15 @@ test('a stalled checker hits the deadline rather than allowing execution', { tim
     await assert.rejects(runCheck(path, normalizeCall('shell', { command: 'true' }, dir, 's', 'c')), /超时/)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
+
+test('a missing interpreter names the command, the override and the service restart', async () => {
+  const previous = process.env.WORKFLOW_PYTHON
+  process.env.WORKFLOW_PYTHON = join(tmpdir(), 'workflow-missing-python')
+  try {
+    await assert.rejects(runCheck('pre-guard-paths.py', normalizeCall('shell', { command: 'true' }, tmpdir(), 's', 'c')), (error: Error) =>
+      error.message.includes('workflow-missing-python') && error.message.includes('WORKFLOW_PYTHON') && error.message.includes('opencode service restart'))
+  } finally {
+    if (previous === undefined) delete process.env.WORKFLOW_PYTHON
+    else process.env.WORKFLOW_PYTHON = previous
+  }
+})

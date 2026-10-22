@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { fixture, load } from './fixture.ts'
 import { git, submitVerdict, closeBatch } from '../review-batches.ts'
 import { runReview } from '../review.ts'
-import { checkRelease, executeRelease, loadReleaseConfig } from '../release.ts'
+import { checkRelease, executeRelease, loadReleaseConfig, launchFailure } from '../release.ts'
 
 async function releaseFixture(script = 'import { appendFileSync } from "node:fs"; appendFileSync(".opencode/workflow/.state/deployed", "run\\n")\n') {
   const f = await fixture()
@@ -137,4 +137,10 @@ test('release include and exclude reject unsupported brace patterns', async () =
       assert.throws(() => loadReleaseConfig(f.root), /花括号/)
     }
   } finally { await f.close() }
+})
+
+test('a release entry that cannot start explains the Windows .cmd limitation', () => {
+  assert.match(launchFailure('win32'), /\.cmd/)
+  assert.match(launchFailure('win32'), /"node"/)
+  assert.doesNotMatch(launchFailure('linux'), /\.cmd/)
 })

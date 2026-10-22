@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path'
+import { windowsPath } from './platform.ts'
 
 export type WorkflowEvent = {
   version: 1; phase: 'before' | 'after' | 'inspect'; sessionId: string; callId: string
@@ -15,7 +16,7 @@ export function normalizeCall(tool: string, input: Record<string, unknown>, dire
   for (const name of ['workdir', 'path', 'file_path', 'command']) {
     if (name in copied && typeof copied[name] !== 'string') throw new Error('检查输入不完整；未执行操作')
   }
-  const cwd = resolve(directory, String(copied.workdir || ''))
+  const cwd = resolve(directory, windowsPath(String(copied.workdir || '')))
   const paths: string[] = []
   if (tool === 'patch') {
     const text = copied.patchText
@@ -24,16 +25,16 @@ export function normalizeCall(tool: string, input: Record<string, unknown>, dire
     }
     for (const line of text.split('\n')) {
       const match = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/.exec(line)
-      if (match) paths.push(resolve(cwd, match[1]))
+      if (match) paths.push(resolve(cwd, windowsPath(match[1])))
     }
     if (!paths.length) throw new Error('补丁路径缺失；未执行操作')
   }
-  for (const name of ['path', 'file_path']) if (copied[name]) paths.push(resolve(cwd, String(copied[name])))
+  for (const name of ['path', 'file_path']) if (copied[name]) paths.push(resolve(cwd, windowsPath(String(copied[name]))))
   if ('file_paths' in copied) {
     if (!Array.isArray(copied.file_paths) || !copied.file_paths.every(path => typeof path === 'string' && path.length > 0)) {
       throw new Error('路径输入无效；未执行操作')
     }
-    paths.push(...copied.file_paths.map(path => resolve(cwd, String(path))))
+    paths.push(...copied.file_paths.map(path => resolve(cwd, windowsPath(String(path)))))
   }
   return { version: 1, phase: 'before', sessionId, callId, directory, tool, input: copied, paths: [...new Set(paths)] }
 }

@@ -87,3 +87,20 @@ test('moving a session clears rules from the previous checkout', async () => {
     await assert.rejects(f.fire('tool.execute.before', before('write', { path: 'src/file.ts' })), /上下文/)
   } finally { await f.close(); await next.close() }
 })
+
+test('a permission check that cannot run states the cause', async () => {
+  const f = await fixture()
+  const previous = process.env.WORKFLOW_PYTHON
+  process.env.WORKFLOW_PYTHON = join(f.root, 'missing-python')
+  try {
+    await (await load())(f.ctx)
+    const permission = { action: 'read', resources: ['README.md'], effect: 'allow', sessionID: 's1', message: '' }
+    await f.fire('permission.evaluate', permission)
+    assert.equal(permission.effect, 'deny')
+    assert.match(permission.message, /WORKFLOW_PYTHON/)
+  } finally {
+    if (previous === undefined) delete process.env.WORKFLOW_PYTHON
+    else process.env.WORKFLOW_PYTHON = previous
+    await f.close()
+  }
+})

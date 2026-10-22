@@ -11,7 +11,7 @@ export async function registerPathPermissions(ctx: Plugin.Context): Promise<() =
       const call = normalizeCall('write', { file_paths: [...event.resources], action: event.action }, directory, event.sessionID, event.source?.type === 'tool' ? event.source.id : '__permission__')
       const result = await runCheck('pre-guard-paths.py', call, lifetime.signal)
       if (result.decision !== 'allow') { event.effect = 'deny'; event.message = result.reason || '受保护文件' }
-    } catch { event.effect = 'deny'; event.message = '文件权限检查无法验证；未执行操作。' }
+    } catch (error) { event.effect = 'deny'; event.message = `文件权限检查无法验证：${(error as Error).message}` }
   })
   return async () => { lifetime.abort(); await registration.dispose() }
 }

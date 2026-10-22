@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import { git, listBatches } from './review-batches.ts'
 import { digest, evidenceDigest, evidenceFile } from './evidence.ts'
 import { patternProblem } from './patterns.ts'
+import { childOptions, killTree } from './platform.ts'
 
 export type ReleaseEntry = { id: string; argv: string[]; artifacts: string[] }
 export type ReleaseConfig = { version: 1; enabled: true; tagPattern: string; scope: { include: string[]; exclude: string[] }; entries: ReleaseEntry[] }
@@ -57,6 +58,10 @@ export function checkRelease(root: string, entryId?: string): GateResult {
     return { allow: true, reason: '当前候选、审核、证据和产物一致' }
   } catch (error) { return { allow: false, reason: String((error as Error).message) } }
 }
+export function launchFailure(platform: NodeJS.Platform = process.platform): string {
+  // Node 在 Windows 上不会直接启动 .cmd/.bat（npm、pnpm 等都是这类启动器）。
+  return platform === 'win32' ? '无法启动发布入口：Windows 上 argv[0] 必须是可执行文件，不能是 .cmd/.bat；请改用 node 等入口，例如 ["node", "scripts/publish.mjs"]' : '无法启动发布入口'
+}
 export async function executeRelease(root: string, entryId: string, signal?: AbortSignal): Promise<{ code: number; output: string }> {
   root = git(root, ['rev-parse', '--show-toplevel'])
   const gate = checkRelease(root, entryId)
@@ -64,12 +69,12 @@ export async function executeRelease(root: string, entryId: string, signal?: Abo
   if (signal?.aborted) throw new Error('发布已取消')
   const entry = loadReleaseConfig(root)!.entries.find(e => e.id === entryId)!
   return new Promise((done, fail) => {
-    const child = spawn(entry.argv[0], entry.argv.slice(1), { cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(entry.argv[0], entry.argv.slice(1), { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], ...childOptions() })
     let output = '', bytes = 0, stopped = false
     const stop = (reason: string) => {
       if (stopped) return
       stopped = true
-      try { if (child.pid) process.kill(-child.pid, 'SIGKILL') } catch {}
+      killTree(child)
       signal?.removeEventListener('abort', abort)
       fail(new Error(reason))
     }
@@ -81,7 +86,7 @@ export async function executeRelease(root: string, entryId: string, signal?: Abo
       output += data.toString('utf8')
     }
     child.stdout.on('data', consume); child.stderr.on('data', consume)
-    child.on('error', () => stop('无法启动发布入口'))
+    child.on('error', () => stop(launchFailure()))
     child.on('close', code => {
       signal?.removeEventListener('abort', abort)
       if (stopped) return

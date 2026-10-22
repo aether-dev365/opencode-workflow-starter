@@ -2,6 +2,7 @@ import { access, readFile } from 'node:fs/promises'
 import { dirname, resolve, relative, isAbsolute } from 'node:path'
 import { containedFile } from './config.ts'
 import { matchesPattern, patternProblem } from './patterns.ts'
+import { portableRelative } from './platform.ts'
 
 export type Scope = { root: string; instruction: string; text: string }
 export const SCOPE_TEXT_LIMIT = 40_000
@@ -47,7 +48,7 @@ export async function matchingScopes(paths: string[], directory: string): Promis
     if (!root) continue
     const definitions = await definitionsFor(root)
     for (const definition of definitions) {
-      if (!definition.paths.some(pattern => matchesPattern(relative(root, absolute), pattern))) continue
+      if (!definition.paths.some(pattern => matchesPattern(portableRelative(root, absolute), pattern))) continue
       const instruction = await containedFile(root, definition.instruction)
       const text = await readFile(instruction, 'utf8')
       if (!text.trim() || text.length > SCOPE_TEXT_LIMIT) throw new Error(`范围规则缺失或超过上限：${definition.instruction}`)

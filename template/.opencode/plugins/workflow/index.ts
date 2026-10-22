@@ -1,6 +1,5 @@
 import { Plugin } from '@opencode/plugin'
 import { readFile } from 'node:fs/promises'
-import { relative, isAbsolute, basename } from 'node:path'
 import { normalizeCall } from './protocol.ts'
 import type { WorkflowEvent } from './protocol.ts'
 import { runCheck } from './runner.ts'
@@ -11,6 +10,7 @@ import { scopeRoot } from './scopes.ts'
 import { loadProjectConfig } from './config.ts'
 import { registerReview } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
+import { containedRelative } from './platform.ts'
 
 const pre = ['pre-guard-paths.py', 'pre-secret-scan.py', 'pre-bash-pipefail.py']
 const mutations = new Set(['patch', 'edit', 'write', 'shell'])
@@ -27,9 +27,8 @@ async function configProblem(directory: string): Promise<string | undefined> {
 }
 
 function isRepairPath(path: string, root: string): boolean {
-  const name = relative(root, path)
-  return !!name && name !== '..' && !name.startsWith('../') && !isAbsolute(name) &&
-    (name.startsWith('.opencode/workflow/') || name === 'opencode.jsonc' || basename(name) === 'AGENTS.md')
+  const name = containedRelative(root, path)
+  return !!name && (name.startsWith('.opencode/workflow/') || name === 'opencode.jsonc' || name.split('/').at(-1) === 'AGENTS.md')
 }
 
 export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promise<void>> {

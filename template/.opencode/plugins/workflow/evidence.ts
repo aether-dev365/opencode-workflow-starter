@@ -1,14 +1,15 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs'
-import { resolve, relative, isAbsolute } from 'node:path'
+import { resolve, isAbsolute } from 'node:path'
 import { createHash } from 'node:crypto'
+import { containedRelative } from './platform.ts'
 
 export type EvidenceEntry = { id: string; units: string[]; kind: 'test' | 'build' | 'manual' | 'device'; command: string; cwd: string; exit: number | null; inputs: Record<string, string>; files: string[]; companion?: string[] }
 export type EvidenceResult = { entries: EvidenceEntry[]; problems: string[] }
 export const digest = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex')
 export function evidenceFile(root: string, path: string): string {
   if (!path || isAbsolute(path) || path.split(/[\\/]/).some(p => p === '..' || p === '.git')) throw new Error('证据路径越界或指向 Git 元数据')
-  const base = realpathSync(root), file = realpathSync(resolve(root, path)), rel = relative(base, file)
-  if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel) || rel.split('/').includes('.git') || !statSync(file).isFile()) throw new Error('证据必须是检出内的普通文件')
+  const base = realpathSync(root), file = realpathSync(resolve(root, path)), rel = containedRelative(base, file)
+  if (!rel || rel.split('/').includes('.git') || !statSync(file).isFile()) throw new Error('证据必须是检出内的普通文件')
   return file
 }
 export function validateEvidence(root: string, path: string, knownUnits: Set<string>, expected: { base: string; tree: string }): EvidenceResult {

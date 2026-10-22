@@ -1,7 +1,8 @@
 import { readFile, realpath } from 'node:fs/promises'
-import { resolve, relative, isAbsolute } from 'node:path'
+import { resolve, isAbsolute } from 'node:path'
 import { parse, type ParseError } from 'jsonc-parser'
 import { patternProblem } from './patterns.ts'
+import { containedRelative } from './platform.ts'
 
 export type PermissionRule = { action: string; resource: string; effect: 'allow' | 'deny' | 'ask' }
 export type ProtectionRule = { id: string; actions: ('read' | 'edit')[]; paths: string[]; effect: 'allow' | 'deny'; reason: string }
@@ -34,8 +35,7 @@ export async function containedFile(root: string, path: string): Promise<string>
   requireValue(safePath(path), `路径必须位于检出内：${path}`)
   const base = await realpath(root)
   const file = await realpath(resolve(base, path))
-  const rel = relative(base, file)
-  requireValue(rel && !rel.startsWith('..' + '/') && rel !== '..' && !isAbsolute(rel), `路径越界：${path}`)
+  requireValue(containedRelative(base, file) !== undefined, `路径越界：${path}`)
   return file
 }
 
