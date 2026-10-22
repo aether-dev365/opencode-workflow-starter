@@ -22,11 +22,11 @@ def load(name):
 class Platform(unittest.TestCase):
     def test_windows_path_matches_opencode(self):
         # 与 OpenCode FSUtil.windowsPath 相同的四种盘符写法。
-        for value, expected in [('/c/Users/a', 'C:/Users/a'), ('/C:/x', 'C:/x'), ('/C:\\x', 'C:/x'), ('/cygdrive/d/x', 'D:/x'),
+        for value, expected in [('/c/Users/example', 'C:/Users/example'), ('/C:/x', 'C:/x'), ('/C:\\x', 'C:/x'), ('/cygdrive/d/x', 'D:/x'),
                                 ('/mnt/e/x', 'E:/x'), ('/c', 'C:/'), ('/home/x', '/home/x'), ('src/a', 'src/a')]:
             with self.subTest(value=value):
                 self.assertEqual(hooklib.windows_path(value, 'nt'), expected)
-        self.assertEqual(hooklib.windows_path('/c/Users/a', 'posix'), '/c/Users/a')
+        self.assertEqual(hooklib.windows_path('/c/Users/example', 'posix'), '/c/Users/example')
 
     def test_git_bash_drive_paths_resolve_as_absolute(self):
         with mock.patch.object(hooklib.os, 'name', 'nt'):

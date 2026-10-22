@@ -104,3 +104,23 @@ test('a permission check that cannot run states the cause', async () => {
     await f.close()
   }
 })
+
+test('shell creation resolves a relative cwd against the location', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    // OpenCode 在 create.before 之后才把工具的相对 workdir 解析为绝对路径。
+    await f.fire('shell.create.before', { command: 'ls', cwd: 'src', timeout: 0, shell: '/bin/bash', env: {} })
+    await assert.rejects(f.fire('shell.create.before', { command: 'cat .env', cwd: 'src', timeout: 0, shell: '/bin/bash', env: {} }), /文件保护检查拒绝/)
+  } finally { await f.close() }
+})
+
+test('PowerShell and cmd shells are refused with guidance', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    for (const shell of ['C:\\Program Files\\PowerShell\\7\\pwsh.exe', 'C:\\Windows\\System32\\cmd.exe']) {
+      await assert.rejects(f.fire('shell.create.before', { command: 'ls', cwd: f.root, timeout: 0, shell, env: {} }), /"shell": "bash"/)
+    }
+  } finally { await f.close() }
+})

@@ -25,6 +25,11 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
       assert.doesNotMatch(result.toolResults, /文件保护检查拒绝/)
       assert.match(result.toolResults, /AGENTS\.md/)
     })
+    await t.test('a relative workdir resolves against the location', async () => {
+      const result = await runCase(h, [[{ name: 'shell', input: { command: 'ls', workdir: 'src' } }]])
+      assert.doesNotMatch(result.toolResults, /检查输入不完整/)
+      assert.match(result.toolResults, /AGENTS\.md/)
+    })
     await t.test('ordinary writes load domain rules and protected multi-file patches are atomic', async () => {
       const result = await runCase(h, [
         [patch('src/probe.txt', 'native output')],

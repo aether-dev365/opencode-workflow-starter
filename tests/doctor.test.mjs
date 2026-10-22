@@ -52,6 +52,22 @@ test('doctor detects active placeholders without rewriting commented config or u
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('doctor flags shell settings the guards cannot parse', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const config = join(root, 'opencode.jsonc')
+    const original = readFileSync(config, 'utf8')
+    const shell = () => JSON.parse(spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'], { encoding: 'utf8' }).stdout).checks.find(c => c.id === 'shell')
+    assert.equal(shell()?.status, 'pass')
+    writeFileSync(config, original.replace(/\n\s*"shell": "bash",/, ''))
+    assert.equal(shell()?.status, 'warn')
+    writeFileSync(config, original.replace('"shell": "bash"', '"shell": "pwsh"'))
+    assert.equal(shell()?.status, 'fail')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('doctor warns about tracked files hidden by credential rules', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
   try {

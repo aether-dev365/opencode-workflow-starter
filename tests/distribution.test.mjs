@@ -24,9 +24,11 @@ test('public entrypoints and relative documentation links resolve within the del
 })
 
 test('tracked text files contain no local home paths or public IPv4 addresses', () => {
+  // 测试和文档中的合成路径统一使用占位用户名 example。
+  const homes = [/\/home\/(?!example\/)[a-z_][\w.-]*\//, /\/Users\/(?!example\/)[A-Za-z][\w.-]*\//, /[A-Za-z]:\\Users\\(?!example\\)[A-Za-z]/]
   for (const path of tracked()) {
     const text = readFileSync(path, 'utf8')
-    for (const pattern of [/\/home\/[a-z_][\w.-]*\//, /\/Users\/[A-Za-z][\w.-]*\//, /[A-Za-z]:\\Users\\[A-Za-z]/]) assert.doesNotMatch(text, pattern, path)
+    for (const pattern of homes) assert.doesNotMatch(text, pattern, path)
     for (const [address] of text.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) assert.ok(['127.0.0.1', '0.0.0.0'].includes(address), `${path}: ${address}`)
   }
 })

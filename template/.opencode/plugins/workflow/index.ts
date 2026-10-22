@@ -1,5 +1,6 @@
 import { Plugin } from '@opencode/plugin'
 import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { normalizeCall } from './protocol.ts'
 import type { WorkflowEvent } from './protocol.ts'
 import { runCheck } from './runner.ts'
@@ -10,7 +11,7 @@ import { scopeRoot } from './scopes.ts'
 import { loadProjectConfig } from './config.ts'
 import { registerReview } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
-import { containedRelative } from './platform.ts'
+import { containedRelative, unsupportedShell, windowsPath } from './platform.ts'
 
 const pre = ['pre-guard-paths.py', 'pre-secret-scan.py', 'pre-bash-pipefail.py']
 const mutations = new Set(['patch', 'edit', 'write', 'shell'])
@@ -105,7 +106,11 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     raw.input = event.input
   }))
   registrations.push(await ctx.shell.hook('create.before', async raw => {
-    const event = normalizeCall('shell', { command: raw.command }, raw.cwd, '__shell__', '__shell__')
+    const refused = unsupportedShell(raw.shell)
+    if (refused) throw new Error(refused)
+    // 工具的 workdir 可以是相对路径；OpenCode 在本钩子之后才把它解析为绝对路径。
+    const cwd = resolve(ctx.location.directory, windowsPath(raw.cwd || ''))
+    const event = normalizeCall('shell', { command: raw.command }, cwd, '__shell__', '__shell__')
     await guards(event)
     raw.command = String(event.input.command)
   }))

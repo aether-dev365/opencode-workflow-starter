@@ -3,6 +3,7 @@ import { resolve, dirname, join } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { unsupportedShell } from '../../.opencode/plugins/workflow/platform.ts'
 
 const install = 'npm --prefix .opencode/plugins/workflow ci --ignore-scripts'
 // 插件模块依赖 jsonc-parser；依赖缺失时仍要输出结构化报告，而不是在导入阶段崩溃。
@@ -39,6 +40,12 @@ if (config) await check('permissions', async () => {
   const block = protectionPermissions(config)
   const normalized = native.permissions?.slice(-block.length).map(({ action, resource, effect }) => ({ action, resource, effect }))
   if (JSON.stringify(normalized) !== JSON.stringify(block)) throw new Error('原生权限末尾与 protection.json 不一致；按声明顺序合并权限块')
+})
+await check('shell', async () => {
+  const native = await readJson(join(root, 'opencode.jsonc'))
+  if (native.shell === undefined) return { status: 'warn', message: '未设置 "shell"：Windows 上 OpenCode 默认使用 PowerShell，工作流会拒绝执行 shell 命令；在 opencode.jsonc 中设置 "shell": "bash"' }
+  const problem = unsupportedShell(String(native.shell))
+  if (problem) throw new Error(problem)
 })
 await check('node', () => { if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('需要 Node.js 24 或更新版本') })
 await check('python', () => {

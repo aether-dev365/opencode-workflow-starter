@@ -4,9 +4,9 @@ import path from 'node:path'
 import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell } from '../platform.ts'
 
 test('Git Bash drive paths map to Windows drives only on Windows', () => {
-  for (const [value, expected] of [['/c/Users/a', 'C:/Users/a'], ['/C:/x', 'C:/x'], ['/C:\\x', 'C:/x'], ['/cygdrive/d/x', 'D:/x'],
+  for (const [value, expected] of [['/c/Users/example', 'C:/Users/example'], ['/C:/x', 'C:/x'], ['/C:\\x', 'C:/x'], ['/cygdrive/d/x', 'D:/x'],
     ['/mnt/e/x', 'E:/x'], ['/c', 'C:/'], ['/home/x', '/home/x'], ['src/a', 'src/a']]) assert.equal(windowsPath(value, 'win32'), expected, value)
-  assert.equal(windowsPath('/c/Users/a', 'linux'), '/c/Users/a')
+  assert.equal(windowsPath('/c/Users/example', 'linux'), '/c/Users/example')
 })
 
 test('relative paths use forward slashes on Windows', () => {
@@ -87,6 +87,6 @@ test('shells the guards cannot parse are refused with guidance', () => {
     assert.match(unsupportedShell(shell, 'win32') ?? '', /"shell": "bash"/, shell)
   }
   assert.match(unsupportedShell('/usr/bin/pwsh', 'linux') ?? '', /PowerShell/)
-  for (const shell of ['C:\\Windows\\System32\\bash.exe', 'C:/Users/a/AppData/Local/Microsoft/WindowsApps/bash.exe']) assert.match(unsupportedShell(shell, 'win32') ?? '', /WSL/, shell)
+  for (const shell of ['C:\\Windows\\System32\\bash.exe', 'C:/Users/example/AppData/Local/Microsoft/WindowsApps/bash.exe']) assert.match(unsupportedShell(shell, 'win32') ?? '', /WSL/, shell)
   for (const shell of ['C:\\Program Files\\Git\\bin\\bash.exe', '/bin/bash', '/bin/zsh', '', undefined]) assert.equal(unsupportedShell(shell, 'win32'), undefined, String(shell))
 })
