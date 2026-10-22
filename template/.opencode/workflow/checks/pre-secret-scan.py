@@ -440,6 +440,8 @@ def check(data):
         parsed = commit_command(command, str(cwd))
         if parsed:
             scan_commit(parsed, runner)
+            # 结论取决于此刻的暂存区和工作区，插件不能缓存它。
+            return dict(decision='allow', volatile=True)
     except Blocked as exc:
         return dict(decision='deny', reason=str(exc))
     except Exception:

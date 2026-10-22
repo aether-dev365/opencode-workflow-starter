@@ -57,6 +57,7 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     if (result.input) event.input = { ...event.input, ...result.input }
   }
   // OpenCode 的 shell 工具在 tool 钩子之后还会触发 create.before；刚检查过的同一条命令只放行一次，10 秒内有效。
+  // 结论依赖仓库内容的命令（提交扫描、递归删除）不缓存：两次钩子之间暂存区或目录可能已被其他会话改变。
   const approvals = new Map<string, number>()
   const approvalKey = (cwd: string, command: string) => `${cwd}\0${command}`
   const approve = (event: WorkflowEvent) => {
@@ -102,7 +103,7 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     }
     allow(result, event)
     await recordScopes(event, mutation)
-    if (shell) approve(event)
+    if (shell && !result.volatile) approve(event)
     raw.input = event.input
   }))
   registrations.push(await ctx.shell.hook('create.before', async raw => {

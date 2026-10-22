@@ -3,6 +3,7 @@
 
 输入是检查事件加 `checks`（检查名称列表）。inspect-paths 的结果单独放进 `inspect`；守卫按固定顺序运行，
 前一个守卫改写的 input 交给下一个，遇到第一个拒绝即停止。拒绝退出 2，其余退出 0。
+放行结论依赖仓库内容（提交扫描、递归删除遍历目标）时输出 `volatile: true`，插件不会缓存这类结论。
 """
 import importlib.util
 from pathlib import Path
@@ -31,7 +32,7 @@ def run(data):
         # 拒绝时也带上 inspect：插件先按只读分类决定是否报告配置问题，再报告守卫结论。
         result['inspect'] = load(INSPECT).check(data)['input']
     event = dict(data, input=dict(data['input']))
-    changed = False
+    changed = volatile = False
     for name in GUARDS:
         if name not in names:
             continue
@@ -41,8 +42,11 @@ def run(data):
         if outcome.get('input'):
             event['input'] = {**event['input'], **outcome['input']}
             changed = True
+        volatile = volatile or bool(outcome.get('volatile'))
     if changed:
         result['input'] = event['input']
+    if volatile:
+        result['volatile'] = True
     return result
 
 
@@ -52,7 +56,7 @@ def main():
         result = run(data)
     except Exception:
         result = dict(decision='deny', reason='已拦截：检查失败；未执行操作。')
-    extra = {'inspect': result['inspect']} if 'inspect' in result else None
+    extra = {key: result[key] for key in ('inspect', 'volatile') if key in result} or None
     emit_result(result['decision'], reason=result.get('reason', ''), input=result.get('input'), extra=extra)
     return 2 if result['decision'] == 'deny' else 0
 

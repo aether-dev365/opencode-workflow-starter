@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFile, readFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fixture, before, context, load } from './fixture.ts'
 
 const staleMapping = async (root: string) => {
@@ -151,5 +152,37 @@ test('a shell command approved by the tool hook is not checked twice', async () 
     await f.fire('shell.create.before', shell('cat README.md'))
     await assert.rejects(f.fire('shell.create.before', shell('cat README.md')), /文件保护检查拒绝/)
     await assert.rejects(f.fire('shell.create.before', shell('ls')), /文件保护检查拒绝/)
+  } finally { await f.close() }
+})
+
+test('a commit approved by the tool hook is scanned again when the shell starts', async () => {
+  // 工具钩子扫描通过后，并行会话又暂存了新内容：shell 创建时必须按当时的暂存区重新扫描。
+  const f = await fixture()
+  const git = (...args: string[]) => execFileSync('git', ['-C', f.root, ...args], { env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  try {
+    await (await load())(f.ctx)
+    await writeFile(join(f.root, 'safe.txt'), 'safe\n')
+    git('add', 'safe.txt')
+    await f.fire('tool.execute.before', before('shell', { command: 'git commit -m safe', workdir: f.root }))
+    await writeFile(join(f.root, 'leak.txt'), `access_token = "${'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'}"\n`)
+    git('add', 'leak.txt')
+    await assert.rejects(f.fire('shell.create.before', { command: 'git commit -m safe', cwd: f.root, timeout: 0, shell: '/bin/bash', env: {} }), /凭据/)
+  } finally { await f.close() }
+})
+
+test('a recursive delete approved by the tool hook is checked again when the shell starts', async () => {
+  // 递归删除的结论取决于目标目录里有没有凭据文件；工具钩子之后新出现的凭据文件也要拦住。
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    await mkdir(join(f.root, 'build'))
+    await writeFile(join(f.root, 'build/out.js'), 'x\n')
+    const remove = before('shell', { command: 'rm -rf build', workdir: f.root })
+    // 首次修改该领域先注入规则，再重试；重试通过即得到工具钩子的放行。
+    await assert.rejects(f.fire('tool.execute.before', remove), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', before('shell', { command: 'rm -rf build', workdir: f.root }))
+    await writeFile(join(f.root, 'build/.env'), 'TOKEN=synthetic\n')
+    await assert.rejects(f.fire('shell.create.before', { command: 'rm -rf build', cwd: f.root, timeout: 0, shell: '/bin/bash', env: {} }), /文件保护检查拒绝/)
   } finally { await f.close() }
 })

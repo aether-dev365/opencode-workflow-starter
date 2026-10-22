@@ -9,6 +9,7 @@ from protocol import emit_result, load_event
 
 
 def check_event(event):
+    """拒绝时抛出 ValueError；放行时返回结论是否取决于仓库内容（递归删除要遍历目标目录）。"""
     root = policy_root(event['directory'])
     if root is None:
         raise ValueError('无法定位检出，未执行操作')
@@ -33,11 +34,12 @@ def check_event(event):
     if event['tool'] != 'shell':
         for path in candidates_from(event)[0]:
             check(path, 'read' if event['tool'] == 'read' or event['input'].get('action') == 'read' else 'edit')
-        return
+        return False
     cwd = str(Path(event['directory']) / windows_path(event['input'].get('workdir', '')))
     command = event['input'].get('command', '')
     segments = split_segments('\n'.join(_command_lines(command.splitlines())))
     filtered = []
+    volatile = False
     for segment in segments:
         core = segment
         while True:
@@ -65,6 +67,7 @@ def check_event(event):
             if '-C' in words:
                 cwd = _cd(cwd, words[words.index('-C') + 1])
             targets = [w for w in words[words.index('clean') + 1:] if not w.startswith('-')] or ['.']
+        volatile = volatile or bool(targets)
         for target in targets:
             absolute = Path(cwd) / target
             selected = policy_for(str(absolute))
@@ -82,12 +85,12 @@ def check_event(event):
         check(path, 'read')
     for path in candidates_from(candidate_event)[0]:
         check(path, 'edit')
+    return volatile
 
 
 def check(data):
     try:
-        check_event(data)
-        return dict(decision='allow')
+        return dict(decision='allow', volatile=True) if check_event(data) else dict(decision='allow')
     except (ValueError, OSError, KeyError, TypeError) as error:
         return dict(decision='deny', reason=f'文件保护检查拒绝：{error}')
 

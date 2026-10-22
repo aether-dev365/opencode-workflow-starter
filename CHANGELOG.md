@@ -14,7 +14,7 @@
 
 ### 变更
 
-- 守卫合并为一个检查进程（`run-checks.py`），工具钩子已检查过的同一条 shell 命令在 `shell.create.before` 中不再重复检查：每次 shell 调用的 Python 进程数由 7 个降为 1 个，`git commit` 只扫描一次凭据（OpenCode 2.1.2 原生实测）。
+- 守卫合并为一个检查进程（`run-checks.py`），工具钩子已检查过的同一条 shell 命令在 `shell.create.before` 中不再重复检查：普通 shell 调用的 Python 进程数由 7 个降为 1 个（OpenCode 2.1.2 原生实测）。结论依赖仓库内容的命令（`git commit` 的凭据扫描、递归删除）不复用这一结论，shell 创建时按当时的暂存区和目录重新检查。
 - doctor 支持 Windows：按 PATH/PATHEXT 查找 `opencode`、`gitleaks.exe`，经 `cmd.exe` 执行 npm 安装的 `.cmd` 启动器，Python 按 `WORKFLOW_PYTHON`、`py -3`、`python`、`python3` 解析，Git 根目录比较不区分大小写；新增 `--print-permissions`，输出与 `protection.json` 对应的原生权限块。
 - 验收基线从 OpenCode 2.1.1 升级到 2.1.2（CLI、`@opencode/plugin`、`@opencode/client`）；doctor、CLI 获取脚本和测试统一从插件 `package.json` 读取基线版本，文档版本由分发测试核对。
 
@@ -35,6 +35,7 @@
 - 插件新增 `platform.ts` 集中处理平台差异：Windows 上依次探测 `py -3`、`python`、`python3`（可用 `WORKFLOW_PYTHON` 指定），子进程隐藏窗口且超时用 `taskkill /T` 终止，路径匹配前统一为 `/`，Git Bash 风格路径按 OpenCode 规则换算；检查器无法启动时，错误信息会给出命令、原因和处理办法。
 - 模型给 shell 传相对 `workdir`（如 `src`）时不再被误拒：OpenCode 在插件钩子之后才把它解析为绝对路径，插件现在按 Location 解析。
 - Windows 上能找到 Microsoft Store 与 Python 安装管理器以应用执行别名（`WindowsApps\py.exe`、`python.exe`）提供的解释器。
+- 在 POSIX 上，`C:/x` 这类路径按相对路径检查（目录名可以是 `C:`），只有 Windows 把它当作盘符绝对路径。
 - 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
 - 规则文件为空或超过 40000 字符时，上下文组装不再抛错导致整个会话不可用，改为提示并拒绝修改该领域（规则文件本身仍可修复）；看门狗释放已删除会话的记录；`/review` 默认基线先使用远端默认分支（`origin/HEAD`）。
 

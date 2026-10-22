@@ -7,7 +7,8 @@ export type WorkflowEvent = {
   result?: unknown
 }
 export type CheckResult = { decision: 'allow' | 'deny' | 'ask'; reason?: string; input?: Record<string, unknown>; reminders: string[] }
-export type CombinedResult = CheckResult & { inspect?: { paths: string[]; readonly: boolean } }
+// volatile：放行结论依赖仓库内容（提交扫描、递归删除），不能缓存到 shell 创建时复用。
+export type CombinedResult = CheckResult & { inspect?: { paths: string[]; readonly: boolean }; volatile?: boolean }
 
 export function normalizeCall(tool: string, input: Record<string, unknown>, directory: string, sessionId: string, callId: string): WorkflowEvent {
   if (!isAbsolute(directory) || !sessionId || !callId || !tool || !input || typeof input !== 'object' || Array.isArray(input)) {
@@ -55,6 +56,7 @@ export function parseResult(text: string, code: number | null): CheckResult {
 
 export function parseCombined(text: string, code: number | null, inspect: boolean): CombinedResult {
   const value = parseResult(text, code) as CombinedResult
+  if (value.volatile !== undefined && typeof value.volatile !== 'boolean') throw new Error('检查结果无效：volatile 不是布尔值')
   if (inspect) {
     if (!Array.isArray(value.inspect?.paths) || !value.inspect.paths.every(path => typeof path === 'string')) throw new Error('检查路径无效')
     if (typeof value.inspect.readonly !== 'boolean') throw new Error('检查只读分类无效')

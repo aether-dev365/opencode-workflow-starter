@@ -51,6 +51,16 @@ class RunChecks(unittest.TestCase):
                 self.assertEqual({k: combined[k] for k in ('decision', 'reason', 'input') if k in combined}, expected)
                 self.assertEqual(combined['inspect'], self.run_script('inspect-paths.py', event)[1]['input'])
 
+    def test_content_dependent_decisions_are_marked_volatile(self):
+        # 依赖仓库内容的结论（提交扫描、递归删除时遍历目标）不能被插件缓存，shell 创建时要按当时的内容重查。
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        (self.root / 'build').mkdir()
+        for command, volatile in [('git commit -m safe', True), ('rm -rf build', True), ('ls -la', False), ('cat README.md', False)]:
+            with self.subTest(command=command):
+                code, result = self.run_script('run-checks.py', {**self.event(command), 'checks': ALL})
+                self.assertEqual((code, result['decision']), (0, 'allow'), result)
+                self.assertEqual(result.get('volatile', False), volatile)
+
     def test_combined_result_for_known_commands(self):
         code, result = self.run_script('run-checks.py', {**self.event('npm test | tail -n 3'), 'checks': ALL})
         self.assertEqual((code, result['decision'], result['input']['command']), (0, 'allow', 'set -o pipefail; npm test | tail -n 3'))
