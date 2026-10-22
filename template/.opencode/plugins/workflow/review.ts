@@ -63,7 +63,8 @@ export async function runReview(root: string, input: ReviewInput, signal?: Abort
   }
   const event = normalizeCall('snapshot', { base, tree }, root, 'review', 'snapshot')
   event.phase = 'inspect'
-  const scan = await runCheck('pre-secret-scan.py', event, signal)
+  // 快照扫描在检查器内最多 60 秒（SNAPSHOT_TIMEOUT），这里多留出启动与收尾的时间。
+  const scan = await runCheck('pre-secret-scan.py', event, signal, 70_000)
   if (scan.decision !== 'allow') throw new Error(scan.reason || '审核快照凭据扫描失败')
   const directory = join(root, '.opencode/workflow/.state/review')
   mkdirSync(directory, { recursive: true })

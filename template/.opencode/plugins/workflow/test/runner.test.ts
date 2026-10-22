@@ -47,6 +47,17 @@ test('a stalled checker hits the deadline rather than allowing execution', { tim
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
+test('a caller-supplied deadline replaces the default one', { timeout: 15000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runner-'))
+  try {
+    const path = join(dir, 'slow.py')
+    await writeFile(path, 'import json, time; time.sleep(1); print(json.dumps({"decision": "allow", "reminders": []}))')
+    const event = normalizeCall('shell', { command: 'true' }, dir, 's', 'c')
+    await assert.rejects(runCheck(path, event, undefined, 300), /超时/)
+    assert.equal((await runCheck(path, event, undefined, 5000)).decision, 'allow')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
 test('a missing interpreter names the command, the override and the service restart', async () => {
   const previous = process.env.WORKFLOW_PYTHON
   process.env.WORKFLOW_PYTHON = join(tmpdir(), 'workflow-missing-python')

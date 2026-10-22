@@ -20,6 +20,8 @@ from hooklib import _command_lines, _lift_substitutions, split_segments, windows
 from protocol import emit_result, read_event
 
 TOTAL_TIMEOUT = 8
+# 审核快照最多 SNAPSHOT_DIFF_LIMIT，由用户手动触发 /review，8 秒在较慢的机器上扫不完；插件为它留出更长的等待。
+SNAPSHOT_TIMEOUT = 60
 COMMIT_DIFF_LIMIT = 16 * 1024 * 1024
 SNAPSHOT_DIFF_LIMIT = 128 * 1024 * 1024
 PIN = Path(__file__).resolve().parents[2] / 'secret-scan'
@@ -231,8 +233,8 @@ def commit_command(command, cwd):
 
 
 class Runner:
-    def __init__(self):
-        self.deadline = time.monotonic() + TOTAL_TIMEOUT
+    def __init__(self, timeout=None):
+        self.deadline = time.monotonic() + (TOTAL_TIMEOUT if timeout is None else timeout)
 
     def run(self, args, *, env=None, cwd=None, data=b'', ok=(0,)):
         remaining = self.deadline - time.monotonic()
@@ -418,7 +420,7 @@ def additions(diff, names):
 
 
 def scan_snapshot(root: str, base: str, tree: str) -> None:
-    scan_commit((root, 'staged', False, []), Runner(), snapshot=(base, tree))
+    scan_commit((root, 'staged', False, []), Runner(SNAPSHOT_TIMEOUT), snapshot=(base, tree))
 
 
 FAILED = '已拦截：凭据扫描失败；请检查 Git/Gitleaks 安装及检查输入后重试。'

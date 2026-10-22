@@ -47,8 +47,8 @@ function execute(script: string, payload: unknown, timeout: number, signal?: Abo
   })
 }
 
-export async function runCheck(name: string, event: WorkflowEvent, signal?: AbortSignal): Promise<CheckResult> {
-  const { output, code } = await execute(name, event, 10_000, signal)
+export async function runCheck(name: string, event: WorkflowEvent, signal?: AbortSignal, timeout = 10_000): Promise<CheckResult> {
+  const { output, code } = await execute(name, event, timeout, signal)
   return parseResult(output, code)
 }
 

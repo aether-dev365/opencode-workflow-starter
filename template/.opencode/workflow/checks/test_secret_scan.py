@@ -36,9 +36,11 @@ class SecretScanTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='secret scan ')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name) / 'repo'
+        # 用真实路径：macOS 的临时目录在符号链接 /var 下，Windows runner 的 TEMP 是 8.3 短路径（RUNNER~1）。
+        self.base = Path(os.path.realpath(self.tmp.name))
+        self.root = self.base / 'repo'
         self.root.mkdir()
-        self.bin = Path(self.tmp.name) / 'bin'
+        self.bin = self.base / 'bin'
         self.bin.mkdir()
         self.scanner = self.bin / SCANNER_NAME
         try:
@@ -48,7 +50,7 @@ class SecretScanTest(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('GIT_', 'GITLEAKS_'))}
         self.env.pop('CDPATH', None)
         # Windows 上 Path.home() 读 USERPROFILE，不读 HOME。
-        self.env.update(HOME=self.tmp.name, USERPROFILE=self.tmp.name, PATH=os.pathsep.join([str(self.bin), *SYSTEM_PATH]),
+        self.env.update(HOME=str(self.base), USERPROFILE=str(self.base), PATH=os.pathsep.join([str(self.bin), *SYSTEM_PATH]),
                         GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
         self.git('init', '-q')
         self.git('config', 'user.name', 'Credential scan test')
@@ -77,7 +79,7 @@ class SecretScanTest(unittest.TestCase):
                     input={'command': command}, paths=[], sessionId='test-session', callId='test-call')
         if workdir is not None:
             data['input']['workdir'] = str(workdir)
-        return subprocess.run([sys.executable, str(SCRIPT)], input=json.dumps(data), text=True,
+        return subprocess.run([sys.executable, str(SCRIPT)], input=json.dumps(data), encoding="utf-8",
                               env=self.env, cwd=self.root, capture_output=True, timeout=12)
 
     def assert_blocked(self, result, reason=None):
@@ -130,10 +132,10 @@ class SecretScanTest(unittest.TestCase):
         self.stage('settings.conf', PAYLOAD)
         for command in [f'git -C {shlex.quote(str(self.root))} commit -m safe',
                         f'cd {shlex.quote(str(self.root))} && git commit -m safe']:
-            self.assert_blocked(self.hook(command, cwd=Path(self.tmp.name)), 'settings.conf')
+            self.assert_blocked(self.hook(command, cwd=self.base), 'settings.conf')
 
     def test_workdir_selects_actual_repository_not_location(self):
-        clean = Path(self.tmp.name) / 'clean'
+        clean = self.base / 'clean'
         clean.mkdir()
         subprocess.run(['git', 'init', '-q', str(clean)], env=self.env, check=True)
         self.stage('settings.conf', PAYLOAD)
@@ -144,7 +146,7 @@ class SecretScanTest(unittest.TestCase):
 
     @POSIX_SHELL
     def test_cd_symlink_logical_parent_cannot_scan_a_different_repository(self):
-        clean = Path(self.tmp.name) / 'clean'
+        clean = self.base / 'clean'
         (clean / 'sub').mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', str(clean)], env=self.env, check=True)
         link = self.root / 'link'
@@ -162,7 +164,7 @@ class SecretScanTest(unittest.TestCase):
 
     @POSIX_SHELL
     def test_initial_logical_cwd_alias_is_rejected_before_cd_parent(self):
-        clean = Path(self.tmp.name) / 'clean'
+        clean = self.base / 'clean'
         (clean / 'sub').mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', str(clean)], env=self.env, check=True)
         link = self.root / 'link'
@@ -189,11 +191,11 @@ class SecretScanTest(unittest.TestCase):
 
     @POSIX_SHELL
     def test_inherited_cdpath_cannot_redirect_relative_cd_to_another_repository(self):
-        clean = Path(self.tmp.name) / 'clean'
+        clean = self.base / 'clean'
         (clean / 'repo').mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', str(clean)], env=self.env, check=True)
         self.stage('settings.conf', PAYLOAD)
-        self.env['CDPATH'] = self.tmp.name
+        self.env['CDPATH'] = str(self.base)
         actual = subprocess.run(['bash', '--noprofile', '--norc', '-c', 'cd repo && pwd -P'],
                                 cwd=clean, env=self.env, capture_output=True, text=True, check=True)
         self.assertEqual(actual.stdout.splitlines()[-1], str(self.root))
@@ -258,25 +260,39 @@ class SecretScanTest(unittest.TestCase):
         spec.loader.exec_module(module)
         return module, (base, tree)
 
+    def test_snapshot_scans_get_a_longer_budget_than_commits(self):
+        # 审核快照最多 128 MB，由用户手动触发；提交扫描保持 8 秒，快照扫描单独计时。
+        self.stage('notes.txt', 'safe\n')
+        base = self.git('rev-parse', 'HEAD').decode().strip()
+        tree = self.git('write-tree').decode().strip()
+        spec = importlib.util.spec_from_file_location('secret_budget_hook', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with patch.dict(os.environ, self.env, clear=True), patch.object(module, 'TOTAL_TIMEOUT', 0.001):
+            with self.assertRaises(module.Blocked) as raised:
+                module.scan_commit((self.root, 'staged', False, []), module.Runner())
+            self.assertIn('超时', str(raised.exception))
+            module.scan_snapshot(str(self.root), base, tree)
+
     def test_large_snapshot_scans_all_files_without_changing_real_index(self):
         module, snapshot = self.large_snapshot()
         before = (self.root / '.git/index').read_bytes()
         with patch.dict(os.environ, self.env, clear=True):
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertEqual(before, (self.root / '.git/index').read_bytes())
 
     def test_large_snapshot_reports_secret_after_first_chunk_with_original_location(self):
         module, snapshot = self.large_snapshot(PAYLOAD)
         self.write('z-last.conf', 'clean worktree\n')
         with patch.dict(os.environ, self.env, clear=True), self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('z-last.conf', str(raised.exception))
         self.assertIn(':1', str(raised.exception))
         self.assertNotIn(SECRET, str(raised.exception))
 
     def test_large_snapshot_scanner_failure_after_first_chunk_still_blocks(self):
         module, snapshot = self.large_snapshot()
-        marker = Path(self.tmp.name) / 'scanner-count'
+        marker = self.base / 'scanner-count'
         self.fake_scanner('from pathlib import Path\n'
                           f'p=Path({str(marker)!r})\n'
                           'n=int(p.read_text())+1 if p.exists() else 1\n'
@@ -285,7 +301,7 @@ class SecretScanTest(unittest.TestCase):
                           'sys.stdin.buffer.read()\n'
                           'sys.exit(7 if n == 2 else 0)\n')
         with patch.dict(os.environ, self.env, clear=True), self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('Git/Gitleaks 扫描失败', str(raised.exception))
         self.assertEqual('2', marker.read_text())
 
@@ -300,14 +316,14 @@ class SecretScanTest(unittest.TestCase):
         self.git('add', 'b.png')
         snapshot = (snapshot[0], self.git('write-tree').decode().strip())
         with patch.dict(os.environ, self.env, clear=True), self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('b.png', str(raised.exception))
         self.assertIn(':2305', str(raised.exception))
         self.assertNotIn(SECRET, str(raised.exception))
 
     def test_later_chunk_without_report_cannot_reuse_previous_clean_report(self):
         module, snapshot = self.large_snapshot()
-        marker = Path(self.tmp.name) / 'scanner-count'
+        marker = self.base / 'scanner-count'
         self.fake_scanner('from pathlib import Path\n'
                           f'p=Path({str(marker)!r})\n'
                           'n=int(p.read_text())+1 if p.exists() else 1\n'
@@ -316,7 +332,7 @@ class SecretScanTest(unittest.TestCase):
                           ' Path(sys.argv[sys.argv.index("--report-path")+1]).write_text("[]")\n'
                           'sys.stdin.buffer.read()\n')
         with patch.dict(os.environ, self.env, clear=True), self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('有效报告', str(raised.exception))
         self.assertEqual('2', marker.read_text())
 
@@ -325,7 +341,7 @@ class SecretScanTest(unittest.TestCase):
         self.stage('a.txt', ('safe ' + 'x' * 4089 + '\n') * 4608)
         snapshot = (snapshot[0], self.git('write-tree').decode().strip())
         with patch.dict(os.environ, self.env, clear=True), self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('单文件差异', str(raised.exception))
 
     def test_snapshot_keeps_a_total_size_bound(self):
@@ -333,7 +349,7 @@ class SecretScanTest(unittest.TestCase):
         with patch.dict(os.environ, self.env, clear=True), \
                 patch.object(module, 'SNAPSHOT_DIFF_LIMIT', 17 * 1024 * 1024), \
                 self.assertRaises(module.Blocked) as raised:
-            module.scan_commit((self.root, 'staged', False, []), module.Runner(), snapshot=snapshot)
+            module.scan_snapshot(str(self.root), *snapshot)
         self.assertIn('扫描大小上限', str(raised.exception))
 
     def test_binary_attribute_and_ignored_directory_do_not_bypass_content_scan(self):
@@ -387,7 +403,7 @@ class SecretScanTest(unittest.TestCase):
     def test_bad_scanner_report_cannot_allow_a_commit(self):
         self.stage('safe.txt', 'safe\n')
         self.assert_allowed(self.hook())
-        marker = Path(self.tmp.name) / 'scanner-ran'
+        marker = self.base / 'scanner-ran'
         self.fake_scanner('from pathlib import Path\n'
                           f'Path({str(marker)!r}).touch()\n'
                           'Path(sys.argv[sys.argv.index("--report-path")+1]).write_text("not-json")\n')
@@ -417,7 +433,7 @@ class SecretScanTest(unittest.TestCase):
                     self.assertEqual(before, after)
 
     def test_linked_worktree_scans_its_own_index(self):
-        checkout = Path(self.tmp.name) / 'other checkout'
+        checkout = self.base / 'other checkout'
         self.git('worktree', 'add', '-qb', 'other', str(checkout))
         self.stage('main.conf', PAYLOAD)
         self.assert_allowed(self.hook(cwd=checkout))
@@ -432,7 +448,7 @@ class SecretScanTest(unittest.TestCase):
         existing.write_text('foreign binary\n')
         installer = HERE.parents[1] / 'secret-scan/install.py'
         result = subprocess.run([sys.executable, str(installer), '--bin-dir', str(self.bin)],
-                                capture_output=True, text=True, env=self.env, timeout=5)
+                                capture_output=True, encoding='utf-8', env=self.env, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('覆盖', result.stderr)
         self.assertEqual('foreign binary\n', existing.read_text())
@@ -462,7 +478,7 @@ class SecretScanTest(unittest.TestCase):
     def test_scanner_failure_is_closed_and_its_output_is_not_disclosed(self):
         self.stage('safe.txt', 'safe\n')
         self.assert_allowed(self.hook())
-        marker = Path(self.tmp.name) / 'scanner-ran'
+        marker = self.base / 'scanner-ran'
         self.fake_scanner('from pathlib import Path\n'
                           f'Path({str(marker)!r}).touch()\n'
                           'Path(sys.argv[sys.argv.index("--report-path")+1]).write_text("[]")\n'
@@ -476,7 +492,7 @@ class SecretScanTest(unittest.TestCase):
 
     def test_scanner_timeout_is_closed_without_waiting_full_hook_budget(self):
         self.stage('safe.txt', 'safe\n')
-        child_pid = Path(self.tmp.name) / 'child-pid'
+        child_pid = self.base / 'child-pid'
         self.fake_scanner('import subprocess\nfrom pathlib import Path\n'
                           'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])\n'
                           f'Path({str(child_pid)!r}).write_text(str(child.pid))\n'
@@ -488,8 +504,8 @@ class SecretScanTest(unittest.TestCase):
                     input={'command': 'git commit -m safe'}, paths=[], sessionId='test-session', callId='test-call')
         err = io.StringIO()
         out = io.StringIO()
-        # Windows 上进程启动慢（.cmd 包装再起 Python），预算要够走到扫描那一步；仍远小于扫描器的 10 秒睡眠。
-        budget = 3 if os.name == 'nt' else 0.3
+        # 预算要够走到扫描那一步（Windows 经 .cmd 包装、macOS runner 启动进程都慢）；仍远小于扫描器的 10 秒睡眠。
+        budget = 3 if os.name == 'nt' else 2
         started = time.monotonic()
         with patch.dict(os.environ, self.env, clear=True), patch.object(module, 'TOTAL_TIMEOUT', budget), \
                 patch.object(sys, 'stdin', io.StringIO(json.dumps(data))), redirect_stderr(err), redirect_stdout(out):
