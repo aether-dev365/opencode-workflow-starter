@@ -21,17 +21,18 @@ const all = [
   ['plugin', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'test']],
   ['guards', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', checks, '-t', checks, '-p', 'test_*.py']],
   ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs']],
-  ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs']],
+  ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs']],
   ['native', process.execPath, ['--test', 'tests/native.test.mjs']],
 ]
 const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'adoption'].includes(id)) : all
 const mode = subset ? 'windows' : 'full'
+// 单阶段上限 10 分钟：Windows 上进程启动慢，接入阶段实测约 3 分钟。
 const report = []
 for (const [id, command, args] of stages) {
   console.log(`Running ${id}: ${command} ${args.join(' ')}`)
   // Windows 上 npm 是 .cmd 启动器，只能经 shell 启动；这里的参数都是固定字面量，无需转义。
   const shell = windows && command === 'npm'
-  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: process.env, encoding: 'utf8', timeout: 240000, maxBuffer: 16 * 1024 * 1024, shell })
+  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: process.env, encoding: 'utf8', timeout: 600000, maxBuffer: 16 * 1024 * 1024, shell })
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? '\n' + result.error.message : '')
   writeFileSync(resolve(directory, id + '.log'), output)
   const empty = id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)

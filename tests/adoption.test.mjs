@@ -5,12 +5,10 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { runtimeBinary, baseline } from './fixtures/native-harness.mjs'
+import { essentialEnv } from './fixtures/env.mjs'
 import { commandLine, findExecutable, pythonCommand } from '../template/.opencode/plugins/workflow/platform.ts'
 
 const windows = process.platform === 'win32'
-// Windows 子进程缺少这些变量时，Node、Python、Git 和 npm 都无法正常启动。
-const essentials = windows ? ['SystemRoot', 'SystemDrive', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'ProgramFiles']
-  .flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]]]) : []
 
 test('a separately installed copy passes doctor without source checkout configuration', { timeout: 180000 }, () => {
   const temp = mkdtempSync(join(tmpdir(), 'workflow-adoption-'))
@@ -18,7 +16,7 @@ test('a separately installed copy passes doctor without source checkout configur
   const home = join(temp, 'home')
   mkdirSync(home)
   // Git for Windows 把 /dev/null 映射为 nul；Node 的 os.devNull（\\.\nul）它反而打不开。
-  const env = { ...Object.fromEntries(essentials), PATH: process.env.PATH, HOME: home, USERPROFILE: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', WORKFLOW_OPENCODE_BIN: runtimeBinary() }
+  const env = { ...essentialEnv(), PATH: process.env.PATH, HOME: home, USERPROFILE: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', WORKFLOW_OPENCODE_BIN: runtimeBinary() }
   const scannerPath = join(temp, 'bin') + delimiter + env.PATH
   const run = (cmd, args, extra = {}) => {
     // Windows 上 npm 是 .cmd 启动器，经 commandLine 交给 cmd.exe。
