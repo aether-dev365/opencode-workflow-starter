@@ -68,6 +68,15 @@ test('doctor flags shell settings the guards cannot parse', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('doctor prints the native permission block for protection.json', () => {
+  const result = spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', 'template', '--print-permissions'], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  const block = JSON.parse(result.stdout)
+  assert.deepEqual(block[0], { action: 'read', resource: '*.env', effect: 'deny' })
+  const native = JSON.parse(readFileSync('template/opencode.jsonc', 'utf8').split('\n').filter(line => !line.trim().startsWith('//')).join('\n'))
+  assert.deepEqual(native.permissions.slice(-block.length), block)
+})
+
 test('doctor warns about tracked files hidden by credential rules', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
   try {
