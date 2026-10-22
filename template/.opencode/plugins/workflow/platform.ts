@@ -28,19 +28,26 @@ export function containedRelative(root: string, file: string, p: path.PlatformPa
 const envValue = (env: NodeJS.ProcessEnv, name: string) => env[Object.keys(env).find(key => key.toUpperCase() === name) ?? name]
 
 const launchers: Command[] = [{ command: 'py', args: ['-3'] }, { command: 'python', args: [] }, { command: 'python3', args: [] }]
+// macOS 自带的 python3 是 3.9，部分 Linux 发行版也偏旧；python3 不够新时再找带版本号的解释器。
+const posixLaunchers: Command[] = ['python3', 'python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10'].map(command => ({ command, args: [] }))
 const probeLauncher = (launcher: Command) => spawnSync(launcher.command, [...launcher.args, '-c', 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'],
   { windowsHide: true, stdio: 'ignore', timeout: 10_000 }).status === 0
 let cached: { key: string; value: Command } | undefined
 
-// WORKFLOW_PYTHON 是解释器路径，不拆分参数。Windows 上 python3 常是应用商店占位程序，所以按顺序探测并缓存。
+// WORKFLOW_PYTHON 是解释器路径，不拆分参数。其余情况按顺序探测 3.10+ 并按 PATH 缓存：
+// Windows 上 python3 常是应用商店占位程序，macOS 自带的 python3 版本过旧。
 export function pythonCommand({ env = process.env, platform = process.platform, probe }: { env?: NodeJS.ProcessEnv; platform?: Platform; probe?: (launcher: Command) => boolean } = {}): Command {
   const override = envValue(env, 'WORKFLOW_PYTHON')
   if (override) return { command: override, args: [] }
-  if (platform !== 'win32') return { command: 'python3', args: [] }
-  const key = envValue(env, 'PATH') ?? ''
+  const candidates = platform === 'win32' ? launchers : posixLaunchers
+  const key = `${platform}\0${envValue(env, 'PATH') ?? ''}`
   if (!probe && cached?.key === key) return { ...cached.value, args: [...cached.value.args] }
-  const value = launchers.find(probe ?? probeLauncher)
-  if (!value) throw new Error('找不到 Python 3.10+（已尝试 py -3、python、python3）；请安装 Python，或设置 WORKFLOW_PYTHON 指向解释器')
+  const value = candidates.find(probe ?? probeLauncher)
+  if (!value) {
+    const tried = candidates.map(c => [c.command, ...c.args].join(' ')).join('、')
+    const install = platform === 'darwin' ? '请 brew install python@3.12' : '请安装 Python 3.10+'
+    throw new Error(`找不到 Python 3.10+（已尝试 ${tried}）；${install}，或设置 WORKFLOW_PYTHON 指向解释器`)
+  }
   if (!probe) cached = { key, value }
   return { ...value, args: [...value.args] }
 }

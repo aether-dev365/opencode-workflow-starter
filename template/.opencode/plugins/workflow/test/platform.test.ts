@@ -27,7 +27,18 @@ test('the Python override is used as one executable path without probing', () =>
   const never = () => { throw new Error('must not probe') }
   assert.deepEqual(pythonCommand({ env: { WORKFLOW_PYTHON: 'C:\\Program Files\\Python312\\python.exe' }, platform: 'win32', probe: never }),
     { command: 'C:\\Program Files\\Python312\\python.exe', args: [] })
-  assert.deepEqual(pythonCommand({ env: {}, platform: 'linux', probe: never }), { command: 'python3', args: [] })
+  assert.deepEqual(pythonCommand({ env: { WORKFLOW_PYTHON: '/opt/python/bin/python3' }, platform: 'darwin', probe: never }), { command: '/opt/python/bin/python3', args: [] })
+})
+
+test('macOS and Linux require python3 to be 3.10+ and fall back to versioned interpreters', () => {
+  // macOS 自带的 python3 是 3.9；Homebrew 的 python3.12 不一定排在 PATH 前面。
+  const tried: string[] = []
+  const found = pythonCommand({ env: {}, platform: 'darwin', probe: c => { tried.push(c.command); return c.command === 'python3.12' } })
+  assert.deepEqual(found, { command: 'python3.12', args: [] })
+  assert.deepEqual(tried, ['python3', 'python3.14', 'python3.13', 'python3.12'])
+  assert.deepEqual(pythonCommand({ env: {}, platform: 'linux', probe: c => c.command === 'python3' }), { command: 'python3', args: [] })
+  assert.throws(() => pythonCommand({ env: {}, platform: 'darwin', probe: () => false }), /python3.*python3\.10.*brew install python@3\.12.*WORKFLOW_PYTHON/s)
+  assert.throws(() => pythonCommand({ env: {}, platform: 'linux', probe: () => false }), /python3.*python3\.10.*WORKFLOW_PYTHON/s)
 })
 
 test('Windows tries the py launcher, then python, then python3', () => {
