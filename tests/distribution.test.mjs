@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -101,4 +101,23 @@ test('the template carries the suite license', () => {
   const license = readFileSync('LICENSE', 'utf8')
   assert.match(license, /^MIT License\n/)
   assert.equal(readFileSync('template/.opencode/LICENSE', 'utf8'), license)
+})
+
+test('extended secret rules are valid protection rules', async () => {
+  const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
+  const { pythonCommand } = await import('../template/.opencode/plugins/workflow/platform.ts')
+  const root = mkdtempSync(join(tmpdir(), 'workflow-protection-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    // 按 optional/protection/README.md 的做法：把示例规则追加到 protection.json 末尾。
+    const file = join(root, '.opencode/workflow/protection.json')
+    const protection = JSON.parse(readFileSync(file, 'utf8'))
+    const extended = JSON.parse(readFileSync('optional/protection/extended-secrets.example.json', 'utf8'))
+    writeFileSync(file, JSON.stringify({ ...protection, rules: [...protection.rules, ...extended.rules] }))
+    await loadProjectConfig(root)
+    const python = pythonCommand()
+    const paths = ['deploy/key.pem', '.ssh/id_ed25519', 'id_ed25519.pub', '.env.example', 'src/app.ts']
+    const result = spawnSync(python.command, [...python.args, join(root, '.opencode/workflow/checks/policy.py')], { input: JSON.stringify({ root, action: 'read', paths }), encoding: 'utf8' })
+    assert.deepEqual(JSON.parse(result.stdout), { denied: ['deploy/key.pem', '.ssh/id_ed25519'] })
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

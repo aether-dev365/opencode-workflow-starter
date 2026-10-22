@@ -34,16 +34,19 @@
 
 ## 4. 安装和检查
 
-在目标根执行：
+在目标根执行接入准备脚本，再运行检查和测试：
 
 ```bash
-npm --prefix .opencode/plugins/workflow ci --ignore-scripts
-python3 .opencode/secret-scan/install.py
+node scripts/workflow/setup.mjs
 node scripts/workflow/doctor.mjs --root . --json
 bash .opencode/workflow/checks/run-tests.sh
 npm --prefix .opencode/plugins/workflow run typecheck
 npm --prefix .opencode/plugins/workflow test
 ```
+
+`setup.mjs` 安装插件依赖和固定版 Gitleaks、检测 OpenCode 并运行 doctor。模型代为执行时保持非交互，不要加 `--opencode cli`：OpenCode 缺失或版本不符时，把脚本给出的安装或迁移命令交给用户确认，由用户决定是否安装全局软件。
+
+Windows 原生环境在 PowerShell 中执行时，把 `python3` 换成 `py -3`，守卫测试改为 `py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`。不要在 PowerShell 中调用 `bash`：那里的 `bash` 通常是 WSL 启动器。
 
 doctor 不修改项目文件；失败需处理，不能通过删除保护配置消除错误。没有实际执行的项目构建、平台验收和原生插件运行标为未验证。
 

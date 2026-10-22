@@ -1,6 +1,6 @@
 # 检查协议与回归
 
-从项目根执行 `bash .opencode/workflow/checks/run-tests.sh`。测试使用临时 Git 仓库和合成凭据，凭据测试必须安装固定版 Gitleaks，缺失不会算作跳过通过。
+从项目根执行 `bash .opencode/workflow/checks/run-tests.sh`。Windows 的 PowerShell 中执行 `py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`，依赖 bash 逻辑目录与目录符号链接的 3 个用例会跳过。测试使用临时 Git 仓库和合成凭据，凭据测试必须安装固定版 Gitleaks，缺失不会算作跳过通过。
 
 输入为 stdin JSON：`version:1`，phase 为 before/inspect/after，绝对 directory、sessionId、callId、tool、input、paths 必填。输出为 JSON 的 allow/deny/ask、可选 reason/input 和 reminders。拒绝退出 2，正常退出 0。插件将无效输出、超时和非预期退出视为失败。
 

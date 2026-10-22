@@ -10,4 +10,4 @@
 
 生成验证报告时说明已验证与未验证范围。发布证据放忽略目录 `.opencode/workflow/.state/`，按启用的发布扩展格式关联任务。二进制附可读 companion；exit=0 本身不证明测试真正执行。
 
-本模板的自测入口是插件 `npm test`、`npm run typecheck`、守卫 `bash .opencode/workflow/checks/run-tests.sh`。项目业务命令在接入后按实际包脚本填入领域规则。
+本模板的自测入口是插件 `npm test`、`npm run typecheck`、守卫 `bash .opencode/workflow/checks/run-tests.sh`（Windows PowerShell 中见 `.opencode/workflow/checks/README.md` 的 `py -3` 命令）。项目业务命令在接入后按实际包脚本填入领域规则。

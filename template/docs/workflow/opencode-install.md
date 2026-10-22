@@ -33,9 +33,9 @@ opencode --version
 
 本模板需要可在终端运行的 CLI；安装 Desktop 后仍需确认该终端中的 `opencode --version`。
 
-## 3. Linux / WSL 安装步骤
+## 3. Linux、macOS、WSL 安装步骤
 
-本模板的运行要求为 Node.js 24+、Python 3.10+、Git 和 Bash；当前验证环境为 Linux。Windows 用户使用 WSL 中的 Linux 环境，后续安装和项目自检均在同一个 WSL 终端完成。
+本模板的运行要求为 Node.js 24+、Python 3.10+、Git 和 Bash。Linux 与 WSL2 已验收；macOS 按本节操作，但尚未做原生验收。Windows 的两条路线见第 4 节。
 
 ### 准备环境
 
@@ -84,7 +84,14 @@ brew install anomalyco/tap/opencode-v2
 
 使用这些方式后仍需运行 `opencode --version`，按第 1 节判断兼容性。扫描器安装脚本支持 Linux、macOS 和 Windows 的 x64/arm64，但本模板只在 Linux 上做过原生验收；不能把 OpenCode 安装成功等同于本模板已经在 macOS 或 Windows 原生环境验收。
 
-## 4. Windows 用户使用 WSL
+## 4. Windows
+
+| 路线 | 适用 | 状态 |
+| --- | --- | --- |
+| WSL2（推荐） | 希望与 Linux 环境一致 | 已验收，与 Linux 相同 |
+| 原生 Windows（Git Bash） | 不使用 WSL 的团队 | 插件测试、守卫、doctor、接入脚本已在 Windows 实机通过；OpenCode 原生加载插件尚未验收 |
+
+### 路线一：WSL2（推荐）
 
 尚未安装 WSL 时，参考 [Microsoft 官方 WSL 安装指南](https://learn.microsoft.com/zh-cn/windows/wsl/install)，在管理员 PowerShell 中运行：
 
@@ -92,9 +99,44 @@ brew install anomalyco/tap/opencode-v2
 wsl --install -d Ubuntu
 ```
 
-按提示完成系统重启和 Ubuntu 用户设置，进入 Ubuntu 终端，再执行第 3 节。项目检出、Node.js、Python、Git、OpenCode 和工作流自检均放在 WSL 的同一环境中。
+按提示完成系统重启和 Ubuntu 用户设置，进入 Ubuntu 终端，再执行第 3 节。项目检出、Node.js、Python、Git、OpenCode 和工作流自检都放在 WSL 的同一环境中；不要让 Windows 侧的 OpenCode 打开 WSL 里的项目，反之亦然。
 
-需要 Windows 原生 OpenCode CLI 或 Desktop 时，从第 2 节官方 V2 入口选择对应架构的下载；本模板当前的 Bash 检查和 Linux 扫描器安装步骤不能直接照搬到 PowerShell。
+### 路线二：原生 Windows（Git Bash）
+
+在 PowerShell 中安装前置工具，装完重新打开终端：
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Python.Python.3.12 -e
+winget install --id Git.Git -e
+npm install -g @opencode/cli@2.1.2
+opencode --version
+```
+
+必须安装完整的 Git for Windows：OpenCode 把 `opencode.jsonc` 中的 `"shell": "bash"` 解析为 Git 安装目录下的 `bin\bash.exe`，MinGit 不含它。在项目根目录运行 `node scripts\workflow\setup.mjs` 完成其余步骤；手动执行时：
+
+```powershell
+npm --prefix .opencode\plugins\workflow ci --ignore-scripts
+py -3 .opencode\secret-scan\install.py
+node scripts\workflow\doctor.mjs --root .
+```
+
+常见问题：
+
+- **PowerShell 里的 `bash` 不是 Git Bash。** 它通常是 WSL 启动器（`System32\bash.exe` 或 `WindowsApps\bash.exe`），会在 WSL 里执行命令。不要用它运行工作流脚本；`"shell"` 也不能指向它，插件会拒绝。在 PowerShell 中运行守卫测试：`py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`，依赖 bash 逻辑目录与目录符号链接的 3 个用例会跳过。
+- **`npm` 被执行策略拦截**（提示禁止运行 `npm.ps1`）：改用 `npm.cmd`，或执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 后重开终端。
+- **Gitleaks 的位置。** 默认装到 `%USERPROFILE%\.local\bin\gitleaks.exe`；提交扫描和 doctor 在 PATH 中找不到 `gitleaks` 时会回退到这里。需要加入用户 PATH 时：
+
+  ```powershell
+  [Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\.local\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
+  ```
+
+- **改动后重启后台服务。** 安装插件依赖、扫描器或修改 PATH 后执行 `opencode service restart`；后台服务的 PATH 在启动时确定。
+- **Python 的选择。** 插件依次尝试 `py -3`、`python`、`python3`，要求 3.10+；也可设置 `WORKFLOW_PYTHON` 指向解释器。Microsoft Store 或 Python 安装管理器提供的 `WindowsApps` 别名可以正常使用。
+- **中文 Windows 的 GBK 代码页**无需修改：守卫进程统一使用 UTF-8 读写。
+- **换行符。** Git for Windows 默认 `core.autocrlf=true`；模板的 `.gitattributes` 让工作流脚本保持 LF，已有项目合并 `.gitattributes` 时保留这两条规则。
+
+Desktop 从第 2 节官方入口下载。本模板只在 CLI 上做过原生验收；使用 Desktop 时，终端中仍需要可运行的 `opencode` CLI 供 doctor 检查版本。
 
 ## 5. 安装后的确认
 
@@ -125,7 +167,13 @@ opencode service status
 
 ### 继续工作流接入
 
-完成模板合并后，在目标项目根目录运行：
+完成模板合并后，在目标项目根目录运行接入准备脚本：它安装插件依赖和固定版 Gitleaks、检测 OpenCode，最后运行 doctor。
+
+```bash
+node scripts/workflow/setup.mjs
+```
+
+也可以手动执行（Windows 把 `python3` 换成 `py -3`）：
 
 ```bash
 npm --prefix .opencode/plugins/workflow ci --ignore-scripts

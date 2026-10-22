@@ -7,6 +7,10 @@
 ### 新增
 
 - MIT 许可证（仓库根目录与 `template/.opencode/LICENSE`）、安全策略、贡献指南和本变更记录。
+- 接入准备脚本 `scripts/workflow/setup.mjs`：检查前置工具，安装插件依赖和固定版 Gitleaks，检测 OpenCode 并运行 doctor。OpenCode 缺失时可选择经 npm 安装 CLI 验收版本或查看 Desktop 下载入口（交互输入，或 `--opencode cli|desktop|skip`）；已有的 V1 或其他 V2 版本不会被替换。
+- GitHub Actions CI：Linux 以 Python 3.10 跑全量验收（含 OpenCode 原生测试），Windows 在 PowerShell 中跑 `node scripts/verify.mjs --windows` 子集；action 固定到提交 SHA，权限为只读。
+- 可选扩展 `optional/protection/`：私钥、SSH 私钥、常见凭据文件和 Terraform 状态的保护规则，附启用步骤与回归测试。
+- README 重写：解决的问题、原理图、平台支持表、按平台的快速开始、常见问题和英文摘要；安装指南补充原生 Windows（Git Bash）路线与常见问题。
 
 ### 变更
 
@@ -17,6 +21,7 @@
 ### 新增（Windows）
 
 - Gitleaks 安装脚本支持 macOS 与 Windows（x64/arm64），固定校验值与官方 `checksums.txt` 核对一致；Windows 解包 zip 中的 `gitleaks.exe`，提示使用 `py -3`。
+- `scripts/verify.mjs --windows` 运行 Windows 子集（类型检查、插件、守卫、独立接入）；守卫阶段改为直接运行 `python -m unittest`，遵循 `WORKFLOW_PYTHON`。凭据扫描测试可在 Windows 原生运行，依赖 bash 逻辑目录与目录符号链接的 3 个用例在 Windows 上跳过。
 - 模板 `opencode.jsonc` 固定 `"shell": "bash"`（Windows 上解析为 Git Bash）；shell 为 PowerShell、cmd 或 WSL 启动器时插件拒绝执行并说明原因，避免测试失败被当成通过；doctor 新增 `shell` 检查。
 
 ### 修复
@@ -29,6 +34,8 @@
 - Python 守卫在非 UTF-8 环境（Windows 的 cp936/cp1252 代码页）下按 UTF-8 读取配置、收发 JSON，不再因中文配置或路径拒绝所有操作；识别 Git Bash 风格的 `/c/...` 路径；跨盘符路径仍按规则检查；超时在 Windows 上用 `taskkill /T` 终止扫描器进程树；缺少扫描器的提示加入 `opencode service restart`。
 - 插件新增 `platform.ts` 集中处理平台差异：Windows 上依次探测 `py -3`、`python`、`python3`（可用 `WORKFLOW_PYTHON` 指定），子进程隐藏窗口且超时用 `taskkill /T` 终止，路径匹配前统一为 `/`，Git Bash 风格路径按 OpenCode 规则换算；检查器无法启动时，错误信息会给出命令、原因和处理办法。
 - 模型给 shell 传相对 `workdir`（如 `src`）时不再被误拒：OpenCode 在插件钩子之后才把它解析为绝对路径，插件现在按 Location 解析。
+- Windows 上能找到 Microsoft Store 与 Python 安装管理器以应用执行别名（`WindowsApps\py.exe`、`python.exe`）提供的解释器。
+- 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
 - 规则文件为空或超过 40000 字符时，上下文组装不再抛错导致整个会话不可用，改为提示并拒绝修改该领域（规则文件本身仍可修复）；看门狗释放已删除会话的记录；`/review` 默认基线先使用远端默认分支（`origin/HEAD`）。
 
 ## [1.0.0] - 2026-10-22
