@@ -4,6 +4,14 @@
 
 ## [未发布]
 
+暂无。
+
+## [1.0.0] - 2026-10-22
+
+首个正式版本：领域规则加载、路径保护、提交前凭据扫描、手动 `/review`、可选发布核查、接入准备脚本，以及 Linux、WSL2、macOS（Apple Silicon）的含原生运行验收和 Windows 原生（Git Bash）的子集验收。
+
+以下变更相对当天早些时候公开过、未打标签的预览状态。
+
 ### 新增
 
 - MIT 许可证（仓库根目录与 `template/.opencode/LICENSE`）、安全策略、贡献指南和本变更记录。
@@ -45,6 +53,5 @@
 - 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
 - 规则文件为空或超过 40000 字符时，上下文组装不再抛错导致整个会话不可用，改为提示并拒绝修改该领域（规则文件本身仍可修复）；看门狗释放已删除会话的记录；`/review` 默认基线先使用远端默认分支（`origin/HEAD`）。
 
-## [1.0.0] - 2026-10-22
-
-- 首个公开版本：领域规则加载、路径保护、提交前凭据扫描、手动 `/review`、可选发布核查和原生验收。
+[未发布]: https://github.com/aether-dev365/opencode-workflow-starter/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.0.0

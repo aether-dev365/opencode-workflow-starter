@@ -142,7 +142,9 @@ doctor 对 2.1.2 报 pass，对其他 2.1.x 报 warn（需在该版本做原生�
 
 ## 发布与分发
 
-在套件根目录从已提交的版本生成干净分发包：
+正式版本见 [GitHub Releases](https://github.com/aether-dev365/opencode-workflow-starter/releases)，附分发包及其 SHA-256 文件；需要固定版本时也可以 `git clone --depth 1 --branch v1.0.0 …`。
+
+维护者在套件根目录从已提交的版本生成干净分发包：
 
 ```bash
 mkdir -p artifacts
