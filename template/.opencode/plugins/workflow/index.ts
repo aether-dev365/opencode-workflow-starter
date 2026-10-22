@@ -6,11 +6,11 @@ import type { WorkflowEvent, CombinedResult } from './protocol.ts'
 import { runChecks } from './runner.ts'
 import type { CheckName } from './runner.ts'
 import { matchingScopes, SCOPE_TEXT_LIMIT } from './scopes.ts'
-import { registerPathPermissions } from './permissions.ts'
+import { registerPathPermissions, REVIEWER_ACTIONS } from './permissions.ts'
 import { registerWatchdog } from './watchdog.ts'
 import { scopeRoot } from './scopes.ts'
 import { loadProjectConfig } from './config.ts'
-import { registerReview } from './review.ts'
+import { registerReview, REVIEWER } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
 import { containedRelative, unsupportedShell, windowsPath } from './platform.ts'
 
@@ -83,6 +83,8 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     })
   }
   registrations.push(await ctx.tool.hook('execute.before', async raw => {
+    // OpenCode 只在工具自己请求权限时才做判定，没有命令的 shell 语句和插件工具会绕过权限钩子；reviewer 只读在每次调用前再拦一次。
+    if (raw.agent === REVIEWER && !REVIEWER_ACTIONS.has(raw.tool)) throw new Error(`审核员只读：只允许 read、glob、grep 和 workflow_review_submit，已拒绝 ${raw.tool}`)
     const directory = await sessionDirectory(raw.sessionID)
     const event = normalizeCall(raw.tool, raw.input as Record<string, unknown>, directory, raw.sessionID, raw.id)
     if (!mutations.has(event.tool)) { await recordScopes(event, false); return }

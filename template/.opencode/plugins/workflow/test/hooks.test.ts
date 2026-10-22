@@ -227,3 +227,21 @@ test('the session agent decides reviewer restrictions when the event omits it', 
     assert.match(unknown.message, /无法确认会话代理/)
   } finally { await f.close() }
 })
+
+test('reviewer tool calls outside the read-only set are refused before they run', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    // OpenCode 只在工具自己请求权限时才做判定：没有命令的 shell 语句和插件工具都不会经过 permission.evaluate。
+    const asReviewer = (tool: string, input: unknown) => ({ ...before(tool, input, 'r1'), agent: 'reviewer' })
+    const calls: [string, unknown][] = [
+      ['shell', { command: '> reviewer-redirect.txt' }],
+      ['workflow_review', { action: 'status' }],
+      ['svc_query', {}],
+      ['patch', { patchText: '*** Begin Patch\n*** Add File: probe.txt\n+x\n*** End Patch' }],
+    ]
+    for (const [tool, input] of calls) await assert.rejects(f.fire('tool.execute.before', asReviewer(tool, input)), /审核员只读/, tool)
+    await f.fire('tool.execute.before', asReviewer('read', { path: 'README.md' }))
+    await f.fire('tool.execute.before', before('workflow_review', { action: 'status' }))
+  } finally { await f.close() }
+})

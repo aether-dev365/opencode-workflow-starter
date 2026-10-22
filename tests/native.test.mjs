@@ -32,6 +32,21 @@ test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 
       assert.match(result.toolResults, /审核员只读/)
     })
 
+    await t.test('shell statements without a command and workflow tools are denied too', async () => {
+      // OpenCode 不对这些调用做权限判定：裸重定向直接写文件，算术展开里的命令替换会执行任意命令。
+      const arithmetic = `x='a[$(echo $((40+2))ARITH > reviewer-arith.txt)]'; y=$((x))`
+      const result = await runCase(h, [
+        [{ name: 'shell', input: { command: '> reviewer-redirect.txt', workdir: h.directory } }],
+        [{ name: 'shell', input: { command: arithmetic, workdir: h.directory } }],
+        [{ name: 'shell', input: { command: arithmetic, workdir: h.directory } }],
+        [{ name: 'workflow_review', input: { action: 'status' } }],
+      ], { agent: 'reviewer' })
+      assert.equal(existsSync(join(h.directory, 'reviewer-redirect.txt')), false)
+      assert.equal(existsSync(join(h.directory, 'reviewer-arith.txt')), false)
+      assert.doesNotMatch(result.toolResults, /没有审核批次/)
+      assert.match(result.toolResults, /审核员只读/)
+    })
+
     await t.test('a review cannot start without a loaded reviewer', async () => {
       writeFileSync(join(h.directory, 'review-probe.txt'), 'x\n')
       const result = await runCase(h, [[{ name: 'workflow_review', input: { action: 'run', mode: 'branch', base: h.base } }]])
