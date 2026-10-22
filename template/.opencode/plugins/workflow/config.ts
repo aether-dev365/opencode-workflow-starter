@@ -16,6 +16,7 @@ export type ProjectConfig = {
   routing: RoutingConfig
   pipefail?: { version: 1; commandPrefixes: string[][] }
 }
+export const SCOPE_TEXT_LIMIT = 40_000
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(s => typeof s === 'string' && s.trim())
 const id = (v: unknown) => typeof v === 'string' && /^[a-z][a-z0-9-]*$/.test(v)
@@ -70,7 +71,7 @@ export async function loadProjectConfig(root: string): Promise<ProjectConfig> {
       if (problem) throw new Error(problem)
     }
     const text = await readFile(await containedFile(root, scope.instruction), 'utf8')
-    requireValue(text.trim() && text.length <= 40_000, `规则为空或超过 40000 字符：${scope.instruction}`)
+    requireValue(text.trim() && text.length <= SCOPE_TEXT_LIMIT, `规则为空或超过 ${SCOPE_TEXT_LIMIT} 字符：${scope.instruction}`)
   }
   const protection = await load('protection.json')
   requireValue(object(protection) && protection.version === 1 && Array.isArray(protection.rules) && protection.rules.length, '保护配置无效')

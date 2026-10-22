@@ -1,11 +1,11 @@
 import { access, readFile } from 'node:fs/promises'
 import { dirname, resolve, relative, isAbsolute } from 'node:path'
-import { containedFile } from './config.ts'
+import { containedFile, SCOPE_TEXT_LIMIT } from './config.ts'
 import { matchesPattern, patternProblem } from './patterns.ts'
 import { portableRelative } from './platform.ts'
 
 export type Scope = { root: string; instruction: string; text: string }
-export const SCOPE_TEXT_LIMIT = 40_000
+export { SCOPE_TEXT_LIMIT }
 
 export async function scopeRoot(path: string): Promise<string | undefined> {
   let here = resolve(path)

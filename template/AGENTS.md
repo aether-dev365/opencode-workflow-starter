@@ -15,10 +15,10 @@
 
 ## 按需阅读
 
-- 开发协作与任务卡：`docs/workflow/development.md`
-- 测试与证据：`docs/workflow/testing.md`
-- 审核分级与结论：`docs/workflow/review-policy.md`
-- 接入检查：`node scripts/workflow/doctor.mjs --root .`
-- OpenCode V2 安装与版本检查：`docs/workflow/opencode-install.md`
+- 拆分任务、派发实现代理或配置代理模型前：`docs/workflow/development.md`
+- 报告验证结果前：`docs/workflow/testing.md`
+- 处理 `/review` 或审核结论时：`docs/workflow/review-policy.md`
+- 接入或排查工作流配置时运行：`node scripts/workflow/doctor.mjs --root .`
+- 安装、升级 OpenCode 或核对版本时：`docs/workflow/opencode-install.md`
 
 插件在实际 Location 下生效才能执行受保护操作。文件存在或静态自检成功不等于原生验收通过。

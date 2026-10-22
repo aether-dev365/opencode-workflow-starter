@@ -163,3 +163,21 @@ test('doctor asks for an explicit reviewer model', () => {
     assert.equal(reviewer()?.status, 'warn')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('doctor warns about rule files over half the injection limit', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const ruleSize = () => JSON.parse(spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'], { encoding: 'utf8' }).stdout).checks.find(c => c.id === 'rule-size')
+    assert.equal(ruleSize()?.status, 'pass')
+    writeFileSync(join(root, 'AGENTS.md'), 'x'.repeat(20000))
+    assert.equal(ruleSize()?.status, 'pass')
+    writeFileSync(join(root, 'AGENTS.md'), 'x'.repeat(20001))
+    writeFileSync(join(root, '.opencode/workflow/scopes.json'), JSON.stringify([{ paths: ['**'], instruction: 'AGENTS.md' }, { paths: ['docs/**'], instruction: 'AGENTS.md' }]))
+    const check = ruleSize()
+    assert.equal(check?.status, 'warn')
+    assert.equal(check.message.match(/AGENTS\.md：20001 个字符/g)?.length, 1)
+    assert.match(check.message, /插件上限 40000/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
