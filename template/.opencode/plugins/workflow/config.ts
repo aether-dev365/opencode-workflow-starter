@@ -34,7 +34,12 @@ export async function readJson(path: string): Promise<any> {
 export async function containedFile(root: string, path: string): Promise<string> {
   requireValue(safePath(path), `路径必须位于检出内：${path}`)
   const base = await realpath(root)
-  const file = await realpath(resolve(base, path))
+  let file: string
+  try { file = await realpath(resolve(base, path)) } catch (error) {
+    // 报告配置里写的相对路径，而不是各平台格式不同的系统错误；保留 code，可选文件（pipefail.json）靠它判断缺失。
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw Object.assign(new Error(`文件不存在：${path}`), { code: 'ENOENT' })
+    throw error
+  }
   requireValue(containedRelative(base, file) !== undefined, `路径越界：${path}`)
   return file
 }

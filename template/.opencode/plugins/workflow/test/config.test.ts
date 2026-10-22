@@ -120,3 +120,11 @@ test('an invalid optional pipefail configuration fails configuration loading', a
     assert.deepEqual((await loadProjectConfig(f.root)).pipefail?.commandPrefixes, [['cargo', 'test']])
   } finally { f.cleanup() }
 })
+
+test('a missing rule file is reported by its configured path', async () => {
+  const f = fixture()
+  try {
+    f.put('.opencode/workflow/scopes.json', [{ paths: ['**'], instruction: 'AGENTS.md' }, { paths: ['api/**'], instruction: 'api/AGENTS.md' }])
+    await assert.rejects(loadProjectConfig(f.root), { message: '文件不存在：api/AGENTS.md' })
+  } finally { f.cleanup() }
+})

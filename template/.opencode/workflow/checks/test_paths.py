@@ -72,7 +72,7 @@ class PathGuards(unittest.TestCase):
         self.assertEqual(self.guard(command='rm -rf vendor'), 'deny')
         denied = self.result(command='rm -rf build')
         self.assertEqual(denied['decision'], 'deny')
-        self.assertIn('build/.env.local', denied['reason'])
+        self.assertIn(str(Path('build/.env.local')), denied['reason'])
 
     def test_recursive_delete_of_a_large_dependency_tree_stays_within_budget(self):
         for index in range(20000):

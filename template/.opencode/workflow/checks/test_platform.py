@@ -30,9 +30,10 @@ class Platform(unittest.TestCase):
 
     def test_git_bash_drive_paths_resolve_as_absolute(self):
         with mock.patch.object(hooklib.os, 'name', 'nt'):
-            self.assertIn('C:/repo/.env', hooklib.command_paths('cat /c/repo/.env', 'C:/work', include_readonly=True))
-            self.assertIn('C:/work/src/a.ts', hooklib.command_paths('cat src/a.ts', 'C:/work', include_readonly=True))
-            self.assertIn('D:/data/vendor/x.js', hooklib.command_paths('cd /d/data && echo x > vendor/x.js', 'C:/work'))
+            # 结果是本机格式：Windows 上 normpath 输出反斜杠。
+            self.assertIn(os.path.normpath('C:/repo/.env'), hooklib.command_paths('cat /c/repo/.env', 'C:/work', include_readonly=True))
+            self.assertIn(os.path.normpath('C:/work/src/a.ts'), hooklib.command_paths('cat src/a.ts', 'C:/work', include_readonly=True))
+            self.assertIn(os.path.normpath('D:/data/vendor/x.js'), hooklib.command_paths('cd /d/data && echo x > vendor/x.js', 'C:/work'))
 
     def test_cross_drive_path_is_still_protected(self):
         rules = json.loads((HERE / 'fixtures/protection.json').read_text(encoding='utf-8'))
