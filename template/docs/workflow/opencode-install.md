@@ -1,6 +1,6 @@
 # OpenCode V2 安装与版本检查
 
-本工作流使用 OpenCode V2 插件 API，接入前必须确认实际运行的是 V2。当前已验收的 CLI、`@opencode/plugin` 和 `@opencode/client` 基线均为 **2.1.1**。
+本工作流使用 OpenCode V2 插件 API，接入前必须确认实际运行的是 V2。当前已验收的 CLI、`@opencode/plugin` 和 `@opencode/client` 基线均为 **2.1.2**。
 
 ## 1. 先检查当前版本
 
@@ -14,9 +14,9 @@ opencode --version
 | --- | --- |
 | 找不到命令 | 按下文安装 OpenCode V2，再重新检查 |
 | `1.x` 或其他非 V2 版本 | 当前不适用于本模板；先完成迁移或安装 V2 |
-| `2.1.1` | 符合本模板的 CLI 验收基线，继续接入和自检 |
+| `2.1.2` | 符合本模板的 CLI 验收基线，继续接入和自检 |
 | 其他 `2.1.x` | doctor 给出 warn；在该版本完成原生冒烟并记录结果 |
-| 其他 `2.x` 系列 | 已是 V2，但不属于当前验收系列；选用 2.1.1，或同步适配插件依赖并完成验收 |
+| 其他 `2.x` 系列 | 已是 V2，但不属于当前验收系列；选用 2.1.2，或同步适配插件依赖并完成验收 |
 | 命令执行失败、输出无法识别 | 检查可执行文件、PATH 和版本覆盖变量，不能据此认定已安装兼容版本 |
 
 `opencode` 这个命令名不能区分 V1 和 V2，两者使用相同命令。doctor 优先检查 `WORKFLOW_OPENCODE_BIN` 指向的 CLI；设置过该变量时，也要对它指向的可执行文件运行 `--version`。
@@ -56,21 +56,21 @@ git --version
 
 ### 安装本模板的验收版本
 
-推荐通过官方 npm 包固定到 2.1.1：
+推荐通过官方 npm 包固定到 2.1.2：
 
 ```bash
-npm install -g @opencode/cli@2.1.1
+npm install -g @opencode/cli@2.1.2
 hash -r
 opencode --version
 ```
 
-期望输出的版本为 `2.1.1`。CLI 包通过安装脚本选择平台二进制，因此这里不要添加 `--ignore-scripts`；模板插件的 `npm ci --ignore-scripts` 是后续不同的安装步骤。
+期望输出的版本为 `2.1.2`。CLI 包通过安装脚本选择平台二进制，因此这里不要添加 `--ignore-scripts`；模板插件的 `npm ci --ignore-scripts` 是后续不同的安装步骤。
 
 若 npm 报全局安装目录无写入权限，先按所用 Node.js 安装方式配置用户可写的 npm 全局目录，并将该目录的 `bin` 加入 PATH，再重试。
 
 ### 其他官方安装方式
 
-官方安装器获取当前发布版本，不保证仍为本模板的 2.1.1 基线：
+官方安装器获取当前发布版本，不保证仍为本模板的 2.1.2 基线：
 
 ```bash
 curl -fsSL https://opencode.ai/v2/install | bash
@@ -110,7 +110,7 @@ opencode --version
 
 如果仍显示旧版本，检查 PATH 顺序、shell alias 和旧安装位置，重新打开终端再确认。若设置了 `WORKFLOW_OPENCODE_BIN`，doctor 会优先使用它；该覆盖不再需要时可以执行 `unset WORKFLOW_OPENCODE_BIN`，需要保留时则将它指向选定的 V2 CLI。
 
-使用独立 CLI 进行验证不必替换系统默认命令。套件开发检出中的 `node scripts/fetch-opencode.mjs` 可为 Linux x64 下载并校验 2.1.1，输出位于套件的 `.verification/runtime/package/bin/opencode`。将该输出的绝对路径设置为 `WORKFLOW_OPENCODE_BIN`；实际启动 OpenCode 时也应使用同一个 CLI。此获取脚本位于套件根目录，不属于复制到业务项目的 `template/` 内容。
+使用独立 CLI 进行验证不必替换系统默认命令。套件开发检出中的 `node scripts/fetch-opencode.mjs` 可为 Linux x64 下载并校验 2.1.2，输出位于套件的 `.verification/runtime/package/bin/opencode`。将该输出的绝对路径设置为 `WORKFLOW_OPENCODE_BIN`；实际启动 OpenCode 时也应使用同一个 CLI。此获取脚本位于套件根目录，不属于复制到业务项目的 `template/` 内容。
 
 ### 启动 V2
 

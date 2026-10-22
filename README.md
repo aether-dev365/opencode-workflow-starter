@@ -22,10 +22,10 @@
 
 ## 空项目快速开始
 
-**先运行 `opencode --version`。** 未安装或不是 V2 时，先按 [安装指南](template/docs/workflow/opencode-install.md) 安装并复查；本模板推荐 `npm install -g @opencode/cli@2.1.1`。其他 V2 版本按指南中的兼容性说明处理。
+**先运行 `opencode --version`。** 未安装或不是 V2 时，先按 [安装指南](template/docs/workflow/opencode-install.md) 安装并复查；本模板推荐 `npm install -g @opencode/cli@2.1.2`。其他 V2 版本按指南中的兼容性说明处理。
 
 1. 从干净分发包解压，在独立 Git 项目根目录复制其中 `template/` 的内容，包括隐藏文件。已有项目按 ADOPT.md 合并，避免覆盖已有配置。开发检出内的 node_modules、__pycache__ 和运行状态不要复制；分发包已排除这些文件。
-2. 运行下列命令。Node.js 24、Python 3.10+、Git、Linux/WSL；OpenCode 与插件验收基线均为 **2.1.1**。
+2. 运行下列命令。Node.js 24、Python 3.10+、Git、Linux/WSL；OpenCode 与插件验收基线均为 **2.1.2**。
 
 ```bash
 npm --prefix .opencode/plugins/workflow ci --ignore-scripts
@@ -36,7 +36,7 @@ node scripts/workflow/doctor.mjs --root .
 3. 在目标 Location 启动 OpenCode，核 `workflow.starter` 的实际加载来源和 active 状态。插件目录自动发现，**不要再在 plugins 配置中重复登记**。
 4. 补充项目概要、真实验证命令和领域规范；维护 scopes、protection 和 review 路由。模型沿根 AGENTS.md 按需阅读，不一次灌入所有文档。
 
-doctor 的 `native-runtime: unverified` 是正常的静态检查边界，不是原生运行通过。OpenCode 2.1.1 为 pass，其他 2.1.x 为 warn，需在该版本做原生冒烟并记录；其余版本为 fail。warn 不导致非零退出，但要逐项处理或说明。无效配置和缺依赖仍为 fail。可以通过 `WORKFLOW_OPENCODE_BIN` 指定独立版本的 CLI，不需要替换机器默认安装。
+doctor 的 `native-runtime: unverified` 是正常的静态检查边界，不是原生运行通过。OpenCode 2.1.2 为 pass，其他 2.1.x 为 warn，需在该版本做原生冒烟并记录；其余版本为 fail。warn 不导致非零退出，但要逐项处理或说明。无效配置和缺依赖仍为 fail。可以通过 `WORKFLOW_OPENCODE_BIN` 指定独立版本的 CLI，不需要替换机器默认安装。
 
 doctor 也会检查 pipefail.json 和已跟踪文件的读取保护命中。`*.env.*` 可能覆盖 `src/app.env.ts` 等源码：确认误伤后追加精确 allow；若是真实凭据，须移出仓库并轮换。
 
@@ -64,7 +64,7 @@ node scripts/fetch-opencode.mjs
 node scripts/verify.mjs
 ```
 
-原生测试使用独立 HOME/XDG、临时 Git 仓库、loopback 假模型和假 MCP，不调用真实模型或生产服务。需要 OpenCode 2.1.1；版本不符明确失败。完整接入测试会在临时项目重新 `npm ci`，需访问 npm registry 或准备 npm 缓存。
+原生测试使用独立 HOME/XDG、临时 Git 仓库、loopback 假模型和假 MCP，不调用真实模型或生产服务。需要 OpenCode 2.1.2；版本不符明确失败。完整接入测试会在临时项目重新 `npm ci`，需访问 npm registry 或准备 npm 缓存。
 
 获取脚本仅支持 linux-x64，固定官方 npm 发布包的 SHA-256，安装到忽略目录 `.verification/runtime/`；已有正确版本时直接复用。其他平台通过 `WORKFLOW_OPENCODE_BIN` 指定 CLI，平台验收另行记录。
 

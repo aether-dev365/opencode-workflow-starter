@@ -4,7 +4,7 @@ import { mkdtempSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { runtimeBinary } from './fixtures/native-harness.mjs'
+import { runtimeBinary, baseline } from './fixtures/native-harness.mjs'
 
 test('a separately installed copy passes doctor without source checkout configuration', { timeout: 180000 }, () => {
   const temp = mkdtempSync(join(tmpdir(), 'workflow-adoption-'))
@@ -26,7 +26,8 @@ test('a separately installed copy passes doctor without source checkout configur
     const report = JSON.parse(output)
     assert.equal(report.ok, true)
     assert.equal(report.checks.find(c => c.id === 'native-runtime').status, 'unverified')
-    for (const [version, status, ok] of [['2.1.2', 'warn', true], ['2.2.0', 'fail', false]]) {
+    const [major, minor, patch] = baseline.split('.').map(Number)
+    for (const [version, status, ok] of [[`${major}.${minor}.${patch + 1}`, 'warn', true], [`${major}.${minor + 1}.0`, 'fail', false]]) {
       const fake = join(temp, `opencode-${version}`)
       writeFileSync(fake, `#!/bin/sh\necho "opencode v${version}"\n`, { mode: 0o755 })
       const result = spawnSync(process.execPath, ['scripts/workflow/doctor.mjs', '--root', '.', '--json'],

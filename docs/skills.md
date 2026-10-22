@@ -64,7 +64,7 @@ OpenCode、Node.js、Python、Git、Gitleaks 及 npm 依赖属于运行环境或
 }
 ```
 
-这里使用已存在的 `v6.4.2` tag 示范版本固定；团队也可选定完整 commit SHA。上游说明 OpenCode V2 插件支持要求为 OpenCode 2.0.4+、Superpowers v6.4.1+；本模板自身的验收基线仍为 OpenCode 2.1.1。
+这里使用已存在的 `v6.4.2` tag 示范版本固定；团队也可选定完整 commit SHA。上游说明 OpenCode V2 插件支持要求为 OpenCode 2.0.4+、Superpowers v6.4.1+；本模板自身的验收基线仍为 OpenCode 2.1.2。
 
 重新加载配置后，确认 Superpowers 插件实际加载，再让模型列出可用技能并加载 `systematic-debugging`，核对来源和正文。`workflow.starter` 已通过模板目录自动发现，无需因安装 Superpowers 而重复登记。
 

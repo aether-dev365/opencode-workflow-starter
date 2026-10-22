@@ -62,6 +62,17 @@ test('workflow scripts keep LF line endings on every checkout', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('documented OpenCode versions match the plugin baseline', () => {
+  const manifest = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8'))
+  const baseline = manifest.dependencies['@opencode/plugin']
+  assert.equal(manifest.devDependencies['@opencode/client'], baseline)
+  const docs = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'docs/skills.md', 'template/AGENTS.md', ...files('template/docs'), ...files('optional')].filter(p => p.endsWith('.md'))
+  for (const path of docs) {
+    // 带 + 的是其他组件的最低要求（如 Superpowers 要求 OpenCode 2.0.4+），不是本模板的基线。
+    for (const [version] of readFileSync(path, 'utf8').matchAll(/(?<![\d.])2\.\d+\.\d+(?![\d.+])/g)) assert.equal(version, baseline, path)
+  }
+})
+
 test('the template carries the suite license', () => {
   const license = readFileSync('LICENSE', 'utf8')
   assert.match(license, /^MIT License\n/)

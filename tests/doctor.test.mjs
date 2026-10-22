@@ -5,6 +5,8 @@ import { mkdtempSync, rmSync, cpSync, readFileSync, writeFileSync, mkdirSync } f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const baseline = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8')).dependencies['@opencode/plugin']
+
 test('doctor reports missing configuration as structured failure', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
   try {
@@ -83,7 +85,7 @@ test('doctor gives actionable OpenCode installation guidance for unavailable or 
         const check = JSON.parse(result.stdout).checks.find(c => c.id === 'opencode-version')
         assert.equal(check.status, 'fail')
         assert.match(check.message, reason)
-        assert.match(check.message, /npm install -g @opencode\/cli@2\.1\.1/)
+        assert.ok(check.message.includes(`npm install -g @opencode/cli@${baseline}`), check.message)
         assert.match(check.message, /https:\/\/opencode\.ai\/v2\/docs\//)
         assert.match(check.message, /docs\/workflow\/opencode-install\.md/)
         assert.match(check.message, /WORKFLOW_OPENCODE_BIN/)

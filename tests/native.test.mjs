@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { start, runCase, put, git, batches } from './fixtures/native-harness.mjs'
+import { start, runCase, put, git, batches, baseline } from './fixtures/native-harness.mjs'
 
 const patch = (path, content) => ({ name: 'patch', input: { patchText: `*** Begin Patch\n*** Add File: ${path}\n+${content}\n*** End Patch` } })
 
@@ -17,7 +17,7 @@ test('a stale scope mapping keeps the plugin active and blocks shell writes', { 
   } finally { await h.close() }
 })
 
-test('OpenCode 2.1.1 executes the isolated workflow through real native boundaries', { timeout: 180000 }, async t => {
+test(`OpenCode ${baseline} executes the isolated workflow through real native boundaries`, { timeout: 180000 }, async t => {
   const h = await start()
   try {
     await t.test('ordinary shell commands with options run while the server starts elsewhere', async () => {

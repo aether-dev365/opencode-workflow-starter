@@ -10,11 +10,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import assert from 'node:assert/strict'
 
 const root = resolve(import.meta.dirname, '../..')
+export const baseline = JSON.parse(readFileSync(join(root, 'template/.opencode/plugins/workflow/package.json'), 'utf8')).dependencies['@opencode/plugin']
 export function runtimeBinary() {
   const bundled = join(root, '.verification/runtime/package/bin/opencode')
   const path = process.env.WORKFLOW_OPENCODE_BIN || (existsSync(bundled) ? bundled : 'opencode')
   const version = execFileSync(path, ['--version'], { encoding: 'utf8' }).trim()
-  assert.match(version, /\bv?2\.1\.1$/, 'native tests require OpenCode 2.1.1; run node scripts/fetch-opencode.mjs or set WORKFLOW_OPENCODE_BIN')
+  assert.equal(version.match(/\bv?(\d+\.\d+\.\d+)$/)?.[1], baseline, `native tests require OpenCode ${baseline}; run node scripts/fetch-opencode.mjs or set WORKFLOW_OPENCODE_BIN`)
   return path
 }
 export const put = (path, text) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text) }

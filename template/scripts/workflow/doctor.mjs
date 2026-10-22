@@ -19,6 +19,10 @@ const loadProjectConfig = root => requirePlugin().loadProjectConfig(root)
 const protectionPermissions = config => requirePlugin().protectionPermissions(config)
 const readJson = path => requirePlugin().readJson(path)
 const loadReleaseConfig = root => requirePlugin().loadReleaseConfig(root)
+// 验收基线以插件依赖的 @opencode/plugin 版本为准：CLI 与插件 API 使用同一版本。
+let manifest
+try { manifest = JSON.parse(readFileSync(new URL('../../.opencode/plugins/workflow/package.json', import.meta.url), 'utf8')) } catch (error) { pluginError ??= error }
+const baseline = manifest?.dependencies?.['@opencode/plugin']
 
 const args = process.argv.slice(2)
 const root = resolve(args.includes('--root') ? args[args.indexOf('--root') + 1] : '.')
@@ -43,25 +47,27 @@ await check('python', () => {
 })
 await check('git', () => { command('git', ['--version']) })
 await check('opencode-version', () => {
+  if (!baseline) throw new Error('无法读取插件 package.json 中的 @opencode/plugin 版本，不能确定验收基线')
   const binary = process.env.WORKFLOW_OPENCODE_BIN || 'opencode'
-  const guide = '官方安装入口：https://opencode.ai/v2/docs/\n安装验收版本：npm install -g @opencode/cli@2.1.1\n完整步骤及 V1 迁移：docs/workflow/opencode-install.md\n安装后运行 opencode --version，并确认 PATH 或 WORKFLOW_OPENCODE_BIN 指向所选 V2 CLI'
+  const guide = `官方安装入口：https://opencode.ai/v2/docs/\n安装验收版本：npm install -g @opencode/cli@${baseline}\n完整步骤及 V1 迁移：docs/workflow/opencode-install.md\n安装后运行 opencode --version，并确认 PATH 或 WORKFLOW_OPENCODE_BIN 指向所选 V2 CLI`
   let version
   try { version = command(binary, ['--version']) }
   catch (error) {
     const reason = error.code === 'ENOENT' ? `未找到 OpenCode CLI：${binary}` : `无法执行 ${binary} --version：${error.message}`
     throw new Error(`${reason}；请检查命令路径或按指南安装 OpenCode V2。\n${guide}`)
   }
-  if (/\bv?2\.1\.1$/.test(version)) return
-  const patch = version.match(/\bv?(2\.1\.\d+)$/)?.[1]
-  if (patch) return { status: 'warn', message: `未在 v${patch} 做原生验收；按 docs/workflow/opencode-install.md 完成安装后检查和原生冒烟，并记录在接入报告` }
-  const major = version.match(/\bv?(\d+)\.\d+\.\d+$/)?.[1]
-  if (!major) throw new Error(`无法识别 OpenCode 版本：${version || '（空输出）'}。\n${guide}`)
-  if (major !== '2') throw new Error(`本模板需要 OpenCode V2，实际为 ${version}；请按指南安装 V2 后重新检查。\n${guide}`)
-  throw new Error(`已检测到 OpenCode V2，实际为 ${version}，但验收基线为 2.1.1；使用其他系列版本需同步依赖和原生验收。\n${guide}`)
+  const found = version.match(/\bv?(\d+)\.(\d+)\.(\d+)$/)
+  if (!found) throw new Error(`无法识别 OpenCode 版本：${version || '（空输出）'}。\n${guide}`)
+  const current = found.slice(1).join('.')
+  if (current === baseline) return
+  const [major, minor] = baseline.split('.')
+  if (found[1] === major && found[2] === minor) return { status: 'warn', message: `未在 v${current} 做原生验收；按 docs/workflow/opencode-install.md 完成安装后检查和原生冒烟，并记录在接入报告` }
+  if (found[1] !== '2') throw new Error(`本模板需要 OpenCode V2，实际为 ${version}；请按指南安装 V2 后重新检查。\n${guide}`)
+  throw new Error(`已检测到 OpenCode V2，实际为 ${version}，但验收基线为 ${baseline}；使用其他系列版本需同步依赖和原生验收。\n${guide}`)
 })
 await check('dependencies', () => {
   if (pluginError) throw new Error(`插件依赖未安装或无法加载（${String(pluginError.message).split('\n')[0]}）；在目标根目录运行 ${install}`)
-  for (const [name, version] of [['@opencode/plugin', '2.1.1'], ['jsonc-parser', '3.3.1']]) {
+  for (const [name, version] of Object.entries(manifest.dependencies)) {
     const file = join(root, '.opencode/plugins/workflow/node_modules', name, 'package.json')
     let installed
     try { installed = JSON.parse(readFileSync(file, 'utf8')).version } catch { throw new Error(`缺少依赖 ${name}；在目标根目录运行 ${install}`) }
