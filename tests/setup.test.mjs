@@ -58,7 +58,8 @@ function fixture({ opencode, deps = true, scanner: placement = 'path' } = {}) {
     const result = spawnSync(process.execPath, ['scripts/workflow/setup.mjs', ...args], { cwd: root, env, encoding: 'utf8', timeout: 120000 })
     return { status: result.status, output: result.stdout + result.stderr, npm: existsSync(env.FAKE_NPM_LOG) ? readFileSync(env.FAKE_NPM_LOG, 'utf8') : '' }
   }
-  return { setup, home, cleanup: () => rmSync(temp, { recursive: true, force: true }) }
+  // Windows 上杀毒软件或索引服务可能短暂占用刚复制的文件，删除失败时重试。
+  return { setup, home, cleanup: () => rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
 }
 
 test('a ready checkout installs nothing and ends with a passing doctor', { timeout: 120000 }, () => {

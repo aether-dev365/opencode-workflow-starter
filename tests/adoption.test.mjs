@@ -48,5 +48,6 @@ test('a separately installed copy passes doctor without source checkout configur
       assert.equal(result.status, ok ? 0 : 1)
     }
     run('npm', ['--prefix', '.opencode/plugins/workflow', 'run', 'typecheck'])
-  } finally { rmSync(temp, { recursive: true, force: true }) }
+  // Windows 上杀毒软件或索引服务可能短暂占用刚安装的依赖，删除失败时重试。
+  } finally { rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
 })

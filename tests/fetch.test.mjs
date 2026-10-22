@@ -16,7 +16,9 @@ function suite() {
   cpSync(manifest, join(root, manifest))
   return root
 }
-const fetch = root => spawnSync(process.execPath, ['scripts/fetch-opencode.mjs'], { cwd: root, env: { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }, encoding: 'utf8' })
+// 获取脚本只支持 linux-x64；在其他系统上模拟该平台，只验证固定校验值与复用逻辑。
+const linuxX64 = 'data:text/javascript,' + encodeURIComponent('Object.defineProperty(process, "platform", { value: "linux" }); Object.defineProperty(process, "arch", { value: "x64" })')
+const fetch = root => spawnSync(process.execPath, ['--import', linuxX64, 'scripts/fetch-opencode.mjs'], { cwd: root, env: { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }, encoding: 'utf8' })
 
 test('runtime fetch rejects a package whose digest differs from the pin', () => {
   const root = suite()
