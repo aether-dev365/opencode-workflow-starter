@@ -17,6 +17,7 @@
 | [optional/stacks/](optional/stacks/) | 按技术栈核实命令的接入指引 |
 | [scripts/](scripts/) | 固定版本 CLI 获取与套件验证入口 |
 | [tests/](tests/) | 分发、自检、独立接入和原生运行测试 |
+| [docs/skills.md](docs/skills.md) | 官方与第三方技能来源、用途和可选接入方式 |
 
 ## 空项目快速开始
 
@@ -48,6 +49,8 @@ doctor 也会检查 pipefail.json 和已跟踪文件的读取保护命中。`*.e
 - 不在 Git 检出内时读写和 shell 都会被拒绝，先 `git init`。
 
 插件和 shell 解析不构成操作系统沙盒，任意外部脚本与终端不在自动拦截承诺内。生产能力默认不启用。外部通用技能和 CodeGraph 都可选，不是运行依赖。
+
+**没有必装的外部技能包。** OpenCode 官方内置技能、第三方 Superpowers 和 Anthropic 官方技能的来源及接入方式见 [技能依赖清单](docs/skills.md)。
 
 ## 套件开发验证
 
