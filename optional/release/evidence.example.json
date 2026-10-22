@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "base": "REPLACE_ME_BASE_COMMIT_SHA",
+  "tree": "REPLACE_ME_HEAD_TREE_SHA",
+  "entries": [
+    {
+      "id": "build-and-tests",
+      "units": ["core", "tests"],
+      "kind": "build",
+      "command": "REPLACE_ME_ACTUAL_COMMAND",
+      "cwd": ".",
+      "exit": 0,
+      "inputs": { "sha256:.opencode/workflow/.state/release/package.zip": "REPLACE_ME_SHA256" },
+      "files": [".opencode/workflow/.state/release/package.zip", ".opencode/workflow/.state/release/build.log"],
+      "companion": [".opencode/workflow/.state/release/build.log"]
+    }
+  ]
+}

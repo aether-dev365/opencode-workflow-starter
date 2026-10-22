@@ -1,0 +1,9 @@
+[
+  { "path": ".env", "action": "read", "deny": true },
+  { "path": "packages/api/.env.dev", "action": "edit", "deny": true },
+  { "path": "packages/api/.env.example", "action": "read", "deny": false },
+  { "path": "vendor/lib.js", "action": "read", "deny": false },
+  { "path": "vendor/lib.js", "action": "edit", "deny": true },
+  { "path": "packages/ui/generated/view.ts", "action": "edit", "deny": true },
+  { "path": "src/main.ts", "action": "edit", "deny": false }
+]

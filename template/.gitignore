@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+*.pyc
+.worktrees/
+.opencode/workflow/.state/
+.verification/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "base": "REPLACE_ME_BASE_COMMIT_SHA",
+  "tree": "REPLACE_ME_HEAD_TREE_SHA",
+  "entries": [{ "id": "focused-tests", "units": ["core", "tests"], "kind": "test", "command": "REPLACE_ME_ACTUAL_COMMAND", "cwd": ".", "exit": 0, "inputs": {}, "files": [".opencode/workflow/.state/tests.log"] }]
+}

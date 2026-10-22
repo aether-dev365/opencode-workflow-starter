@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+*.pyc
+.verification/
+artifacts/
+.superpowers/
+.worktrees/
+template/.opencode/workflow/.state/
+/docs/superpowers/
+/docs/verification.md
