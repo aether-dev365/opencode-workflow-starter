@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { start, runCase, put, git, batches, baseline } from './fixtures/native-harness.mjs'
 
@@ -53,6 +54,28 @@ test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 
       assert.match(result.toolResults, /reviewer 没有正确加载/)
       assert.equal(batches(h).length, 0)
     })
+  } finally { await h.close() }
+})
+
+test('a commit made through OpenCode shows the quality hook report', { timeout: 180000 }, async () => {
+  const scripts = readdirSync('optional/quality').filter(name => name.endsWith('.py') && !name.startsWith('test_') && name !== 'quality_testing.py')
+  const h = await start({ prepare: directory => {
+    for (const name of scripts) put(join(directory, 'scripts/quality', name), readFileSync(join('optional/quality', name), 'utf8'))
+  } })
+  try {
+    const empty = join(h.temp, 'empty-gitconfig')
+    writeFileSync(empty, '')
+    execFileSync('python3', [join(h.directory, 'scripts/quality/install-hooks.py')], { cwd: h.directory, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' } })
+    const head = git(h, ['rev-parse', 'HEAD'])
+    put(join(h.directory, 'tests/quality-probe.test.js'), '// Task 3: probe\nit.skip("probe", () => {})\n')
+    const result = await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }],
+      [{ name: 'shell', input: { command: 'git add tests/quality-probe.test.js', workdir: h.directory } }],
+      [{ name: 'shell', input: { command: 'git commit -m probe', workdir: h.directory } }]])
+    assert.notEqual(git(h, ['rev-parse', 'HEAD']), head)
+    assert.match(result.toolResults, /质量检查（提交已完成/)
+    assert.match(result.toolResults, /tests\/quality-probe\.test\.js:1: \[tracking\]/)
+    assert.match(result.toolResults, /tests\/quality-probe\.test\.js:2: \[skip\]/)
+    assert.deepEqual(h.model.failures, [])
   } finally { await h.close() }
 })
 
