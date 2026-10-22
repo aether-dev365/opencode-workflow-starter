@@ -152,6 +152,10 @@ class PathGuards(unittest.TestCase):
 
     def test_literal_substitutions_and_ordinary_expansions_are_allowed(self):
         for command in [
+            "if [ -f Makefile ]; then sed -i 's/$(CC)/clang/' Makefile; fi",
+            "sed -i 's/$(CC)/clang/' Makefile && echo ${CC:-cc}",
+            "if [ -f a.log ]; then awk '{print $(NF)}' a.log; fi",
+            "unset CI; git commit -m 'docs: explain $(nproc) usage'",
             "sed -i 's/$(CC)/clang/' Makefile",
             'echo $((1+2))',
             'echo "$((1+2))"',

@@ -644,14 +644,16 @@ def _shell_eval_features(text):
             end = text.find('}', i + 2)
             if end < 0:
                 raise ValueError('参数展开未闭合')
-            runtime = runtime or any(ch in text[i + 2:end] for ch in '[:!')
+            # 普通变量的默认值运算符不做算术求值；默认值中的其他结构仍继续检查。
+            parameter = re.sub(r'^[A-Za-z_]\w*:-', '', text[i + 2:end], count=1)
+            runtime = runtime or any(ch in parameter for ch in '[:!')
         code.append(c)
         i += 1
     if quote is not None:
         raise ValueError('引号未闭合')
     outer = ''.join(code)
     visible = _mask_quotes(outer)
-    runtime = runtime or bool(re.search(r'\(\(|\b\w+\s*\[', visible))
+    runtime = runtime or bool(re.search(r'\(\(|\b\w+\[', visible))
     for segment in split_segments(outer):
         core = segment.lstrip('({ \t')
         if re.match(r'^\w+=', core) and ASSIGN.fullmatch(core):
@@ -668,8 +670,10 @@ def _shell_eval_features(text):
         if not words:
             continue
         head = SYS_BIN.sub('', words[0], count=1)
-        if head in ('eval', 'let', 'unset', 'bash', 'sh', 'dash', 'zsh', 'ksh'):
+        if head in ('eval', 'let', 'bash', 'sh', 'dash', 'zsh', 'ksh'):
             runtime = True
+        elif head == 'unset':
+            runtime = runtime or not words[1:] or any(not re.fullmatch(r'[A-Za-z_]\w*', word) for word in words[1:])
         elif head == '[[':
             runtime = runtime or any(word in ('-eq', '-ne', '-lt', '-le', '-gt', '-ge', '-v', '-R') for word in words[1:])
         elif head in ('declare', 'typeset', 'local', 'readonly'):
