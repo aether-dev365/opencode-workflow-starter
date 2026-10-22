@@ -119,6 +119,7 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     const problem = await configProblem(directory)
     if (problem) raw.system.push({ type: 'text', text: `工作流配置无效：${problem}。写入会被拒绝，先修复配置。` })
     const value = await state(raw.sessionID, directory)
+    const visible: string[] = []
     for (const instruction of value.scopes) {
       let text: string
       try { text = await readFile(instruction, 'utf8') } catch (error) {
@@ -126,11 +127,16 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
         value.scopes = value.scopes.filter(path => path !== instruction)
         continue
       }
-      if (!text.trim() || text.length > SCOPE_TEXT_LIMIT) throw new Error(`范围规则缺失或超过上限：${instruction}`)
+      if (!text.trim() || text.length > SCOPE_TEXT_LIMIT) {
+        // 不中断整轮上下文：模型需要这一轮来修复规则文件；修复前该领域保持不可见，写入继续被拒绝。
+        raw.system.push({ type: 'text', text: `领域规则 ${instruction} 为空或超过 ${SCOPE_TEXT_LIMIT} 字符，未注入；先修复该文件，再修改这个领域。` })
+        continue
+      }
       const block = `领域规则 ${instruction}\n${text}`
       if (!raw.system.some(part => part.type === 'text' && part.text.includes(text))) raw.system.push({ type: 'text', text: block })
+      visible.push(instruction)
     }
-    value.visible = [...value.scopes]
+    value.visible = visible
     await save(raw.sessionID, value)
   }))
   registrations.push(await ctx.session.hook('compaction', async raw => {

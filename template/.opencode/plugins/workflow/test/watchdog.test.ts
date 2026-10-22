@@ -16,3 +16,12 @@ test('idle work and long tools remind once and completion stops reminders', asyn
   await watcher.observe({ type: 'session.execution.succeeded', data: { sessionID: 'child' } })
   now += 1800001; await watcher.tick(); assert.equal(notices.length, 2)
 })
+
+test('deleted sessions are forgotten', async () => {
+  let lookups = 0
+  const watcher = createWatchdog({ stallMs: 600000, toolMs: 1800000, now: () => 0, lookup: async () => { lookups++; return { parentID: 'parent' } }, notify: async () => {} })
+  await watcher.observe({ type: 'session.execution.started', data: { sessionID: 'child' } })
+  await watcher.observe({ type: 'session.deleted', data: { sessionID: 'child' } })
+  await watcher.observe({ type: 'session.execution.started', data: { sessionID: 'child' } })
+  assert.equal(lookups, 2)
+})

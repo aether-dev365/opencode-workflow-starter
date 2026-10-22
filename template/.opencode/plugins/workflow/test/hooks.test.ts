@@ -124,3 +124,18 @@ test('PowerShell and cmd shells are refused with guidance', async () => {
     }
   } finally { await f.close() }
 })
+
+test('an oversized rule warns instead of breaking context assembly', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    await assert.rejects(f.fire('tool.execute.before', before('write', { path: 'src/file.ts' })), /上下文/)
+    await writeFile(join(f.root, 'src/AGENTS.md'), 'x'.repeat(40_001))
+    const model = context()
+    await f.fire('session.context', model)
+    assert.ok(model.system.some(part => part.text.includes('src/AGENTS.md') && part.text.includes('40000')))
+    assert.ok(!model.system.some(part => part.text.includes('x'.repeat(100))))
+    await assert.rejects(f.fire('tool.execute.before', before('write', { path: 'src/file.ts' })), /工作流配置无效/)
+    await f.fire('tool.execute.before', before('write', { path: 'src/AGENTS.md' }))
+  } finally { await f.close() }
+})

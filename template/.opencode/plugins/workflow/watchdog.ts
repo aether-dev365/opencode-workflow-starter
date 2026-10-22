@@ -29,12 +29,14 @@ export function createWatchdog(options: WatchdogOptions): {
     async observe(event) {
       const id = event.data?.sessionID
       if (!id || !event.type.startsWith('session.')) return
+      // 已删除的会话不再出现，释放记录，避免长期运行的后台服务持续占用内存。
+      if (/^session\.(deleted|removed)$/.test(event.type)) { sessions.delete(id); return }
       const value = await state(id)
       if (!value) return
       if (event.type === 'session.retry.scheduled') { value.error = event.data?.error; return }
       value.last = options.now(); value.event = event.type; value.warned = false
       if (event.type === 'session.execution.started') { value.busy = true; value.error = undefined }
-      if (/^session.execution.(succeeded|failed|interrupted)$/.test(event.type) || /^session.(deleted|removed)$/.test(event.type)) { value.busy = false; value.tools.clear() }
+      if (/^session.execution.(succeeded|failed|interrupted)$/.test(event.type)) { value.busy = false; value.tools.clear() }
       const tool = event.data?.id
       if (event.type === 'session.tool.called' && tool) value.tools.set(tool, { start: options.now(), warned: false })
       if ((event.type === 'session.tool.success' || event.type === 'session.tool.failed') && tool) value.tools.delete(tool)

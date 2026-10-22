@@ -4,7 +4,7 @@ import { writeFile, readFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fixture, load } from './fixture.ts'
 import { git, loadBatch } from '../review-batches.ts'
-import { runReview } from '../review.ts'
+import { runReview, resolveBase } from '../review.ts'
 
 export async function baseRepository() {
   const f = await fixture()
@@ -57,5 +57,16 @@ test('native review tools use execution context agent rather than an input asser
     const tool = f.tools.get('workflow_review_submit')
     assert.ok(tool)
     await assert.rejects(tool.execute({ batchId: 'any', taskId: 'any', verdict: 'pass', agent: 'reviewer' }, { agent: 'build', sessionID: 's' }), /reviewer/)
+  } finally { await f.close() }
+})
+
+test('the remote default branch identifies the fork point', async () => {
+  const f = await baseRepository()
+  try {
+    git(f.root, ['update-ref', 'refs/remotes/origin/develop', f.base])
+    git(f.root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop'])
+    await writeFile(join(f.root, 'tracked.txt'), 'changed on main\n')
+    git(f.root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qam', 'on main'])
+    assert.equal(resolveBase(f.root, undefined, git(f.root, ['rev-parse', 'HEAD'])), f.base)
   } finally { await f.close() }
 })

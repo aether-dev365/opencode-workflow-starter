@@ -16,7 +16,10 @@ export type ReviewInput = { action?: string; mode?: Mode; base?: string; head?: 
 
 export function resolveBase(root: string, base: string | undefined, head: string): string {
   if (base) return git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])
-  for (const ref of ['origin/main', 'origin/master', 'main', 'master']) {
+  // 先用远端默认分支（develop、trunk 等），再回退到常见名称。
+  let remoteDefault: string | undefined
+  try { remoteDefault = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']) } catch {}
+  for (const ref of [...(remoteDefault ? [remoteDefault] : []), 'origin/main', 'origin/master', 'main', 'master']) {
     try { return git(root, ['merge-base', ref, head]) } catch {}
   }
   throw new Error('无法确定分叉点，请显式提供 base')
