@@ -1,6 +1,7 @@
 import type { Plugin } from '@opencode/plugin'
-import { mkdtemp, mkdir, writeFile, rm, cp } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { mkdtemp, mkdir, writeFile, rm, cp, realpath } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -8,7 +9,10 @@ import { randomUUID } from 'node:crypto'
 const disposers = new WeakMap<Plugin.Context, Set<() => Promise<void>>>()
 
 export async function fixture() {
-  const root = await mkdtemp('/tmp/opencode/workflow-')
+  // 新机器上不存在 opencode 子目录；realpath 统一 macOS /private 前缀和 Windows 8.3 短路径。
+  const parent = join(tmpdir(), 'opencode')
+  await mkdir(parent, { recursive: true })
+  const root = await realpath(await mkdtemp(join(parent, 'workflow-')))
   execFileSync('git', ['-c', 'init.templateDir=', 'init', '-qb', 'main', root], {
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
   })
