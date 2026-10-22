@@ -120,9 +120,9 @@ class Installer(unittest.TestCase):
 
     def test_rebase_replays_are_not_reported(self):
         self.install()
-        self.repo.git('switch', '-q', '-c', 'topic'); self.repo.write('t.ts', '// Task 3\n'); self.repo.commit('topic')
-        self.repo.git('switch', '-q', 'main'); self.repo.write('m.ts', 'x\n'); self.repo.commit('main')
-        self.repo.git('switch', '-q', 'topic')
+        self.repo.git('checkout', '-q', '-b', 'topic'); self.repo.write('t.ts', '// Task 3\n'); self.repo.commit('topic')
+        self.repo.git('checkout', '-q', 'main'); self.repo.write('m.ts', 'x\n'); self.repo.commit('main')
+        self.repo.git('checkout', '-q', 'topic')
         self.assertNotIn(HEADER, self.commit_output('rebase', 'main'))
 
     def test_interpreter_below_310_is_skipped(self):

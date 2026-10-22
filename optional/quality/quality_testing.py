@@ -1,6 +1,7 @@
 """Isolated temporary repositories for the portable quality tests."""
 
 import importlib.util
+from functools import wraps
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,21 @@ from quality_lib import load_config
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = ('quality_lexer.py', 'quality_lib.py', 'review-comments.py', 'check-skips.py', 'run-hook.py', 'install-hooks.py')
-NEEDS_SYMLINK = unittest.skipIf(os.name == 'nt', '需要创建符号链接的权限')
+
+
+def needs_symlink(function, *, os_name=None):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except OSError as error:
+            if (os_name or os.name) == 'nt' and getattr(error, 'winerror', None) == 1314:
+                raise unittest.SkipTest('需要创建符号链接的权限') from None
+            raise
+    return wrapped
+
+
+NEEDS_SYMLINK = needs_symlink
 
 
 class TempRepo:
@@ -30,7 +45,8 @@ class TempRepo:
                         GIT_AUTHOR_NAME='example', GIT_COMMITTER_NAME='example',
                         GIT_AUTHOR_EMAIL='example@example.invalid', GIT_COMMITTER_EMAIL='example@example.invalid',
                         WORKFLOW_PYTHON=sys.executable, PYTHONIOENCODING='utf-8', PYTHONDONTWRITEBYTECODE='1')
-        self.git('init', '-q', '-b', 'main')
+        self.git('init', '-q')
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/main')
 
     def write(self, path: str, content: str | bytes) -> Path:
         file = self.root / path

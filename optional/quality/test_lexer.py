@@ -51,6 +51,16 @@ class CLikeComments(unittest.TestCase):
     def test_comment_text_has_no_carriage_return(self):
         self.assertTrue(all('\r' not in c.text for c in scan('a.ts', '// one\r\n/* two\r\n*/\r\n').comments))
 
+    def test_nested_template_literals_stay_data(self):
+        for text in ['const s = `outer ${`// Task 3`} tail`; // real\n',
+                     'const s = `outer ${`it.skip("x", fn)`} tail`; // real\n',
+                     'const s = `outer ${f({x: `inner ${"}"}`})} tail`; // real\n',
+                     'const s = `outer ${/}/.test(x) ? `// Task 3` : ""} tail`; // real\n']:
+            with self.subTest(text=text):
+                result = scan('a.ts', text)
+                self.assertEqual([(c.line, c.text) for c in result.comments], [(1, 'real')])
+                self.assertNotIn('it.skip', result.code)
+
 
 class CodeMask(unittest.TestCase):
     def test_code_keeps_layout_and_blanks_comments_and_string_contents(self):
@@ -90,6 +100,31 @@ class HashComments(unittest.TestCase):
     def test_heredoc_body_is_blank_code(self):
         self.assertNotIn('rm -rf', scan('a.sh', "cat <<'EOF'\nrm -rf x\nEOF\n").code)
 
+    def test_here_strings_do_not_consume_later_lines(self):
+        self.assertEqual(comments('a.sh', 'cat <<<"hello"\n# Task 4\n'), [(2, 'Task 4')])
+
+    def test_heredoc_delimiters_can_contain_punctuation_and_quotes(self):
+        for word in ['EOF.data', "'EOF'.data", '"EOF.data"', r'EOF\.data']:
+            with self.subTest(word=word):
+                text = 'cat <<' + word + '\n# data\nEOF.data\n# real\n'
+                self.assertEqual(comments('a.sh', text), [(4, 'real')])
+
+    def test_multiline_strings_remain_data(self):
+        for path in ['a.rb', 'a.php']:
+            with self.subTest(path=path):
+                result = scan(path, 'value = "data\n# Task 3\nskip\n"\n# real\n')
+                self.assertEqual([(c.line, c.text) for c in result.comments], [(5, 'real')])
+                self.assertNotIn('skip', result.code)
+
+    def test_yaml_block_scalars_remain_data(self):
+        for marker in ['|', '>', '|-', '>+', '|2', '|2-']:
+            with self.subTest(marker=marker):
+                text = 'script: ' + marker + ' # header\n  # Task 3\n  it.skip("data")\n\n# real\nnext: 1\n'
+                result = scan('a.yaml', text)
+                self.assertEqual([(c.line, c.text) for c in result.comments], [(1, 'header'), (5, 'real')])
+                self.assertNotIn('it.skip', result.code)
+        self.assertEqual(comments('a.yaml', '- text: |\n    # data\n  value: 1 # real\n'), [(3, 'real')])
+
 
 class Docstrings(unittest.TestCase):
     def test_python_docstrings_are_comments(self):
@@ -116,3 +151,20 @@ class TestTitles(unittest.TestCase):
         for path, text, expected in self.CASES:
             with self.subTest(path=path, text=text):
                 self.assertEqual([(c.line, c.text) for c in test_titles(path, text)], expected)
+
+    def test_multiline_titles_keep_physical_lines(self):
+        cases = [
+            ('a.test.ts', 'it(`works\nTask 3`, fn)', [(1, 'works'), (2, 'Task 3')]),
+            ('a.test.ts', 'it("works\\\nTask 3", fn)', [(1, 'works\\'), (2, 'Task 3')]),
+            ('a_test.dart', 'test("""works\nTask 3""", fn)', [(1, 'works'), (2, 'Task 3')]),
+            ('a_test.dart', "test(r'''Task 3''', fn)", [(1, 'Task 3')]),
+            ('a_test.go', 't.Run(`works\nTask 3`, fn)', [(1, 'works'), (2, 'Task 3')]),
+        ]
+        for path, text, expected in cases:
+            with self.subTest(path=path, text=text):
+                self.assertEqual([(c.line, c.text) for c in test_titles(path, text)], expected)
+
+    def test_computed_title_arguments_are_not_literals(self):
+        for text in ['it("Task 3" + suffix, fn)', 'it("Task 3".trim(), fn)', 'it(`Task 3` + suffix, fn)']:
+            with self.subTest(text=text):
+                self.assertEqual(test_titles('a.test.ts', text), [])

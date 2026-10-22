@@ -1,7 +1,9 @@
 import time
+import subprocess
+import sys
 import unittest
 from quality_lib import default_config
-from quality_testing import TempRepo, config_from, load_script
+from quality_testing import HERE, TempRepo, config_from, load_script
 
 module = load_script('review-comments.py')
 
@@ -65,6 +67,10 @@ class Rules(unittest.TestCase):
     def test_crlf_lines_keep_their_numbers(self):
         self.assertEqual(rules('a.ts', '// ok\r\n// Task 3\r\n'), [(2, 'tracking')])
 
+    def test_multiline_title_only_reports_the_changed_physical_line(self):
+        findings = module.review('a.test.ts', 'it(`works\nTask 3`, fn)', frozenset({2}), default_config())
+        self.assertEqual([(f.line, f.rule) for f in findings], [(2, 'tracking')])
+
     def test_disabled_categories_and_extra_rules(self):
         config = config_from({'version': 1, 'comments': {'disable': ['tracking'], 'extraRules': [
             {'id': 'jira', 'pattern': r'\b[A-Z][A-Z0-9]+-\d+\b', 'message': 'JIRA 编号：写进提交说明'}]}})
@@ -75,6 +81,15 @@ class Rules(unittest.TestCase):
         start = time.monotonic()
         module.review('a.ts', '// ' + '2026-10-22 起 ' * 20000 + '\n', None, default_config())
         self.assertLess(time.monotonic() - start, 5)
+
+    def test_a_long_unbroken_comment_finishes_quickly(self):
+        source = ('from quality_testing import load_script\nfrom quality_lib import default_config\n'
+                  'load_script("review-comments.py").review("a.ts", "// " + "x" * 260000, None, default_config())\n')
+        try:
+            result = subprocess.run([sys.executable, '-B', '-c', source], cwd=HERE, capture_output=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail('连续长注释超过 5 秒仍未完成')
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
 
 
 class CommandLine(unittest.TestCase):

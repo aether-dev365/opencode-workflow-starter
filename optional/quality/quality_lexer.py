@@ -5,6 +5,7 @@ import ast
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
+import shlex
 
 
 JS = set('.js .mjs .cjs .jsx .ts .tsx .mts .cts'.split())
@@ -53,6 +54,108 @@ def _literal_end(text, start, quote, escape=True, multiline=False, doubled=False
     return len(text), len(text)
 
 
+def _regex_start(text, start):
+    i = start - 1
+    while i >= 0 and text[i].isspace():
+        if text[i] == '\n':
+            return True
+        i -= 1
+    return i < 0 or text[i] in '(,=:[!&|?{};' or (text[max(0, i - 5):i + 1] == 'return'
+                                                and (i < 6 or not (text[i - 6].isalnum() or text[i - 6] in '_$')))
+
+
+def _regex_end(text, start):
+    i, bracket = start + 1, False
+    while i < len(text) and text[i] not in '\r\n':
+        if text[i] == '\\':
+            i += 2
+            continue
+        if text[i] == '[':
+            bracket = True
+        elif text[i] == ']':
+            bracket = False
+        elif text[i] == '/' and not bracket:
+            return i + 1
+        i += 1
+    return min(i, len(text))
+
+
+def _template_end(text, start):
+    stack = [0]
+    i = start + 1
+    while i < len(text):
+        if stack[-1] == 0:
+            if text[i] == '\\':
+                i += 2
+                continue
+            if text[i] == '`':
+                stack.pop()
+                if not stack:
+                    return i, i + 1
+            elif text.startswith('${', i):
+                stack.append(1)
+                i += 2
+                continue
+        else:
+            if text[i] == '`':
+                stack.append(0)
+            elif text[i] in '\"\'':
+                _, i = _literal_end(text, i, text[i])
+                continue
+            elif text.startswith('//', i):
+                end = text.find('\n', i + 2)
+                i = len(text) if end < 0 else end
+                continue
+            elif text.startswith('/*', i):
+                end = text.find('*/', i + 2)
+                i = len(text) if end < 0 else end + 2
+                continue
+            elif text[i] == '/' and _regex_start(text, i):
+                i = _regex_end(text, i)
+                continue
+            elif text[i] == '{':
+                stack[-1] += 1
+            elif text[i] == '}':
+                stack[-1] -= 1
+                if stack[-1] == 0:
+                    stack.pop()
+        i += 1
+    return len(text), len(text)
+
+
+def _yaml_data(text):
+    lines = text.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    spans = {}
+    i = 0
+    while i < len(lines):
+        header = re.fullmatch(r'( *)(?:-\s+)?(?:[^#\r\n]+?:[ \t]+)?[|>]([1-9+-]{0,2})[ \t]*(?:#[^\r\n]*)?\r?\n?', lines[i])
+        if not header:
+            i += 1
+            continue
+        base = len(header[1])
+        indicator = re.search('[1-9]', header[2])
+        minimum = base + int(indicator[0]) if indicator else None
+        j = i + 1
+        while j < len(lines):
+            line = lines[j]
+            if line.strip():
+                indent = len(line) - len(line.lstrip(' '))
+                if minimum is None:
+                    if indent <= base:
+                        break
+                    minimum = indent
+                if indent < minimum:
+                    break
+            j += 1
+        if j > i + 1:
+            spans[offsets[i + 1]] = offsets[j]
+        i = j
+    return spans
+
+
 def scan(path: str, text: str) -> Scan:
     kind = family(path)
     if kind is None:
@@ -62,6 +165,7 @@ def scan(path: str, text: str) -> Scan:
     found = []
     shell = ext in {'.sh', '.bash', '.zsh', '.bats', '.mk'} or PurePosixPath(path).name == 'Makefile'
     heredocs = []
+    data = _yaml_data(text) if ext in {'.yaml', '.yml'} else {}
     newlines = [i for i, ch in enumerate(text) if ch == '\n']
 
     def blank(start, end):
@@ -80,6 +184,11 @@ def scan(path: str, text: str) -> Scan:
 
     i = 0
     while i < len(text):
+        if i in data:
+            end = data[i]
+            blank(i, end)
+            i = end
+            continue
         if shell and text[i] == '\n' and heredocs:
             i += 1
             for delimiter, tabs in heredocs:
@@ -94,10 +203,13 @@ def scan(path: str, text: str) -> Scan:
                 blank(start, i)
             heredocs.clear()
             continue
-        if shell and text.startswith('<<', i) and not text.startswith('<<<', i):
-            doc = re.match(r'''<<(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|([\w]+))''', text[i:])
+        if shell and text.startswith('<<<', i):
+            i += 3
+            continue
+        if shell and text.startswith('<<', i):
+            doc = re.match(r'''<<(-?)[ \t]*((?:'[^'\n]*'|"[^"\n]*"|\\[^\n]|[^\s<>|;&()\\'"])+)''', text[i:])
             if doc:
-                heredocs.append((doc[2] or doc[3] or doc[4], bool(doc[1])))
+                heredocs.append((shlex.split(doc[2])[0], bool(doc[1])))
                 blank(i, i + doc.end())
                 i += doc.end()
                 continue
@@ -185,26 +297,17 @@ def scan(path: str, text: str) -> Scan:
             blank(i + 2, end)
             i = stop
             continue
-        if ext in JS and text[i] == '/':
-            before = text[:i].rstrip()
-            if not before or before[-1] in '(,=:[!&|?{};' or re.search(r'\breturn$', before):
-                j, bracket = i + 1, False
-                while j < len(text) and text[j] not in '\r\n':
-                    if text[j] == '\\':
-                        j += 2
-                        continue
-                    if text[j] == '[':
-                        bracket = True
-                    elif text[j] == ']':
-                        bracket = False
-                    elif text[j] == '/' and not bracket:
-                        j += 1
-                        break
-                    j += 1
-                blank(i, min(j, len(text)))
-                i = j
-                continue
+        if ext in JS and text[i] == '/' and _regex_start(text, i):
+            end = _regex_end(text, i)
+            blank(i, end)
+            i = end
+            continue
         quote = text[i]
+        if quote == '`' and ext in JS:
+            end, stop = _template_end(text, i)
+            blank(i + 1, end)
+            i = stop
+            continue
         if quote in '\"\'' or (quote == '`' and ext in JS | {'.go'}):
             if quote == "'" and ext in CHARS and not re.match(r"'(?:[^'\\\r\n]|\\(?:u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|x[0-9a-fA-F]{2}|.))'", text[i:]):
                 i += 1
@@ -217,7 +320,7 @@ def scan(path: str, text: str) -> Scan:
                 escape = False
             if ext in {'.ps1', '.psm1'}:
                 escape = 'backtick' if quote == '"' else False
-            end, stop = _literal_end(text, i, quote, escape, triple or quote == '`' or kind == 'sql' or shell,
+            end, stop = _literal_end(text, i, quote, escape, triple or quote == '`' or kind == 'sql' or shell or ext in {'.rb', '.php'},
                                      kind == 'sql' or (ext in {'.ps1', '.psm1'} and quote == "'"))
             blank(i + len(quote), end)
             i = stop
@@ -259,11 +362,25 @@ def test_titles(path: str, text: str) -> list[Comment]:
     titles = []
     for match in re.finditer(pattern, code):
         start = match.end()
+        raw = ext == '.dart' and text[start:start + 1] == 'r'
+        if raw:
+            start += 1
         if start >= len(text) or text[start] not in '\"\'`':
             continue
         quote = text[start]
-        end, stop = _literal_end(text, start, quote)
+        triple = ext in {'.dart', '.java', '.kt', '.kts'} and text.startswith(quote * 3, start)
+        quote = quote * 3 if triple else quote
+        if quote == '`' and ext in JS:
+            end, stop = _template_end(text, start)
+        else:
+            end, stop = _literal_end(text, start, quote, not raw and ext != '.go', triple or quote == '`')
         if stop == end or (quote == '`' and '${' in text[start:end]):
             continue
-        titles.append(Comment(text.count('\n', 0, start) + 1, text[start + 1:end]))
+        if not re.match(r'\s*[,)]', code[stop:]):
+            continue
+        first = text.count('\n', 0, start) + 1
+        for offset, value in enumerate(text[start + len(quote):end].split('\n')):
+            value = value.rstrip('\r')
+            if value.strip():
+                titles.append(Comment(first + offset, value))
     return titles

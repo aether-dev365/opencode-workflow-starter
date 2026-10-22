@@ -178,7 +178,9 @@ def repo_root(cwd: Path) -> Path:
 
 
 def _revision(root, rev):
-    return git_bytes(root, 'rev-parse', '--verify', '--end-of-options', rev + '^{commit}', reason='修订号无效').decode('ascii').strip()
+    if not isinstance(rev, str) or not rev or rev.startswith('-'):
+        raise Incomplete('修订号无效')
+    return git_bytes(root, 'rev-parse', '--verify', rev + '^{commit}', reason='修订号无效').decode('ascii').strip()
 
 
 def collect(root: Path, mode: Mode) -> Changes:
@@ -212,7 +214,7 @@ def collect(root: Path, mode: Mode) -> Changes:
     else:
         raise Incomplete('修订号无效')
     common = ['-M', '--no-color', '--no-ext-diff', '--no-textconv']
-    records = git_bytes(root, *command, *common, '--raw', '-z').split(b'\0')
+    records = git_bytes(root, *command, *common, '--raw', '--no-abbrev', '-z').split(b'\0')
     targets = []
     i = 0
     while i < len(records) and records[i]:
@@ -223,7 +225,11 @@ def collect(root: Path, mode: Mode) -> Changes:
         i += 3 if status in {b'R', b'C'} else 2
         if status not in {b'A', b'M', b'R', b'C', b'T'} or header[1] not in {b'100644', b'100755'}:
             continue
-        patch = git_bytes(root, *command, *common, '-p', '-U0', '--', *dict.fromkeys([old, new]))
+        if status in {b'R', b'C'}:
+            # 直接比较已识别改名的两个 blob，避免旧路径现在是目录时混入其他文件。
+            patch = git_bytes(root, 'diff', *common, '-p', '-U0', header[2].decode('ascii'), header[3].decode('ascii'))
+        else:
+            patch = git_bytes(root, *command, *common, '-p', '-U0', '--', new)
         lines = set()
         for match in re.finditer(rb'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', patch, re.M):
             start = int(match[1])

@@ -15,7 +15,7 @@ ACTION = (r'(?:修复|修改|改为|改成|新增|增加|删除|移除|更新|�
 MODEL = r'(?:AI|ChatGPT|GPT(?:[- ]?\d+(?:\.\d+)*)?|Claude|Copilot|Gemini|Codex|OpenCode|LLM)'
 RULES = [
     ('document', re.compile(
-        r'[^\s]+\.(?:mdx?|rst|adoc)\b(?:#[^\s]*)?|\bREADME\b|'
+        r'(?<!\S)\S+\.(?:mdx?|rst|adoc)\b(?:#[^\s]*)?|\bREADME\b|'
         r'(?:详见|参见|参考|见)\s*[:：]?\s*(?:docs/|doc/|spec|wiki|设计|文档|手册)|'
         r'\b(?:see|refer to)\s+(?:the\s+)?(?:docs|documentation|spec|design doc|wiki)\b|\[\[[^\n]*?\]\]', re.I),
      '文档引用：改为直接写出规则和原因'),

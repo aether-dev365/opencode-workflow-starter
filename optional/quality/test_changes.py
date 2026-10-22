@@ -41,6 +41,21 @@ class Collect(unittest.TestCase):
         r.git('mv', 'b.ts', 'c.ts'); r.commit()
         self.assertEqual(added(collect(r.root, ('commit', 'HEAD'))), {})
 
+    def test_rename_hunks_are_not_mixed_with_a_replacement_directory(self):
+        r = self.repo
+        r.write('a.ts', '// Task 3\n// keep one\n// keep two\n// keep three\n')
+        base = r.commit()
+        r.git('mv', 'a.ts', 'b.ts')
+        r.write('b.ts', '// Task 3\n// keep one\n// changed\n// keep three\n')
+        r.write('a.ts/new.ts', 'new one\nnew two\nnew three\nnew four\n')
+        r.git('add', '-A')
+        self.assertRegex(r.git('diff', '--cached', '--name-status', '-M').stdout, r'R\d+\s+a.ts\s+b.ts')
+        self.assertEqual(added(collect(r.root, ('staged', None)))['b.ts'], [3])
+        r.commit(add=False)
+        for mode in [('commit', 'HEAD'), ('range', base + '..HEAD')]:
+            with self.subTest(mode=mode):
+                self.assertEqual(added(collect(r.root, mode))['b.ts'], [3])
+
     def test_deleted_binary_and_gitlink_entries_are_ignored(self):
         r = self.repo
         r.write('a.ts', 'x\n'); head = r.commit()
@@ -60,8 +75,8 @@ class Collect(unittest.TestCase):
     def test_merge_commit_is_marked(self):
         r = self.repo
         r.write('a.ts', 'x\n'); r.commit()
-        r.git('switch', '-q', '-c', 'side'); r.write('a.ts', 'side\n'); r.commit()
-        r.git('switch', '-q', 'main'); r.write('a.ts', 'main\n'); r.commit()
+        r.git('checkout', '-q', '-b', 'side'); r.write('a.ts', 'side\n'); r.commit()
+        r.git('checkout', '-q', 'main'); r.write('a.ts', 'main\n'); r.commit()
         r.git('merge', '-q', 'side', check=False); r.write('a.ts', 'merged\n'); r.commit('merge')
         self.assertTrue(collect(r.root, ('commit', 'HEAD')).merge)
 
@@ -76,8 +91,8 @@ class Collect(unittest.TestCase):
     def test_range_mode_uses_merge_base(self):
         r = self.repo
         r.write('a.ts', '1\n'); r.commit()
-        r.git('switch', '-q', '-c', 'feature'); r.write('a.ts', '1\nfeature\n'); r.commit()
-        r.git('switch', '-q', 'main'); r.write('b.ts', 'main only\n'); r.commit()
+        r.git('checkout', '-q', '-b', 'feature'); r.write('a.ts', '1\nfeature\n'); r.commit()
+        r.git('checkout', '-q', 'main'); r.write('b.ts', 'main only\n'); r.commit()
         changes = collect(r.root, ('range', 'main..feature'))
         self.assertEqual(added(changes), {'a.ts': [2]})
         self.assertEqual(changes.targets[0].read(), b'1\nfeature\n')
@@ -146,8 +161,8 @@ class Driver(unittest.TestCase):
     def test_merge_commit_prints_a_single_line(self):
         r = self.repo
         r.write('a.ts', 'x\n'); r.commit()
-        r.git('switch', '-q', '-c', 'side'); r.write('a.ts', 'side\n'); r.commit()
-        r.git('switch', '-q', 'main'); r.write('a.ts', 'main\n'); r.commit()
+        r.git('checkout', '-q', '-b', 'side'); r.write('a.ts', 'side\n'); r.commit()
+        r.git('checkout', '-q', 'main'); r.write('a.ts', 'main\n'); r.commit()
         r.git('merge', '-q', 'side', check=False); r.write('a.ts', 'FLAG\n'); r.commit('merge')
         self.assertEqual(self.run_main([]), (0, ['演示检查：合并提交不检查。'], []))
 
