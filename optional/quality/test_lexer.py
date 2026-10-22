@@ -1,5 +1,6 @@
 import unittest
 from quality_lexer import family, scan
+from quality_lexer import test_titles
 
 
 def comments(path, text):
@@ -60,3 +61,58 @@ class CodeMask(unittest.TestCase):
         self.assertIn('it.skip("', code)
         for value in ['it.only', 'fit(', 'x y']:
             self.assertNotIn(value, code)
+
+
+class HashComments(unittest.TestCase):
+    CASES = [
+        ('a.sh', "echo \"#no\" '#no' a#b ${#x} $# # yes\n", [(1, 'yes')]),
+        ('a.sh', "cat <<'EOF'\n# data\nEOF\n# yes\n", [(4, 'yes')]),
+        ('a.sh', 'cat <<-EOF\n\t# data\n\tEOF\n# yes\n', [(4, 'yes')]),
+        ('Makefile', 'all:\n\techo a#b # yes\n', [(2, 'yes')]),
+        ('a.yaml', 'key: a#b # yes\nurl: "http://x#frag"\n', [(1, 'yes')]),
+        ('a.py', 'x = "#no"  # yes\ns = """\n# in string\n"""\n', [(1, 'yes')]),
+        ('a.rb', '=begin\nblock\n=end\nputs "a#{b}" # yes\n', [(2, 'block'), (4, 'yes')]),
+        ('a.ps1', "<# block #>\n$a = 'it''s' # yes\n", [(1, 'block'), (2, 'yes')]),
+        ('a.ps1', "$a = @'\n# data\n'@\n# yes\n", [(4, 'yes')]),
+        ('Dockerfile', 'RUN echo a # not comment\n# yes\n', [(2, 'yes')]),
+        ('a.ini', '; yes\nkey = a;b\n', [(1, 'yes')]),
+        ('a.properties', '! yes\nkey=a!b\n', [(1, 'yes')]),
+        ('a.tf', '# one\n// two\n/* three */\n', [(1, 'one'), (2, 'two'), (3, 'three')]),
+        ('.env.example', '# yes\nKEY=a#b\n', [(1, 'yes')]),
+        ('a.toml', 'k = "a#b" # data\n# yes\n', [(2, 'yes')]),
+    ]
+
+    def test_hash_comments_follow_each_language(self):
+        for path, text, expected in self.CASES:
+            with self.subTest(path=path, text=text):
+                self.assertEqual(comments(path, text), expected)
+
+    def test_heredoc_body_is_blank_code(self):
+        self.assertNotIn('rm -rf', scan('a.sh', "cat <<'EOF'\nrm -rf x\nEOF\n").code)
+
+
+class Docstrings(unittest.TestCase):
+    def test_python_docstrings_are_comments(self):
+        text = '"""Module doc."""\ndef f():\n    """Line one.\n    Line two.\n    """\n    return 1\n'
+        self.assertEqual(comments('a.py', text), [(1, 'Module doc.'), (3, 'Line one.'), (4, 'Line two.')])
+
+    def test_unparsable_python_keeps_hash_comments(self):
+        self.assertEqual(comments('bad.py', 'def f(:\n    # yes\n'), [(2, 'yes')])
+
+
+class TestTitles(unittest.TestCase):
+    CASES = [
+        ('a.test.ts', "describe('suite title', () => {\n  it.only(\"case title\", () => {})\n})\n", [(1, 'suite title'), (2, 'case title')]),
+        ('a.ts', "if (/x/.test('Task 3')) {}\n", []),
+        ('a.ts', 'it(`with ${x}`, () => {})\n', []),
+        ('a.ts', "// it('commented', () => {})\n", []),
+        ('A.java', '@DisplayName("bug #12 regression")\n', [(1, 'bug #12 regression')]),
+        ('a_test.go', 't.Run("FR-001 case", func(t *testing.T) {})\n', [(1, 'FR-001 case')]),
+        ('a_test.dart', "testWidgets('renders', (t) async {})\n", [(1, 'renders')]),
+        ('a.py', 'def test_x():\n    pass\n', []),
+    ]
+
+    def test_titles_come_from_string_literals_in_code(self):
+        for path, text, expected in self.CASES:
+            with self.subTest(path=path, text=text):
+                self.assertEqual([(c.line, c.text) for c in test_titles(path, text)], expected)

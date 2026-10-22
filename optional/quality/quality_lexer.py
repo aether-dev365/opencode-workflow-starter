@@ -1,6 +1,7 @@
 """Separate source comments and literals while preserving physical positions."""
 
 from bisect import bisect_left
+import ast
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
@@ -59,6 +60,8 @@ def scan(path: str, text: str) -> Scan:
     ext = PurePosixPath(path).suffix.lower()
     code = list(text)
     found = []
+    shell = ext in {'.sh', '.bash', '.zsh', '.bats', '.mk'} or PurePosixPath(path).name == 'Makefile'
+    heredocs = []
     newlines = [i for i, ch in enumerate(text) if ch == '\n']
 
     def blank(start, end):
@@ -77,6 +80,40 @@ def scan(path: str, text: str) -> Scan:
 
     i = 0
     while i < len(text):
+        if shell and text[i] == '\n' and heredocs:
+            i += 1
+            for delimiter, tabs in heredocs:
+                start = i
+                while i < len(text):
+                    end = text.find('\n', i)
+                    end = len(text) if end < 0 else end
+                    line = text[i:end].rstrip('\r')
+                    i = min(end + 1, len(text))
+                    if (line.lstrip('\t') if tabs else line) == delimiter:
+                        break
+                blank(start, i)
+            heredocs.clear()
+            continue
+        if shell and text.startswith('<<', i) and not text.startswith('<<<', i):
+            doc = re.match(r'''<<(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|([\w]+))''', text[i:])
+            if doc:
+                heredocs.append((doc[2] or doc[3] or doc[4], bool(doc[1])))
+                blank(i, i + doc.end())
+                i += doc.end()
+                continue
+        if ext in {'.ps1', '.psm1'} and text[i:i + 2] in {"@'", '@"'}:
+            quote = text[i + 1]
+            ending = re.search(r'(?m)^' + re.escape(quote) + r'@', text[i + 2:])
+            stop = i + 2 + ending.end() if ending else len(text)
+            blank(i, stop)
+            i = stop
+            continue
+        if ext == '.rb' and (i == 0 or text[i - 1] == '\n') and re.match(r'=begin\b', text[i:]):
+            end = re.search(r'(?m)^=end\b[^\n]*', text[i + 6:])
+            body_end = i + 6 + end.start() if end else len(text)
+            stop = i + 6 + end.end() if end else len(text)
+            i = comment(i, i + 6, body_end, stop)
+            continue
         if kind == 'markup':
             if text.startswith('<!--', i):
                 end = text.find('-->', i + 4)
@@ -103,20 +140,30 @@ def scan(path: str, text: str) -> Scan:
             continue
 
         block_end = None
-        if text.startswith('/*', i) and kind in {'c', 'css', 'sql'}:
+        if text.startswith('/*', i) and (kind in {'c', 'css', 'sql'} or ext in {'.tf', '.hcl'}):
             block_end = '*/'
+        elif text.startswith('<#', i) and ext in {'.ps1', '.psm1'}:
+            block_end = '#>'
         if block_end:
             end = text.find(block_end, i + 2)
             end = len(text) if end < 0 else end
             i = comment(i, i + 2, end, min(end + 2, len(text)))
             continue
         line_size = 0
-        if kind == 'c' and text.startswith('//', i) and not (ext in {'.scss', '.less'} and i > 0 and text[i - 1] == ':'):
+        if (kind == 'c' or ext in {'.tf', '.hcl'}) and text.startswith('//', i) and not (ext in {'.scss', '.less'} and i > 0 and text[i - 1] == ':'):
             line_size = 2
         elif kind == 'sql' and text.startswith('--', i) and (i + 2 == len(text) or text[i + 2].isspace()):
             line_size = 2
         elif ext == '.php' and text[i] == '#' and not text.startswith('#[', i):
             line_size = 1
+        elif kind == 'hash' and text[i] in '#;!':
+            name = PurePosixPath(path).name
+            head_only = ext in {'.toml', '.ini', '.properties', '.conf', '.cfg', '.dockerfile'} or name == '.env.example' or name == 'Dockerfile' or name.startswith('Dockerfile.')
+            token_only = shell or ext in {'.yaml', '.yml'} or name == '.env.example'
+            valid_symbol = text[i] == '#' or (ext == '.ini' and text[i] == ';') or (ext == '.properties' and text[i] == '!')
+            line_start = text.rfind('\n', 0, i) + 1
+            if valid_symbol and (not head_only or not text[line_start:i].strip()) and (not token_only or i == 0 or text[i - 1].isspace() or text[i - 1] in ';|&('):
+                line_size = 1
         if line_size:
             end = text.find('\n', i)
             end = len(text) if end < 0 else end
@@ -162,12 +209,61 @@ def scan(path: str, text: str) -> Scan:
             if quote == "'" and ext in CHARS and not re.match(r"'(?:[^'\\\r\n]|\\(?:u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|x[0-9a-fA-F]{2}|.))'", text[i:]):
                 i += 1
                 continue
-            triple = ext in {'.kt', '.kts', '.java', '.swift', '.dart', '.scala'} and text.startswith(quote * 3, i)
+            triple = ext in {'.kt', '.kts', '.java', '.swift', '.dart', '.scala', '.py', '.pyi', '.toml'} and text.startswith(quote * 3, i)
             quote = quote * 3 if triple else quote
             raw = ext == '.go' or (ext == '.dart' and i > 0 and text[i - 1] == 'r')
-            end, stop = _literal_end(text, i, quote, not raw, triple or quote == '`' or kind == 'sql', kind == 'sql')
+            escape = not raw
+            if shell and quote == "'" and not (i > 0 and text[i - 1] == '$'):
+                escape = False
+            if ext in {'.ps1', '.psm1'}:
+                escape = 'backtick' if quote == '"' else False
+            end, stop = _literal_end(text, i, quote, escape, triple or quote == '`' or kind == 'sql' or shell,
+                                     kind == 'sql' or (ext in {'.ps1', '.psm1'} and quote == "'"))
             blank(i + len(quote), end)
             i = stop
             continue
         i += 1
+    if ext in {'.py', '.pyi'}:
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree:
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) or not node.body:
+                    continue
+                first = node.body[0]
+                if not isinstance(first, ast.Expr) or not isinstance(first.value, ast.Constant) or not isinstance(first.value.value, str):
+                    continue
+                source = ast.get_source_segment(text, first.value)
+                opening = re.match(r'''(?i)[rubf]*("""|''' + "'''" + r'''|"|')''', source)
+                if opening:
+                    body = source[opening.end():-len(opening[1])]
+                    for n, value in enumerate(body.split('\n'), first.lineno):
+                        if value.strip():
+                            found.append(Comment(n, value.strip()))
     return Scan(sorted(found, key=lambda c: c.line), ''.join(code))
+
+
+def test_titles(path: str, text: str) -> list[Comment]:
+    ext = PurePosixPath(path).suffix.lower()
+    if ext in JS | {'.dart'}:
+        pattern = r'(?<![\w.$])(?:describe|it|test|context|suite|specify|group|testWidgets)(?:\.(?:only|skip))?\s*\(\s*'
+    elif ext in {'.java', '.kt', '.kts'}:
+        pattern = r'@DisplayName\(\s*'
+    elif ext == '.go':
+        pattern = r'\bt\.Run\(\s*'
+    else:
+        return []
+    code = scan(path, text).code
+    titles = []
+    for match in re.finditer(pattern, code):
+        start = match.end()
+        if start >= len(text) or text[start] not in '\"\'`':
+            continue
+        quote = text[start]
+        end, stop = _literal_end(text, start, quote)
+        if stop == end or (quote == '`' and '${' in text[start:end]):
+            continue
+        titles.append(Comment(text.count('\n', 0, start) + 1, text[start + 1:end]))
+    return titles
