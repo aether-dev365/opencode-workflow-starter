@@ -7,6 +7,7 @@
 ### 新增
 
 - MIT 许可证（仓库根目录与 `template/.opencode/LICENSE`）、安全策略、贡献指南和本变更记录。
+- 维护本套件的协作约定 `AGENTS.md`；`CLAUDE.md` 只引用它，供 Claude Code 读取同一份规则。
 - 接入准备脚本 `scripts/workflow/setup.mjs`：检查前置工具，安装插件依赖和固定版 Gitleaks，检测 OpenCode 并运行 doctor。OpenCode 缺失时可选择经 npm 安装 CLI 验收版本或查看 Desktop 下载入口（交互输入，或 `--opencode cli|desktop|skip`）；已有的 V1 或其他 V2 版本不会被替换。
 - GitHub Actions CI：Linux（Python 3.10）与 macOS（Apple Silicon）跑全量验收，含 OpenCode 原生测试；Windows 在 PowerShell 中跑 `node scripts/verify.mjs --windows` 子集；action 固定到提交 SHA，权限为只读，失败时上传验证日志。
 - macOS（Apple Silicon）完成原生验收。

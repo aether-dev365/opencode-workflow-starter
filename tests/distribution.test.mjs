@@ -5,7 +5,7 @@ import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
 
-const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md']
+const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'AGENTS.md']
 
 function files(path) {
   return readdirSync(path, { withFileTypes: true }).filter(e => !['node_modules', '__pycache__', '.state'].includes(e.name)).flatMap(e => e.isDirectory() ? files(join(path, e.name)) : [join(path, e.name)])
@@ -14,6 +14,8 @@ const tracked = () => execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8'
 
 test('public entrypoints and relative documentation links resolve within the deliverable', () => {
   for (const path of [...entrypoints, 'LICENSE', 'examples/adoption-report.md', 'optional/production/mcp-readonly.example.jsonc']) assert.ok(existsSync(path), path)
+  // Claude Code 读 CLAUDE.md：它只引用 AGENTS.md，规则只维护一份。
+  assert.equal(readFileSync('CLAUDE.md', 'utf8').trim(), '@AGENTS.md')
   for (const path of [...files('template'), ...files('optional'), ...files('examples'), ...entrypoints].filter(p => p.endsWith('.md'))) {
     const text = readFileSync(path, 'utf8')
     for (const [, link] of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
