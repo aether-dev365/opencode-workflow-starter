@@ -187,6 +187,19 @@ test('a recursive delete approved by the tool hook is checked again when the she
   } finally { await f.close() }
 })
 
+test('shell redirects that write files load domain rules and stop on an invalid configuration', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    const write = () => before('shell', { command: 'echo hi > src/file.ts', workdir: f.root })
+    await assert.rejects(f.fire('tool.execute.before', write()), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', write())
+    await staleMapping(f.root)
+    await assert.rejects(f.fire('tool.execute.before', write()), /工作流配置无效/)
+  } finally { await f.close() }
+})
+
 test('reviewer sessions may only read and submit verdicts', async () => {
   const f = await fixture()
   try {

@@ -73,6 +73,15 @@ class RunChecks(unittest.TestCase):
         self.assertEqual((code, result['decision'], result['inspect']['readonly']), (0, 'allow', True))
         self.assertNotIn('input', result)
 
+    def test_file_redirects_are_not_reported_readonly(self):
+        # 插件按只读分类决定是否先加载领域规则、是否检查配置；落盘的重定向和 heredoc 都在写文件。
+        for command, readonly in [('> src/x', False), ('echo hi > src/x', False), ('ls >> notes.txt', False),
+                                  ("cat > src/new.ts <<'EOF'\nx\nEOF", False),
+                                  ('echo hi >/dev/null 2>&1', True), ('ls -la 2>&1 | head -n 3', True)]:
+            with self.subTest(command=command):
+                code, result = self.run_script('run-checks.py', {**self.event(command), 'checks': ALL})
+                self.assertEqual((code, result['decision'], result['inspect']['readonly']), (0, 'allow', readonly))
+
     def test_unknown_or_missing_check_names_are_denied(self):
         for checks in [['rm-everything'], [], 'pre-guard-paths', ['pre-guard-paths', 'pre-guard-paths']]:
             with self.subTest(checks=checks):

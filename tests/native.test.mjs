@@ -81,6 +81,12 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
       assert.match(result.toolResults, /上下文/)
       assert.ok(result.requests.some(r => JSON.stringify(r.messages).includes('NATIVE_DOMAIN_RULE')))
     })
+    await t.test('shell heredoc writes load domain rules too', async () => {
+      const heredoc = { name: 'shell', input: { command: "cat > src/heredoc.txt <<'EOF'\nheredoc output\nEOF", workdir: h.directory } }
+      const result = await runCase(h, [[heredoc], [heredoc]])
+      assert.match(result.toolResults, /上下文/)
+      assert.equal(readFileSync(join(h.directory, 'src/heredoc.txt'), 'utf8'), 'heredoc output\n')
+    })
 
     await t.test('shell failure is preserved and disabled production tools never start', async () => {
       const result = await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }], [{ name: 'shell', input: { command: 'npm test | tail -n 3', workdir: h.directory } }]])
