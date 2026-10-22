@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, realpathSync } from 'node:fs'
 
 // 操作系统差异集中在这里：路径分隔符、Python 启动器、.cmd 启动器、进程树终止和 shell 识别。
 export type Platform = NodeJS.Platform
@@ -66,8 +66,16 @@ export function killTree(child: { pid?: number; kill(signal?: NodeJS.Signals): b
   try { child.kill('SIGKILL') } catch { /* 进程可能已经退出。 */ }
 }
 
+// Windows 应用执行别名（Microsoft Store 与 Python 安装管理器放在 WindowsApps 下的 py.exe、python.exe）是重解析点：
+// stat 报 EACCES，existsSync 返回 false，但 CreateProcess 能启动它；lstat 能看到这个链接。
+export function launchable(file: string, platform: Platform = process.platform): boolean {
+  if (existsSync(file)) return true
+  if (platform !== 'win32') return false
+  try { return lstatSync(file).isSymbolicLink() } catch { return false }
+}
+
 // Windows 只按 PATHEXT 查找：npm 在同一目录放有无扩展名的 sh 启动脚本，它不能直接执行。
-export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = existsSync }: { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean } = {}): string | undefined {
+export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = (file: string) => launchable(file, platform) }: { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean } = {}): string | undefined {
   const p = platform === 'win32' ? path.win32 : path.posix
   const pathext = (envValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
   const extensions = platform !== 'win32' || pathext.some(ext => name.toLowerCase().endsWith(ext.toLowerCase())) ? [''] : pathext

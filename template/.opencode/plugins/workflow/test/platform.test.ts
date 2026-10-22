@@ -1,7 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell } from '../platform.ts'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell, launchable } from '../platform.ts'
 
 test('Git Bash drive paths map to Windows drives only on Windows', () => {
   for (const [value, expected] of [['/c/Users/example', 'C:/Users/example'], ['/C:/x', 'C:/x'], ['/C:\\x', 'C:/x'], ['/cygdrive/d/x', 'D:/x'],
@@ -89,4 +91,19 @@ test('shells the guards cannot parse are refused with guidance', () => {
   assert.match(unsupportedShell('/usr/bin/pwsh', 'linux') ?? '', /PowerShell/)
   for (const shell of ['C:\\Windows\\System32\\bash.exe', 'C:/Users/example/AppData/Local/Microsoft/WindowsApps/bash.exe']) assert.match(unsupportedShell(shell, 'win32') ?? '', /WSL/, shell)
   for (const shell of ['C:\\Program Files\\Git\\bin\\bash.exe', '/bin/bash', '/bin/zsh', '', undefined]) assert.equal(unsupportedShell(shell, 'win32'), undefined, String(shell))
+})
+
+test('Windows app execution aliases count as launchable although stat cannot follow them', () => {
+  // WindowsApps 下的 py.exe、python.exe 是重解析点：lstat 看到链接，stat 报 EACCES，existsSync 返回 false。
+  // Linux 上用一个无法跟随的链接模拟它。
+  const root = mkdtempSync(path.join(tmpdir(), 'workflow-alias-'))
+  try {
+    const alias = path.join(root, 'py.exe'), real = path.join(root, 'real')
+    symlinkSync(path.join(root, 'missing-target'), alias)
+    writeFileSync(real, '')
+    assert.equal(launchable(alias, 'win32'), true)
+    assert.equal(launchable(alias, 'linux'), false)
+    assert.equal(launchable(real, 'linux'), true)
+    assert.equal(launchable(path.join(root, 'absent'), 'win32'), false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
