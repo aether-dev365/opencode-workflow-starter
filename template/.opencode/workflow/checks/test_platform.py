@@ -35,6 +35,17 @@ class Platform(unittest.TestCase):
             self.assertIn(os.path.normpath('C:/work/src/a.ts'), hooklib.command_paths('cat src/a.ts', 'C:/work', include_readonly=True))
             self.assertIn(os.path.normpath('D:/data/vendor/x.js'), hooklib.command_paths('cd /d/data && echo x > vendor/x.js', 'C:/work'))
 
+    def test_drive_letter_paths_are_absolute_only_on_windows(self):
+        # POSIX 上 C:/x 是相对路径（目录可以叫 C:），必须挂到当前目录下检查；只有 Windows 把它当盘符绝对路径。
+        self.assertTrue(hooklib.is_absolute('C:/x', 'nt'))
+        self.assertFalse(hooklib.is_absolute('C:/x', 'posix'))
+        self.assertTrue(hooklib.is_absolute('/x', 'posix'))
+        cwd = 'C:/work' if os.name == 'nt' else '/repo/sub'
+        target = os.path.normpath('C:/private.txt') if os.name == 'nt' else '/repo/sub/C:/private.txt'
+        self.assertIn(target, hooklib.command_paths('cat C:/private.txt', cwd, include_readonly=True))
+        written = os.path.normpath('C:/x/z') if os.name == 'nt' else '/repo/sub/C:/x/z'
+        self.assertIn(written, hooklib.command_paths('cd C:/x && echo y > z', cwd))
+
     def test_cross_drive_path_is_still_protected(self):
         rules = json.loads((HERE / 'fixtures/protection.json').read_text(encoding='utf-8'))
         # Windows 上 relpath 跨盘符会抛 ValueError；此时按绝对路径匹配，而不是整次检查报错。

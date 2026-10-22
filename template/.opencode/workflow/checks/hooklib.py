@@ -136,6 +136,11 @@ def windows_path(value, os_name=None):
     return value
 
 
+def is_absolute(path, os_name=None):
+    """`/` 开头总是绝对路径；`C:/` 只在 Windows 上是盘符绝对路径，POSIX 上它是名为 `C:` 的相对目录。"""
+    return path.startswith('/') or ((os_name or os.name) == 'nt' and DRIVE_ABSOLUTE.match(path) is not None)
+
+
 def _dequote(s):
     return s.replace('"', "").replace("'", "")
 
@@ -167,7 +172,7 @@ def _resolve(cur, tok):
     tok = windows_path(_dequote(tok.replace("\\", "/")))
     if not tok or tok.startswith(("-", "$", "~")):
         return tok
-    if tok.startswith("/") or DRIVE_ABSOLUTE.match(tok):
+    if is_absolute(tok):
         return os.path.normpath(tok)
     if not cur:
         return tok
@@ -176,7 +181,7 @@ def _resolve(cur, tok):
 
 def _cd(cur, target):
     target = os.path.expanduser(windows_path(_dequote(target.replace("\\", "/"))))
-    if target.startswith("/") or DRIVE_ABSOLUTE.match(target) or not cur:
+    if is_absolute(target) or not cur:
         return target
     return os.path.normpath(os.path.join(cur, target))
 
