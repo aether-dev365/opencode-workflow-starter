@@ -3,8 +3,22 @@ import { resolve, dirname, join } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
-import { loadProjectConfig, protectionPermissions, readJson } from '../../.opencode/plugins/workflow/config.ts'
-import { loadReleaseConfig } from '../../.opencode/plugins/workflow/release.ts'
+
+const install = 'npm --prefix .opencode/plugins/workflow ci --ignore-scripts'
+// 插件模块依赖 jsonc-parser；依赖缺失时仍要输出结构化报告，而不是在导入阶段崩溃。
+let plugin, pluginError
+try {
+  const [config, release] = await Promise.all([import('../../.opencode/plugins/workflow/config.ts'), import('../../.opencode/plugins/workflow/release.ts')])
+  plugin = { ...config, ...release }
+} catch (error) { pluginError = error }
+const requirePlugin = () => {
+  if (!plugin) throw new Error(`插件依赖缺失，未检查；先在目标根目录运行 ${install}`)
+  return plugin
+}
+const loadProjectConfig = root => requirePlugin().loadProjectConfig(root)
+const protectionPermissions = config => requirePlugin().protectionPermissions(config)
+const readJson = path => requirePlugin().readJson(path)
+const loadReleaseConfig = root => requirePlugin().loadReleaseConfig(root)
 
 const args = process.argv.slice(2)
 const root = resolve(args.includes('--root') ? args[args.indexOf('--root') + 1] : '.')
@@ -46,9 +60,12 @@ await check('opencode-version', () => {
   throw new Error(`已检测到 OpenCode V2，实际为 ${version}，但验收基线为 2.1.1；使用其他系列版本需同步依赖和原生验收。\n${guide}`)
 })
 await check('dependencies', () => {
+  if (pluginError) throw new Error(`插件依赖未安装或无法加载（${String(pluginError.message).split('\n')[0]}）；在目标根目录运行 ${install}`)
   for (const [name, version] of [['@opencode/plugin', '2.1.1'], ['jsonc-parser', '3.3.1']]) {
     const file = join(root, '.opencode/plugins/workflow/node_modules', name, 'package.json')
-    if (JSON.parse(readFileSync(file, 'utf8')).version !== version) throw new Error(`依赖版本不一致：${name}`)
+    let installed
+    try { installed = JSON.parse(readFileSync(file, 'utf8')).version } catch { throw new Error(`缺少依赖 ${name}；在目标根目录运行 ${install}`) }
+    if (installed !== version) throw new Error(`依赖版本不一致：${name} 需要 ${version}，实际为 ${installed}；运行 ${install}`)
   }
 })
 await check('git-ignore', () => {

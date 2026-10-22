@@ -16,6 +16,22 @@ test('doctor reports missing configuration as structured failure', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('doctor reports missing plugin dependencies instead of crashing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const result = spawnSync(process.execPath, [join(root, 'scripts/workflow/doctor.mjs'), '--root', root, '--json'], { encoding: 'utf8' })
+    assert.equal(result.status, 1, result.stderr)
+    const checks = Object.fromEntries(JSON.parse(result.stdout).checks.map(c => [c.id, c]))
+    assert.equal(checks.dependencies.status, 'fail')
+    assert.match(checks.dependencies.message, /npm --prefix \.opencode\/plugins\/workflow ci --ignore-scripts/)
+    assert.equal(checks.config.status, 'fail')
+    assert.match(checks.config.message, /依赖/)
+    assert.equal(checks['native-runtime'].status, 'unverified')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('doctor detects active placeholders without rewriting commented config or uncommitted work', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
   try {
