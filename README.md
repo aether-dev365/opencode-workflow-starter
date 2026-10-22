@@ -44,7 +44,8 @@ flowchart LR
 | Linux x64 | 已验收 | CI 全量验收，含 OpenCode 2.1.2 原生运行测试 |
 | Windows + WSL2 | 已验收（同 Linux） | 推荐的 Windows 路线；所有命令在 WSL 终端里执行 |
 | Windows 原生（Git Bash） | 部分验证 | 插件测试、守卫、doctor、接入脚本已在 Windows 实机通过，CI 运行 Windows 子集；OpenCode 原生加载插件尚未验收 |
-| macOS | 未验收 | 扫描器已固定 x64/arm64 校验值，按 Linux 步骤操作；接入后自行做原生冒烟 |
+| macOS（Apple Silicon） | 已验收 | CI 全量验收，含 OpenCode 2.1.2 原生运行测试；系统自带的 python3 是 3.9，需另装 3.10+ |
+| macOS（Intel） | 未验收 | 扫描器已固定 x64 校验值，按同样步骤操作；接入后自行做原生冒烟 |
 
 运行要求：Node.js 24+、Python 3.10+、Git（Windows 需完整的 Git for Windows，含 Git Bash）、OpenCode V2 CLI。OpenCode 与插件的验收基线均为 **2.1.2**。
 
@@ -53,6 +54,8 @@ flowchart LR
 在目标项目根目录（独立的 Git 检出，没有就先 `git init`）复制 `template/` 的全部内容，包括隐藏文件，然后运行接入准备脚本。已有项目请让模型按 [ADOPT.md](ADOPT.md) 合并，避免覆盖现有配置。
 
 ### Linux、macOS、WSL
+
+macOS 先安装前置工具（系统自带的 python3 是 3.9，不满足要求）：`brew install node python@3.12 git`。
 
 ```bash
 git clone --depth 1 https://github.com/aether-dev365/opencode-workflow-starter.git /tmp/opencode-workflow-starter
@@ -159,4 +162,4 @@ sha256sum artifacts/opencode-workflow-starter.tar.gz > artifacts/opencode-workfl
 
 ## English summary
 
-OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts. Guards fail closed. Linux and WSL2 are fully verified in CI, including native OpenCode 2.1.2 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites on real hardware, but native OpenCode on Windows and macOS are not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.
+OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts. Guards fail closed. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.2 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites in CI and on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.

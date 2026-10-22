@@ -2,7 +2,7 @@
 
 ## 环境
 
-Node.js 24+、Python 3.10+、Git 和 Bash，在 Linux 或 WSL2 上开发。OpenCode 的验收基线与 `template/.opencode/plugins/workflow/package.json` 中 `@opencode/plugin` 的版本一致。
+Node.js 24+、Python 3.10+、Git 和 Bash，在 Linux、macOS 或 WSL2 上开发（macOS 需另装 Python 3.10+，系统自带的是 3.9）。OpenCode 的验收基线与 `template/.opencode/plugins/workflow/package.json` 中 `@opencode/plugin` 的版本一致。
 
 ## 本地验证
 
@@ -24,7 +24,7 @@ npm install -g @opencode/cli@<基线版本>
 node scripts/verify.mjs --windows
 ```
 
-`WORKFLOW_PYTHON` 可指定守卫使用的解释器，插件与 `verify.mjs` 都遵循它。CI（`.github/workflows/ci.yml`）在 Linux 上以 Python 3.10 跑全量验收，在 Windows 上跑同一子集。
+`WORKFLOW_PYTHON` 可指定守卫使用的解释器，插件与 `verify.mjs` 都遵循它。CI（`.github/workflows/ci.yml`）在 Linux（Python 3.10）和 macOS（Apple Silicon，CLI 经 npm 安装）上跑全量验收，含原生运行测试；在 Windows 上跑同一子集。失败时验证日志作为 artifact 上传。
 
 ## 改动要求
 

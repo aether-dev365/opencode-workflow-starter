@@ -35,7 +35,9 @@ opencode --version
 
 ## 3. Linux、macOS、WSL 安装步骤
 
-本模板的运行要求为 Node.js 24+、Python 3.10+、Git 和 Bash。Linux 与 WSL2 已验收；macOS 按本节操作，但尚未做原生验收。Windows 的两条路线见第 4 节。
+本模板的运行要求为 Node.js 24+、Python 3.10+、Git 和 Bash。Linux、WSL2 和 macOS（Apple Silicon）已在 CI 中完成含原生运行的验收；Intel Mac 按本节操作，但尚未验收。Windows 的两条路线见第 4 节。
+
+macOS 自带的 `python3` 是 3.9，不满足要求：用 `brew install python@3.12` 安装后确认 `python3 --version`。插件找不到 3.10+ 的 `python3` 时会依次尝试 `python3.14` 到 `python3.10`，也可以设置 `WORKFLOW_PYTHON` 指向解释器。
 
 ### 准备环境
 
@@ -82,7 +84,7 @@ macOS / Homebrew 用户的官方 V2 包为：
 brew install anomalyco/tap/opencode-v2
 ```
 
-使用这些方式后仍需运行 `opencode --version`，按第 1 节判断兼容性。扫描器安装脚本支持 Linux、macOS 和 Windows 的 x64/arm64，但本模板只在 Linux 上做过原生验收；不能把 OpenCode 安装成功等同于本模板已经在 macOS 或 Windows 原生环境验收。
+使用这些方式后仍需运行 `opencode --version`，按第 1 节判断兼容性。扫描器安装脚本支持 Linux、macOS 和 Windows 的 x64/arm64。本模板在 Linux 和 macOS（Apple Silicon）上完成了原生验收，Windows 原生 OpenCode 尚未验收；OpenCode 安装成功不等于本模板已在该环境原生验收。
 
 ## 4. Windows
 

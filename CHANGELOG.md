@@ -8,7 +8,8 @@
 
 - MIT 许可证（仓库根目录与 `template/.opencode/LICENSE`）、安全策略、贡献指南和本变更记录。
 - 接入准备脚本 `scripts/workflow/setup.mjs`：检查前置工具，安装插件依赖和固定版 Gitleaks，检测 OpenCode 并运行 doctor。OpenCode 缺失时可选择经 npm 安装 CLI 验收版本或查看 Desktop 下载入口（交互输入，或 `--opencode cli|desktop|skip`）；已有的 V1 或其他 V2 版本不会被替换。
-- GitHub Actions CI：Linux 以 Python 3.10 跑全量验收（含 OpenCode 原生测试），Windows 在 PowerShell 中跑 `node scripts/verify.mjs --windows` 子集；action 固定到提交 SHA，权限为只读。
+- GitHub Actions CI：Linux（Python 3.10）与 macOS（Apple Silicon）跑全量验收，含 OpenCode 原生测试；Windows 在 PowerShell 中跑 `node scripts/verify.mjs --windows` 子集；action 固定到提交 SHA，权限为只读，失败时上传验证日志。
+- macOS（Apple Silicon）完成原生验收。
 - 可选扩展 `optional/protection/`：私钥、SSH 私钥、常见凭据文件和 Terraform 状态的保护规则，附启用步骤与回归测试。
 - README 重写：解决的问题、原理图、平台支持表、按平台的快速开始、常见问题和英文摘要；安装指南补充原生 Windows（Git Bash）路线与常见问题。
 
@@ -35,6 +36,9 @@
 - 插件新增 `platform.ts` 集中处理平台差异：Windows 上依次探测 `py -3`、`python`、`python3`（可用 `WORKFLOW_PYTHON` 指定），子进程隐藏窗口且超时用 `taskkill /T` 终止，路径匹配前统一为 `/`，Git Bash 风格路径按 OpenCode 规则换算；检查器无法启动时，错误信息会给出命令、原因和处理办法。
 - 模型给 shell 传相对 `workdir`（如 `src`）时不再被误拒：OpenCode 在插件钩子之后才把它解析为绝对路径，插件现在按 Location 解析。
 - Gitleaks 安装脚本的输出接管道时（如 GitHub Windows runner 的 cp1252 代码页）不再因中文提示编码失败、在安装成功后仍以 1 退出。
+- macOS 与 Linux 上也检查 `python3` 是否为 3.10+（macOS 自带的是 3.9），不够新时依次尝试 `python3.14` 到 `python3.10`，找不到时给出安装提示；此前检查进程会直接崩溃，所有受保护操作被拒且原因不明。
+- `/review` 的快照凭据扫描单独计时 60 秒（提交扫描仍为 8 秒）：快照最多 128 MB，在较慢的机器上原先会因超时被拒。
+- 递归删除（`rm -r`、`git clean -x`、`find -delete`）的检查不再逐个解析普通文件的真实路径：Windows 上 2 万个文件由约 7 秒降到约 2 秒，结论不变。
 - Windows 上能找到 Microsoft Store 与 Python 安装管理器以应用执行别名（`WindowsApps\py.exe`、`python.exe`）提供的解释器。
 - 在 POSIX 上，`C:/x` 这类路径按相对路径检查（目录名可以是 `C:`），只有 Windows 把它当作盘符绝对路径。
 - 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
