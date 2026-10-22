@@ -87,3 +87,7 @@ sha256sum artifacts/opencode-workflow-starter.tar.gz > artifacts/opencode-workfl
 ```
 
 分发包仅包含已提交的模板、指南、扩展和验收脚本。开发依赖和完整验收日志留在当前检出的忽略目录，便于复验。
+
+## 许可证
+
+[MIT](LICENSE)。`template/` 复制进项目后可以自由修改和分发；其中的 `.opencode/LICENSE` 是版权声明，复制时一并保留即可。
