@@ -17,7 +17,11 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / 'pre-secret-scan.py'
-REAL_SCANNER = shutil.which('gitleaks') or str(Path.home() / '.local/bin/gitleaks')
+SCANNER_NAME = 'gitleaks.exe' if os.name == 'nt' else 'gitleaks'
+REAL_SCANNER = shutil.which('gitleaks') or str(Path.home() / '.local/bin' / SCANNER_NAME)
+# 只留测试扫描器所在目录和系统目录：机器上别处安装的 gitleaks 不能顶替测试里的扫描器。
+SYSTEM_PATH = [str(Path(shutil.which('git') or 'git').parent)] if os.name == 'nt' else ['/usr/bin', '/bin']
+POSIX_SHELL = unittest.skipIf(os.name == 'nt', '依赖 bash 逻辑目录与目录符号链接')
 # Deliberately synthetic, assembled so the test source itself contains no token.
 SECRET = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
 PAYLOAD = f'access_token = "{SECRET}"\n'
@@ -36,11 +40,16 @@ class SecretScanTest(unittest.TestCase):
         self.root.mkdir()
         self.bin = Path(self.tmp.name) / 'bin'
         self.bin.mkdir()
-        (self.bin / 'gitleaks').symlink_to(REAL_SCANNER)
+        self.scanner = self.bin / SCANNER_NAME
+        try:
+            self.scanner.symlink_to(REAL_SCANNER)
+        except OSError:  # Windows 未开开发者模式时没有创建符号链接的权限
+            shutil.copyfile(REAL_SCANNER, self.scanner)
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('GIT_', 'GITLEAKS_'))}
         self.env.pop('CDPATH', None)
-        self.env.update(HOME=self.tmp.name, PATH=f'{self.bin}:/usr/bin:/bin',
-                        GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
+        # Windows 上 Path.home() 读 USERPROFILE，不读 HOME。
+        self.env.update(HOME=self.tmp.name, USERPROFILE=self.tmp.name, PATH=os.pathsep.join([str(self.bin), *SYSTEM_PATH]),
+                        GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
         self.git('init', '-q')
         self.git('config', 'user.name', 'Credential scan test')
         self.git('config', 'user.email', 'scan@example.invalid')
@@ -55,7 +64,8 @@ class SecretScanTest(unittest.TestCase):
     def write(self, path, content):
         file = self.root / path
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(content)
+        # 按字节写入：Windows 文本模式会把换行改成 CRLF，各平台扫描的内容就不一致了。
+        file.write_bytes(content.encode())
 
     def stage(self, path, content):
         self.write(path, content)
@@ -132,6 +142,7 @@ class SecretScanTest(unittest.TestCase):
             with self.subTest(workdir=workdir):
                 self.assert_blocked(self.hook(cwd=clean, workdir=workdir), 'settings.conf')
 
+    @POSIX_SHELL
     def test_cd_symlink_logical_parent_cannot_scan_a_different_repository(self):
         clean = Path(self.tmp.name) / 'clean'
         (clean / 'sub').mkdir(parents=True)
@@ -149,6 +160,7 @@ class SecretScanTest(unittest.TestCase):
                 self.assertEqual(actual.stdout.strip(), str(self.root))
                 self.assert_blocked(self.hook(prefix + ' && git commit -m safe'), '符号链接')
 
+    @POSIX_SHELL
     def test_initial_logical_cwd_alias_is_rejected_before_cd_parent(self):
         clean = Path(self.tmp.name) / 'clean'
         (clean / 'sub').mkdir(parents=True)
@@ -175,6 +187,7 @@ class SecretScanTest(unittest.TestCase):
         self.stage('settings.conf', PAYLOAD)
         self.assert_blocked(self.hook('cd sub && cd .. && git commit -m safe'), 'settings.conf')
 
+    @POSIX_SHELL
     def test_inherited_cdpath_cannot_redirect_relative_cd_to_another_repository(self):
         clean = Path(self.tmp.name) / 'clean'
         (clean / 'repo').mkdir(parents=True)
@@ -352,7 +365,7 @@ class SecretScanTest(unittest.TestCase):
                 self.assert_blocked(self.hook(command), '独立')
 
     def test_non_commit_commands_are_unaffected_without_scanner(self):
-        (self.bin / 'gitleaks').unlink()
+        self.scanner.unlink()
         for command in ['git status', 'git add tracked.txt', 'git log -1',
                         'git log --grep commit', 'git -C . log --grep commit',
                         'git -c example.value=commit status',
@@ -414,7 +427,7 @@ class SecretScanTest(unittest.TestCase):
         self.assert_blocked(self.hook(cwd=checkout), 'other.conf')
 
     def test_install_refuses_to_overwrite_existing_different_binary(self):
-        existing = self.bin / 'gitleaks'
+        existing = self.scanner
         existing.unlink()
         existing.write_text('foreign binary\n')
         installer = HERE.parents[1] / 'secret-scan/install.py'
@@ -431,15 +444,20 @@ class SecretScanTest(unittest.TestCase):
         self.assert_blocked(self.hook("git commit -F - <<'EOF'\nsafe message\nEOF"))
 
     def test_missing_scanner_blocks_even_clean_commit(self):
-        (self.bin / 'gitleaks').unlink()
+        self.scanner.unlink()
         self.assert_blocked(self.hook(), 'install.py')
 
-    def fake_scanner(self, code):
-        binary = self.bin / 'gitleaks'
-        binary.unlink()
-        binary.write_text('#!/usr/bin/python3\nimport sys,time\n'
-                          'if sys.argv[1:] == ["version"]:\n print("8.30.1")\n sys.exit(0)\n' + code)
-        binary.chmod(0o755)
+    def fake_scanner(self, code, version='8.30.1'):
+        self.scanner.unlink()
+        body = f'import sys,time\nif sys.argv[1:] == ["version"]:\n print("{version}")\n sys.exit(0)\n' + code
+        if os.name == 'nt':
+            # Windows 不认 shebang：用 .cmd 包装，shutil.which 按 PATHEXT 找到它。
+            script = self.bin / 'fake-scanner.py'
+            script.write_text(body)
+            (self.bin / 'gitleaks.cmd').write_text(f'@"{sys.executable}" "{script}" %*\n')
+        else:
+            self.scanner.write_text('#!/usr/bin/python3\n' + body)
+            self.scanner.chmod(0o755)
 
     def test_scanner_failure_is_closed_and_its_output_is_not_disclosed(self):
         self.stage('safe.txt', 'safe\n')
@@ -453,9 +471,7 @@ class SecretScanTest(unittest.TestCase):
         self.assertTrue(marker.exists(), 'Must reach the failing scanner branch')
 
     def test_scanner_wrong_version_blocks(self):
-        self.fake_scanner('')
-        binary = self.bin / 'gitleaks'
-        binary.write_text('#!/bin/sh\necho 0.0.0\n')
+        self.fake_scanner('', version='0.0.0')
         self.assert_blocked(self.hook(), '版本')
 
     def test_scanner_timeout_is_closed_without_waiting_full_hook_budget(self):
@@ -472,17 +488,23 @@ class SecretScanTest(unittest.TestCase):
                     input={'command': 'git commit -m safe'}, paths=[], sessionId='test-session', callId='test-call')
         err = io.StringIO()
         out = io.StringIO()
+        # Windows 上进程启动慢（.cmd 包装再起 Python），预算要够走到扫描那一步；仍远小于扫描器的 10 秒睡眠。
+        budget = 3 if os.name == 'nt' else 0.3
         started = time.monotonic()
-        with patch.dict(os.environ, self.env, clear=True), patch.object(module, 'TOTAL_TIMEOUT', 0.3), \
+        with patch.dict(os.environ, self.env, clear=True), patch.object(module, 'TOTAL_TIMEOUT', budget), \
                 patch.object(sys, 'stdin', io.StringIO(json.dumps(data))), redirect_stderr(err), redirect_stdout(out):
             self.assertEqual(module.main(), 2)
         self.assertEqual(json.loads(out.getvalue())['decision'], 'deny')
         self.assertIn('超时', err.getvalue())
-        self.assertLess(time.monotonic() - started, 2, 'timeout must kill/reap instead of waiting for scanner exit')
+        self.assertLess(time.monotonic() - started, budget + 1.7, 'timeout must kill/reap instead of waiting for scanner exit')
         self.assertTrue(child_pid.exists(), 'the scanner must actually reach its sleeping child')
         status = Path('/proc') / child_pid.read_text() / 'stat'
         if status.exists():
             self.assertEqual(status.read_text().split()[2], 'Z', 'scanner child must not remain running')
+        if os.name == 'nt':
+            listed = subprocess.run(['tasklist', '/fi', f'PID eq {child_pid.read_text()}', '/fo', 'csv', '/nh'],
+                                    capture_output=True, text=True).stdout
+            self.assertNotIn(f'"{child_pid.read_text()}"', listed, 'scanner child must not remain running')
 
 
 if __name__ == '__main__':
