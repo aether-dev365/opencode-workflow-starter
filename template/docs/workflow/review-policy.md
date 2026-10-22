@@ -12,4 +12,4 @@ pass 表示适用核查完成且无阻断，允许在 note 保留有依据的延
 
 模型审核由用户请求或正式发布流程触发，普通提交不自动派审。静态检查、单测、集成和原生证据各有证明范围。
 
-reviewer 的权限由插件强制为只读：只能使用 read、glob、grep 和 workflow_review_submit，在 reviewer.md 中放宽不会生效。
+reviewer 的权限由插件强制为只读：只能使用 read、glob、grep 和 workflow_review_submit，在 reviewer.md 中放宽不会生效。reviewer.md 缺失或格式错误时，OpenCode 会忽略它，此时建批次和提交结论都会被拒绝。

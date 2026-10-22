@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { writeFile, readFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fixture, load } from './fixture.ts'
-import { git, loadBatch } from '../review-batches.ts'
+import { git, loadBatch, listBatches } from '../review-batches.ts'
 import { runReview, resolveBase } from '../review.ts'
 
 export async function baseRepository() {
@@ -68,5 +68,29 @@ test('the remote default branch identifies the fork point', async () => {
     await writeFile(join(f.root, 'tracked.txt'), 'changed on main\n')
     git(f.root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qam', 'on main'])
     assert.equal(resolveBase(f.root, undefined, git(f.root, ['rev-parse', 'HEAD'])), f.base)
+  } finally { await f.close() }
+})
+
+test('reviews start and accept verdicts only while the reviewer definition is loaded', async () => {
+  const f = await baseRepository()
+  try {
+    await (await load())(f.ctx)
+    await writeFile(join(f.root, 'tracked.txt'), 'changed\n')
+    const run = f.tools.get('workflow_review'), submit = f.tools.get('workflow_review_submit')
+    const context = { agent: 'build', sessionID: 's1', signal: new AbortController().signal }
+    const refuse = async () => {
+      await assert.rejects(run.execute({ action: 'run', mode: 'branch', base: f.base }, context), /reviewer 没有正确加载/)
+      await assert.rejects(submit.execute({ batchId: 'any', taskId: 'any', verdict: 'pass' }, { agent: 'reviewer', sessionID: 'r1' }), /reviewer 没有正确加载/)
+    }
+    await refuse()
+    f.agents.set('reviewer', { id: 'reviewer', system: '   ' })
+    await refuse()
+    const get = (f.ctx as any).agent.get
+    ;(f.ctx as any).agent.get = async () => { throw new Error('agent not found') }
+    await refuse()
+    ;(f.ctx as any).agent.get = get
+    assert.equal(listBatches(f.root).length, 0)
+    f.agents.set('reviewer', { id: 'reviewer', system: '只读审核。' })
+    assert.match((await run.execute({ action: 'run', mode: 'branch', base: f.base }, context)).content, /core:/)
   } finally { await f.close() }
 })

@@ -9,6 +9,7 @@
 - doctor 新增 `reviewer-model` 检查：reviewer 未在 `opencode.jsonc` 的 `agents.reviewer.model` 或代理文件中指定模型时给出 warn；代理文件的 frontmatter 中 model 为空时也给出 warn，因为 OpenCode 会忽略整个代理文件，包括其中的只读权限。已接入的项目升级后，显式指定前会看到这条提示。
 - doctor 新增 `rule-size` 检查：`scopes.json` 引用的规则文件超过 20000 个字符（插件上限的一半）时给出 warn。
 - 插件在权限层强制 reviewer 只读：reviewer 会话只允许 read、glob、grep 和 workflow_review_submit，不依赖 reviewer.md 是否被加载；在 reviewer.md 中额外放开的工具从此不再生效。
+- `workflow_review` 的 run 与 `workflow_review_submit` 在 reviewer 定义缺失或没有审核说明时拒绝，提示检查 `.opencode/agents/reviewer.md`。
 
 ### 变更
 

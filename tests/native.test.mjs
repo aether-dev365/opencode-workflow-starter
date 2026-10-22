@@ -31,6 +31,13 @@ test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 
       assert.doesNotMatch(result.toolResults, /42MARK/)
       assert.match(result.toolResults, /审核员只读/)
     })
+
+    await t.test('a review cannot start without a loaded reviewer', async () => {
+      writeFileSync(join(h.directory, 'review-probe.txt'), 'x\n')
+      const result = await runCase(h, [[{ name: 'workflow_review', input: { action: 'run', mode: 'branch', base: h.base } }]])
+      assert.match(result.toolResults, /reviewer 没有正确加载/)
+      assert.equal(batches(h).length, 0)
+    })
   } finally { await h.close() }
 })
 

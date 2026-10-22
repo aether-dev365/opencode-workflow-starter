@@ -89,6 +89,13 @@ export function runInstructions(batch: Batch): string {
     `- ${t.id}: .opencode/workflow/review/checklists/${t.checklist}; ${batch.reviewDir}/units/${t.id.replaceAll(':', '-')}/`).join('\n') +
     '\nreviewer 用 workflow_review_submit 提交；全部有结论后 close。有阻断时修复后按同一累计 base 重新 run。'
 }
+// reviewer.md 缺失或 frontmatter 有错时 OpenCode 会静默忽略它；没有审核说明的 reviewer 不能开始审核或提交结论。
+async function assertReviewerLoaded(ctx: Plugin.Context, root: string): Promise<void> {
+  let system: unknown
+  try { system = (await ctx.agent.get({ agentID: REVIEWER, location: { directory: root } })).data.system } catch {}
+  if (typeof system !== 'string' || !system.trim()) throw new Error('reviewer 没有正确加载：找不到它，或缺少审核说明。.opencode/agents/reviewer.md 缺失或 frontmatter 有错误时，OpenCode 会静默忽略该文件；修复后重新加载 OpenCode，再运行审核。')
+}
+
 export async function registerReview(ctx: Plugin.Context): Promise<() => Promise<void>> {
   const registration = await ctx.tool.transform(editor => {
     editor.add({ name: 'workflow_review', options: { codemode: false }, description: '建立、查询、报告和关闭手动审核批次；不会自动派发审核员。',
@@ -97,7 +104,7 @@ export async function registerReview(ctx: Plugin.Context): Promise<() => Promise
         const input = raw as ReviewInput
         const root = (await ctx.session.get({ sessionID: context.sessionID })).location.directory
         if (input.action === 'check') return { content: JSON.stringify(checkRelease(root)) }
-        if (input.action === 'run') { const batch = await runReview(root, input, context.signal); return { content: batch ? runInstructions(batch) : '范围没有变更；未执行审核，不代表通过。' } }
+        if (input.action === 'run') { await assertReviewerLoaded(ctx, root); const batch = await runReview(root, input, context.signal); return { content: batch ? runInstructions(batch) : '范围没有变更；未执行审核，不代表通过。' } }
         const batch = input.batchId ? loadBatch(root, input.batchId) : listBatches(root)[0]
         if (!batch) return { content: '没有审核批次。' }
         return { content: renderReport(input.action === 'close' ? closeBatch(root, batch.batchId) : batch) }
@@ -108,6 +115,7 @@ export async function registerReview(ctx: Plugin.Context): Promise<() => Promise
       execute: async (raw, context) => {
         if (context.agent !== REVIEWER) throw new Error('仅实际 reviewer 可提交审核结论')
         const root = (await ctx.session.get({ sessionID: context.sessionID })).location.directory
+        await assertReviewerLoaded(ctx, root)
         return { content: renderReport(submitVerdict(root, context.agent, raw as Submission)) }
       },
     })
