@@ -82,7 +82,7 @@ macOS / Homebrew 用户的官方 V2 包为：
 brew install anomalyco/tap/opencode-v2
 ```
 
-使用这些方式后仍需运行 `opencode --version`，按第 1 节判断兼容性。OpenCode 本身提供多个平台的版本，但本模板的扫描器安装脚本目前仅支持 Linux x64/arm64；不能把 OpenCode 安装成功等同于本模板已经在 macOS 或 Windows 原生环境验收。
+使用这些方式后仍需运行 `opencode --version`，按第 1 节判断兼容性。扫描器安装脚本支持 Linux、macOS 和 Windows 的 x64/arm64，但本模板只在 Linux 上做过原生验收；不能把 OpenCode 安装成功等同于本模板已经在 macOS 或 Windows 原生环境验收。
 
 ## 4. Windows 用户使用 WSL
 
