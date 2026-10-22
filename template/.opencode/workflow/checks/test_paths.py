@@ -28,7 +28,7 @@ class PathGuards(unittest.TestCase):
         event = dict(version=1, phase='before', sessionId='s', callId='c',
                      directory=str(self.root), tool=tool, paths=paths or [], input=tool_input)
         run = subprocess.run([sys.executable, str(HERE / 'pre-guard-paths.py')],
-                             input=json.dumps(event), text=True, capture_output=True, cwd=cwd)
+                             input=json.dumps(event), encoding='utf-8', capture_output=True, cwd=cwd)
         self.assertIn(run.returncode, [0, 2], run.stderr)
         return json.loads(run.stdout)
 

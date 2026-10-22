@@ -19,7 +19,7 @@ class Pipefail(unittest.TestCase):
             for value, decision in [({'version': 1, 'commandPrefixes': [['cargo', 'test']]}, 'allow'),
                                     ({'version': 1, 'commandPrefixes': 'invalid'}, 'deny')]:
                 config.write_text(json.dumps(value))
-                result = subprocess.run([sys.executable, str(HERE / 'pre-bash-pipefail.py')], input=json.dumps(event), text=True, capture_output=True)
+                result = subprocess.run([sys.executable, str(HERE / 'pre-bash-pipefail.py')], input=json.dumps(event), encoding='utf-8', capture_output=True)
                 output = json.loads(result.stdout)
                 self.assertEqual(output['decision'], decision)
                 if decision == 'allow':
@@ -36,7 +36,7 @@ class Pipefail(unittest.TestCase):
                 event = dict(version=1, phase='before', directory=root, sessionId='s', callId='c',
                              tool='shell', paths=[], input={'command': command})
                 result = subprocess.run([sys.executable, str(HERE / 'pre-bash-pipefail.py')],
-                                        input=json.dumps(event), text=True, capture_output=True)
+                                        input=json.dumps(event), encoding='utf-8', capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 value = json.loads(result.stdout)
                 self.assertEqual(value.get('input', {}).get('command', command), ('set -o pipefail; ' if changed else '') + command)

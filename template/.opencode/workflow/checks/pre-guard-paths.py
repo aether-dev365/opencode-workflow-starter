@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import shlex
-from hooklib import candidates_from, split_segments, _command_lines, PREFIX, SYS_BIN, _cd
+from hooklib import candidates_from, split_segments, _command_lines, PREFIX, SYS_BIN, _cd, windows_path
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -34,7 +34,7 @@ def check_event(event):
         for path in candidates_from(event)[0]:
             check(path, 'read' if event['tool'] == 'read' or event['input'].get('action') == 'read' else 'edit')
         return
-    cwd = str(Path(event['directory']) / event['input'].get('workdir', ''))
+    cwd = str(Path(event['directory']) / windows_path(event['input'].get('workdir', '')))
     command = event['input'].get('command', '')
     segments = split_segments('\n'.join(_command_lines(command.splitlines())))
     filtered = []

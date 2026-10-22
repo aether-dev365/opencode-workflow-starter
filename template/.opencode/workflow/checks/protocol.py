@@ -4,6 +4,18 @@ import os
 import sys
 
 
+def utf8_stdio() -> None:
+    """插件与检查器之间的 JSON 固定为 UTF-8；Windows 管道默认使用 ANSI 代码页（cp936、cp1252 等）。"""
+    for stream, errors in ((sys.stdin, 'strict'), (sys.stdout, 'strict'), (sys.stderr, 'backslashreplace')):
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if reconfigure:
+            reconfigure(encoding='utf-8', errors=errors)
+
+
+# 所有检查器都先导入本模块，再读取 stdin。
+utf8_stdio()
+
+
 def read_event(raw: str) -> dict:
     data = json.loads(raw)
     if not isinstance(data, dict) or data.get('version') != 1:

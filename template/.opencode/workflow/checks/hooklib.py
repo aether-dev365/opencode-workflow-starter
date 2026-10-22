@@ -120,6 +120,22 @@ ASSIGN_PAIR = re.compile(r"(\w+)=(" + ASSIGN_VALUE + ")")
 COMMENT_TAIL = re.compile(r"(^|\s)#[^'\"]*$")
 
 
+# Windows 盘符的绝对路径（规范化为正斜杠后）：`C:/repo`。
+DRIVE_ABSOLUTE = re.compile(r"^[A-Za-z]:/")
+# 与 OpenCode FSUtil.windowsPath 相同：Git Bash、Cygwin、WSL 风格的盘符路径在 Windows 上指向 `X:/`。
+WINDOWS_DRIVE_FORMS = (re.compile(r"^/([a-zA-Z]):(?:[\\/]|$)"), re.compile(r"^/([a-zA-Z])(?:/|$)"),
+                       re.compile(r"^/cygdrive/([a-zA-Z])(?:/|$)"), re.compile(r"^/mnt/([a-zA-Z])(?:/|$)"))
+
+
+def windows_path(value, os_name=None):
+    """Windows 上把 `/c/...`、`/C:/...`、`/cygdrive/c/...`、`/mnt/c/...` 换成 `C:/...`；其他系统原样返回。"""
+    if (os_name or os.name) != 'nt':
+        return value
+    for form in WINDOWS_DRIVE_FORMS:
+        value = form.sub(lambda m: m.group(1).upper() + ':/', value, count=1)
+    return value
+
+
 def _dequote(s):
     return s.replace('"', "").replace("'", "")
 
@@ -148,10 +164,10 @@ def _strip_comment(seg):
 def _resolve(cur, tok):
     """相对路径挂到当前目录下；选项 / 变量 / ~ 原样；绝对路径也规范化（`$D/src` 在 D 带尾斜杠时拼出 `//`，
     否则目录模式无法匹配）；引号全部去掉。没有 cwd 时相对路径原样。"""
-    tok = _dequote(tok.replace("\\", "/"))
+    tok = windows_path(_dequote(tok.replace("\\", "/")))
     if not tok or tok.startswith(("-", "$", "~")):
         return tok
-    if tok.startswith("/"):
+    if tok.startswith("/") or DRIVE_ABSOLUTE.match(tok):
         return os.path.normpath(tok)
     if not cur:
         return tok
@@ -159,8 +175,8 @@ def _resolve(cur, tok):
 
 
 def _cd(cur, target):
-    target = os.path.expanduser(_dequote(target.replace("\\", "/")))
-    if target.startswith("/") or not cur:
+    target = os.path.expanduser(windows_path(_dequote(target.replace("\\", "/"))))
+    if target.startswith("/") or DRIVE_ABSOLUTE.match(target) or not cur:
         return target
     return os.path.normpath(os.path.join(cur, target))
 

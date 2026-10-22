@@ -15,7 +15,7 @@ def policy_root(path):
 
 
 def load_policy(root: str) -> dict:
-    policy = json.loads((Path(root) / '.opencode/workflow/protection.json').read_text())
+    policy = json.loads((Path(root) / '.opencode/workflow/protection.json').read_text(encoding='utf-8'))
     if not isinstance(policy, dict) or policy.get('version') != 1 or not isinstance(policy.get('rules'), list) or not policy['rules']:
         raise ValueError('保护配置无效')
     seen = set()
@@ -44,7 +44,11 @@ def check_path(root: str, path: str, action: str, policy: dict) -> str | None:
     base = Path(root).resolve()
     absolute = Path(os.path.abspath(Path(root) / path))
     for candidate in dict.fromkeys([absolute, absolute.resolve()]):
-        name = os.path.relpath(candidate, base).replace(os.sep, '/')
+        try:
+            name = os.path.relpath(candidate, base).replace(os.sep, '/')
+        except ValueError:
+            # Windows 上与检出不在同一盘符时没有相对路径；按绝对路径匹配，与检出外路径的处理一致。
+            name = Path(candidate).as_posix()
         reason = None
         for rule in policy['rules']:
             if action in rule['actions'] and any(matches(name, pattern) for pattern in rule['paths']):
@@ -55,6 +59,8 @@ def check_path(root: str, path: str, action: str, policy: dict) -> str | None:
 
 
 def main():
+    from protocol import utf8_stdio
+    utf8_stdio()
     try:
         request = json.load(sys.stdin)
         if (not isinstance(request, dict) or not isinstance(request.get('root'), str)

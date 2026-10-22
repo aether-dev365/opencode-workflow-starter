@@ -11,7 +11,7 @@ import shlex
 from pathlib import Path
 from policy import policy_root
 
-from hooklib import HEREDOC_OP, PREFIX, _lift_substitutions, _mask_quotes
+from hooklib import HEREDOC_OP, PREFIX, _lift_substitutions, _mask_quotes, windows_path
 from protocol import emit_result, load_event
 
 # 管道里非末端的这些命令，失败时退出码会被末端吞掉
@@ -98,10 +98,10 @@ if data['tool'] != 'shell' or not isinstance(command, str) or "pipefail" in comm
     sys.exit(0)
 prefixes = []
 try:
-    root = policy_root(Path(data['directory']) / tool_input.get('workdir', ''))
+    root = policy_root(Path(data['directory']) / windows_path(tool_input.get('workdir', '')))
     config = root / '.opencode/workflow/pipefail.json' if root else None
     if config and config.exists():
-        value = json.loads(config.read_text())
+        value = json.loads(config.read_text(encoding='utf-8'))
         prefixes = value['commandPrefixes']
         if value.get('version') != 1 or not isinstance(prefixes, list) or any(
                 not isinstance(p, list) or not p or any(not isinstance(t, str) or not t for t in p) for p in prefixes):

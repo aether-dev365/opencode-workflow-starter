@@ -24,8 +24,8 @@ class Protocol(unittest.TestCase):
 
     def test_policy_matches_shared_native_permission_cases(self):
         root = Path(__file__).resolve().parents[3]
-        policy = json.loads((Path(__file__).parent / 'fixtures/protection.json').read_text())
-        cases = json.loads((Path(__file__).parent / 'fixtures/path-policy.json').read_text())
+        policy = json.loads((Path(__file__).parent / 'fixtures/protection.json').read_text(encoding='utf-8'))
+        cases = json.loads((Path(__file__).parent / 'fixtures/path-policy.json').read_text(encoding='utf-8'))
         for case in cases:
             with self.subTest(case=case):
                 self.assertEqual(check_path(root, case['path'], case['action'], policy) is not None, case['deny'])

@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 
-from hooklib import _command_lines, _lift_substitutions, split_segments
+from hooklib import _command_lines, _lift_substitutions, split_segments, windows_path
 from protocol import emit_result, read_event
 
 TOTAL_TIMEOUT = 8
@@ -34,6 +34,18 @@ GIT_ENV = {'GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_
 
 class Blocked(Exception):
     pass
+
+
+def install_command(os_name=os.name):
+    return ('py -3' if os_name == 'nt' else 'python3') + ' .opencode/secret-scan/install.py'
+
+
+def kill_tree(proc, os_name=os.name, run=subprocess.run):
+    """超时后终止扫描器及其子进程：POSIX 杀掉整个进程组，Windows 用 taskkill /T。"""
+    if os_name == 'nt':
+        run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
+    else:
+        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def words(command):
@@ -115,7 +127,7 @@ def commit_command(command, cwd):
     if any(c in text for c in ('$','`')):
         raise Blocked(UNSUPPORTED)
     tokens = words(text)
-    if len(tokens) > 1 and tokens[0] == 'cd' and not Path(tokens[1]).is_absolute():
+    if len(tokens) > 1 and tokens[0] == 'cd' and not Path(windows_path(tokens[1])).is_absolute():
         cwd = shell_directory(cwd)
         # Bash preserves a valid inherited logical PWD even if the hook's cwd
         # was already canonicalized by the host. An absolute first cd resets it.
@@ -128,10 +140,10 @@ def commit_command(command, cwd):
     while tokens[:1] == ['cd']:
         if len(tokens) < 4 or tokens[2] != '&&' or tokens[1].startswith('-'):
             raise Blocked(UNSUPPORTED)
-        if not Path(tokens[1]).is_absolute() and os.environ.get('CDPATH'):
+        if not Path(windows_path(tokens[1])).is_absolute() and os.environ.get('CDPATH'):
             raise Blocked('已拦截：非空 CDPATH 会改变相对 cd 的目标。请在独立工具调用中使用 '
                           'git -C <真实绝对路径> commit，或 cd <真实绝对路径> && git commit。')
-        cwd = shell_directory(Path(cwd) / tokens[1])
+        cwd = shell_directory(Path(cwd) / windows_path(tokens[1]))
         tokens = tokens[3:]
     if not tokens or tokens.pop(0) not in ('git', '/usr/bin/git', '/bin/git'):
         raise Blocked(UNSUPPORTED)
@@ -145,7 +157,7 @@ def commit_command(command, cwd):
             target = option[2:]
         else:
             raise Blocked(UNSUPPORTED)
-        cwd = (Path(cwd) / target).resolve()
+        cwd = (Path(cwd) / windows_path(target)).resolve()
     if not tokens:
         raise Blocked(UNSUPPORTED)
     tokens.pop(0)
@@ -232,7 +244,7 @@ class Runner:
             try:
                 stdout, _ = proc.communicate(data, timeout=remaining)
             except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
+                kill_tree(proc)
                 proc.communicate()
                 raise Blocked('已拦截：凭据扫描超时；请缩小单次提交并重新扫描，或排查 Git/Gitleaks 性能。')
         except OSError:
@@ -246,16 +258,17 @@ def scan_commit(parsed, runner, *, snapshot=None):
     cwd, mode, amend, paths = parsed
     if any(os.environ.get(name) for name in GIT_ENV):
         raise Blocked('已拦截：当前环境覆盖了 Git 仓库或 index；请清除 GIT_* 覆盖后用独立 git -C <目录> commit。')
-    pin = json.loads((PIN / 'pinned.json').read_text())
+    pin = json.loads((PIN / 'pinned.json').read_text(encoding='utf-8'))
     scanner = shutil.which('gitleaks')
     if not scanner:
-        fallback = Path.home() / '.local/bin/gitleaks'
+        fallback = Path.home() / '.local/bin' / ('gitleaks.exe' if os.name == 'nt' else 'gitleaks')
         scanner = str(fallback) if fallback.is_file() else None
     if not scanner:
-        raise Blocked('已拦截：缺少 Gitleaks；先运行 python3 .opencode/secret-scan/install.py，再重新提交。')
+        raise Blocked(f'已拦截：缺少 Gitleaks；先运行 {install_command()}，再重新提交。'
+                      'OpenCode 后台服务的 PATH 在服务启动时确定，安装扫描器或修改 PATH 后先执行 opencode service restart。')
     _, version = runner.run([scanner, 'version'])
     if version.strip().decode('ascii', 'replace') != pin['version']:
-        raise Blocked('已拦截：Gitleaks 版本不匹配；运行 python3 .opencode/secret-scan/install.py --check 检查固定版本。')
+        raise Blocked(f'已拦截：Gitleaks 版本不匹配；运行 {install_command()} --check 检查固定版本。')
     env = {k: v for k, v in os.environ.items() if not k.startswith('GITLEAKS_')}
     env['GIT_OPTIONAL_LOCKS'] = '0'
 
@@ -334,7 +347,7 @@ def scan_commit(parsed, runner, *, snapshot=None):
                 '--report-format=json', '--report-path', str(report),
             ], cwd=temp, env=env, data=content, ok=(0, 23))
             try:
-                findings = json.loads(report.read_text())
+                findings = json.loads(report.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 raise Blocked('已拦截：Gitleaks 扫描失败，未产生有效报告。') from None
             if not isinstance(findings, list) or (code == 23) != bool(findings):
