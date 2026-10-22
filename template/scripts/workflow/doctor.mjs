@@ -56,13 +56,13 @@ async function diagnose() {
     const normalized = native.permissions?.slice(-block.length).map(({ action, resource, effect }) => ({ action, resource, effect }))
     if (JSON.stringify(normalized) !== JSON.stringify(block)) throw new Error('原生权限末尾与 protection.json 不一致；按声明顺序合并权限块，可用 node scripts/workflow/doctor.mjs --print-permissions 输出应有的权限块')
   })
-  // 到上限时插件会拒绝修改整个领域，超过一半就提前提示精简。
+  // 任何一份规则超过上限，插件都会拒绝本检出的修改（规则与工作流配置除外），超过一半就提前提示精简。
   if (config) await check('rule-size', () => {
     const limit = requirePlugin().SCOPE_TEXT_LIMIT
     const long = [...new Set(config.scopes.map(scope => scope.instruction))]
       .map(path => [path, readFileSync(join(root, path), 'utf8').length])
       .filter(([, length]) => length > limit / 2)
-    if (long.length) return { status: 'warn', message: `规则文件超过 ${limit / 2} 个字符（插件上限 ${limit}，超过上限会拒绝修改该领域）：\n${long.map(([path, length]) => `${path}：${length} 个字符`).join('\n')}\n规则每次都会注入上下文；删去历史、日期和重复的命令，操作步骤移到手册并写明何时阅读` }
+    if (long.length) return { status: 'warn', message: `规则文件超过 ${limit / 2} 个字符（插件上限 ${limit}；超过上限时，除各目录 AGENTS.md 和工作流配置外，本检出的所有修改都会被拒绝）：\n${long.map(([path, length]) => `${path}：${length} 个字符`).join('\n')}\n规则每次都会注入上下文；删去历史、日期和重复的命令，操作步骤移到手册并写明何时阅读` }
   })
   await check('shell', async () => {
     const native = await readJson(join(root, 'opencode.jsonc'))

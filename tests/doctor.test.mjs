@@ -179,5 +179,7 @@ test('doctor warns about rule files over half the injection limit', () => {
     assert.equal(check?.status, 'warn')
     assert.equal(check.message.match(/AGENTS\.md：20001 个字符/g)?.length, 1)
     assert.match(check.message, /插件上限 40000/)
+    // 任何一份规则超限都会让插件拒绝整个检出的修改，不只是该规则所在的领域。
+    assert.match(check.message, /本检出的所有修改都会被拒绝/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
