@@ -92,6 +92,9 @@ def main():
 
 
 if __name__ == '__main__':
+    # 输出接管道时 Windows 默认用 ANSI 代码页（GitHub runner 上是 cp1252），中文提示会编码失败；统一按 UTF-8 输出。
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding='utf-8', errors='backslashreplace')
     try:
         raise SystemExit(main())
     except (OSError, ValueError, KeyError, tarfile.TarError) as exc:

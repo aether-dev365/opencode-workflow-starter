@@ -2,8 +2,13 @@
 import importlib.util
 import io
 import json
+import os
+import shutil
 from pathlib import Path
+import subprocess
+import sys
 import tarfile
+import tempfile
 import unittest
 import zipfile
 
@@ -64,6 +69,30 @@ class Installer(unittest.TestCase):
         for key, artifact in pins.items():
             for name in ('sha256', 'binary_sha256'):
                 self.assertRegex(artifact[name], r'^[0-9a-f]{64}$', f'{key}.{name}')
+
+
+    def test_messages_survive_a_non_utf8_pipe(self):
+        # GitHub 的 Windows runner 上输出接管道时是 cp1252：中文提示曾让安装成功后仍以 1 退出。
+        with tempfile.TemporaryDirectory() as empty:
+            env = {**os.environ, 'PYTHONIOENCODING': 'cp1252', 'PYTHONUTF8': '0'}
+            result = subprocess.run([sys.executable, str(INSTALLER), '--check', '--bin-dir', empty], capture_output=True, env=env, timeout=20)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('未安装固定版本', result.stderr.decode('utf-8'))
+
+    def test_success_output_survives_a_non_utf8_pipe(self):
+        # 标准输出按严格编码写入：路径或提示里有中文时，cp1252 管道会让校验成功的安装以 1 退出。
+        name = 'gitleaks.exe' if os.name == 'nt' else 'gitleaks'
+        scanner = shutil.which('gitleaks') or str(Path.home() / '.local/bin' / name)
+        if not Path(scanner).is_file():
+            raise RuntimeError('需要已安装的固定版 Gitleaks：python3 .opencode/secret-scan/install.py')
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / '扫描器'
+            folder.mkdir()
+            shutil.copyfile(scanner, folder / name)
+            env = {**os.environ, 'PYTHONIOENCODING': 'cp1252', 'PYTHONUTF8': '0'}
+            result = subprocess.run([sys.executable, str(INSTALLER), '--check', '--bin-dir', str(folder)], capture_output=True, env=env, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+        self.assertIn('扫描器', result.stdout.decode('utf-8'))
 
 
 if __name__ == '__main__':
