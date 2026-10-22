@@ -15,6 +15,17 @@ node scripts/verify.mjs
 
 `verify.mjs` 依次运行类型检查、插件测试、守卫测试、分发测试、独立接入测试和原生测试，各阶段日志写入被忽略的 `.verification/`。任一阶段失败、没有实际执行测试或出现跳过，都算验证失败。
 
+在 Windows 上（PowerShell，需要 Git for Windows 和 Python 启动器 `py`）运行 Windows 子集：类型检查、插件测试、守卫测试和独立接入测试。依赖 bash 逻辑目录与目录符号链接的 3 个守卫用例在 Windows 上跳过；原生测试和分发测试只在 Linux 上运行。
+
+```powershell
+npm --prefix template/.opencode/plugins/workflow ci --ignore-scripts
+py -3 template/.opencode/secret-scan/install.py   # 把输出的目录加入 PATH
+npm install -g @opencode/cli@<基线版本>
+node scripts/verify.mjs --windows
+```
+
+`WORKFLOW_PYTHON` 可指定守卫使用的解释器，插件与 `verify.mjs` 都遵循它。CI（`.github/workflows/ci.yml`）在 Linux 上以 Python 3.10 跑全量验收，在 Windows 上跑同一子集。
+
 ## 改动要求
 
 - 修复行为问题时先写能重现问题的测试；守卫出错时必须拒绝执行。

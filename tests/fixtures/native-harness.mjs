@@ -1,5 +1,6 @@
 import { OpenCode } from '../../template/.opencode/plugins/workflow/node_modules/@opencode/client/dist/promise/index.js'
 import { readJson } from '../../template/.opencode/plugins/workflow/config.ts'
+import { commandLine, findExecutable } from '../../template/.opencode/plugins/workflow/platform.ts'
 import { fakeModel } from './fake-model.mjs'
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, cpSync, readFileSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs'
@@ -13,8 +14,10 @@ const root = resolve(import.meta.dirname, '../..')
 export const baseline = JSON.parse(readFileSync(join(root, 'template/.opencode/plugins/workflow/package.json'), 'utf8')).dependencies['@opencode/plugin']
 export function runtimeBinary() {
   const bundled = join(root, '.verification/runtime/package/bin/opencode')
-  const path = process.env.WORKFLOW_OPENCODE_BIN || (existsSync(bundled) ? bundled : 'opencode')
-  const version = execFileSync(path, ['--version'], { encoding: 'utf8' }).trim()
+  // Windows 上 npm 全局安装的 CLI 是 opencode.cmd，按 PATHEXT 查找并经 cmd.exe 启动。
+  const path = process.env.WORKFLOW_OPENCODE_BIN || (existsSync(bundled) ? bundled : findExecutable('opencode') ?? 'opencode')
+  const invocation = commandLine(path, ['--version'])
+  const version = execFileSync(invocation.command, invocation.args, { encoding: 'utf8', windowsVerbatimArguments: invocation.windowsVerbatimArguments }).trim()
   assert.equal(version.match(/\bv?(\d+\.\d+\.\d+)$/)?.[1], baseline, `native tests require OpenCode ${baseline}; run node scripts/fetch-opencode.mjs or set WORKFLOW_OPENCODE_BIN`)
   return path
 }

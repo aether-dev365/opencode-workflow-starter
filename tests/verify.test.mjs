@@ -25,3 +25,36 @@ console.log('tests 0\\npass 0\\nfail 0')
     assert.equal(report.stages.at(-1).ok, false)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('the Windows subset runs only portable stages and accepts the POSIX-only guard skips', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-subset-'))
+  try {
+    mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
+    cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
+    writeFileSync(join(root, 'bin/npm'), '#!/bin/sh\necho "tests 1"\n', { mode: 0o755 })
+    writeFileSync(join(root, 'bin/python3'), '#!/bin/sh\necho "Ran 3 tests"\necho "OK (skipped=2)"\n', { mode: 0o755 })
+    const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }
+    const stages = args => {
+      const result = spawnSync(process.execPath, ['scripts/verify.mjs', ...args], { cwd: root, env, encoding: 'utf8' })
+      const report = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8'))
+      return { status: result.status, mode: report.mode, stages: report.stages.map(s => [s.id, s.ok]) }
+    }
+    // 临时根目录里没有 tests/，adoption 阶段必然失败；这里只看选中了哪些阶段、跳过是否放行。
+    assert.deepEqual(stages(['--windows']), { status: 1, mode: 'windows', stages: [['typecheck', true], ['plugin', true], ['guards', true], ['adoption', false]] })
+    assert.deepEqual(stages([]), { status: 1, mode: 'full', stages: [['typecheck', true], ['plugin', true], ['guards', false]] })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('the guard stage uses WORKFLOW_PYTHON like the plugin does', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-python-'))
+  try {
+    mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
+    cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
+    writeFileSync(join(root, 'bin/npm'), '#!/bin/sh\necho "tests 1"\n', { mode: 0o755 })
+    const python = join(root, 'chosen-python')
+    writeFileSync(python, '#!/bin/sh\necho "Ran 1 test"\n', { mode: 0o755 })
+    spawnSync(process.execPath, ['scripts/verify.mjs'], { cwd: root, env: { ...process.env, WORKFLOW_PYTHON: python, PATH: join(root, 'bin') + ':' + process.env.PATH }, encoding: 'utf8' })
+    const guards = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'guards')
+    assert.deepEqual([guards.command, guards.ok], [python, true])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
