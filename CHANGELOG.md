@@ -21,6 +21,7 @@
 
 ### 修复
 
+- 补全 `.gitignore`：仓库根目录此前没有忽略 `.env` 等凭据文件，现补充凭据、缓存、日志、`npm pack` 产物、CodeGraph 索引、Claude Code 个人设置及系统/编辑器文件；模板额外忽略 `*.env`，与保护规则一致。分发测试屏蔽全局 excludes 后核对。
 - 分发测试不再在源码里写入私有项目名、本机路径和服务器地址；改为通用检查加被忽略的本地禁用词文件。
 - 新增 `.gitattributes`（仓库与模板各一份）：Windows 上以 `core.autocrlf=true` 检出时，工作流脚本仍保持 LF，`run-tests.sh` 不再因 CRLF 报错。
 - doctor 在插件依赖缺失时不再崩溃，改为输出结构化报告并给出 `npm ci` 命令。

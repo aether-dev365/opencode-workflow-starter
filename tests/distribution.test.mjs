@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 
 const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md']
 
@@ -73,6 +73,28 @@ test('documented OpenCode versions match the plugin baseline', () => {
     // 带 + 的是其他组件的最低要求（如 Superpowers 要求 OpenCode 2.0.4+），不是本模板的基线。
     for (const [version] of readFileSync(path, 'utf8').matchAll(/(?<![\d.])2\.\d+\.\d+(?![\d.+])/g)) assert.equal(version, baseline, path)
   }
+})
+
+// 只看仓库自己的规则：屏蔽贡献者机器上的全局 excludes（例如 ~/.config/git/ignore）。
+const ignoredBy = (cwd, paths) => spawnSync('git', ['-c', 'core.excludesFile=/dev/null', 'check-ignore', '--no-index', '--stdin'], { cwd, input: paths.join('\n'), encoding: 'utf8' }).stdout.split('\n').filter(Boolean)
+
+test('local artifacts are ignored while deliverables stay committable', () => {
+  const local = ['.env', 'config/.env.production', 'deploy/prod.env', '.DS_Store', 'Thumbs.db', '.vscode/settings.json', '.idea/workspace.xml',
+    'debug.log', '.venv/bin/python', '.pytest_cache/v/cache', 'coverage/index.html', '.codegraph/index.db', '.claude/settings.local.json',
+    'template/.opencode/plugins/workflow/opencode-workflow-starter-1.0.0.tgz', '.verification/report.json', 'artifacts/starter.tar.gz']
+  assert.deepEqual(ignoredBy('.', local), local)
+  assert.deepEqual(ignoredBy('.', [...tracked(), '.env.example', 'template/.env.example', '.github/workflows/ci.yml']), [])
+})
+
+test('the template ignores workflow state and credentials without hiding source files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-ignore-'))
+  try {
+    cpSync('template/.gitignore', join(root, '.gitignore'))
+    execFileSync('git', ['init', '-q', root])
+    const local = ['.env', 'config/.env.local', 'deploy/prod.env', '.opencode/workflow/.state/review/x', '.opencode/plugins/workflow/node_modules/x/index.js', '.worktrees/a/file']
+    assert.deepEqual(ignoredBy(root, local), local)
+    assert.deepEqual(ignoredBy(root, ['.env.example', 'config/.env.example', 'src/app.env.ts', '.opencode/workflow/protection.json']), [])
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the template carries the suite license', () => {

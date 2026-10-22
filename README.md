@@ -72,7 +72,7 @@ node scripts/verify.mjs
 
 ## 版本管理
 
-提交模板源码、依赖锁文件、接入指南、示例、可选扩展及验证脚本。开发计划 `docs/superpowers/`、单次验收记录 `docs/verification.md`、技能辅助目录 `.superpowers/`、验证产物 `.verification/`、分发包 `artifacts/`、依赖安装目录、缓存和工作流运行状态留在本地，由 `.gitignore` 排除。
+提交模板源码、依赖锁文件、接入指南、示例、可选扩展及验证脚本。开发计划 `docs/superpowers/`、单次验收记录 `docs/verification.md`、技能辅助目录 `.superpowers/`、验证产物 `.verification/`、分发包 `artifacts/`、依赖安装目录、缓存和工作流运行状态，以及本地凭据（`.env` 等，只提交 `.env.example`）、CodeGraph 索引、Claude Code 个人设置、编辑器与系统文件都留在本地，由 `.gitignore` 排除；分发测试会核对本地产物被忽略、交付文件没有被误忽略。
 
 接入业务项目时，按 ADOPT.md 合并 `template/` 内容；套件根目录的开发和维护文件无需一并复制。
 

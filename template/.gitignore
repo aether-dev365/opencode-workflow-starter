@@ -6,4 +6,5 @@ __pycache__/
 .verification/
 .env
 .env.*
+*.env
 !.env.example
