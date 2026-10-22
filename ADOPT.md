@@ -10,6 +10,8 @@
 
 查明当前 OpenCode、Node、Python 和 Git 版本。基础包使用 OpenCode 2.1.1 验收；若目标版本不同，先验证兼容或提出升级计划，不悄悄替换依赖。
 
+先执行 `opencode --version`；设置了 `WORKFLOW_OPENCODE_BIN` 时，同时核对该路径的版本。未安装、不是 V2 或无法识别时，向用户展示检测结果，提供 [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md)、[官方安装入口](https://opencode.ai/v2/docs/) 和 `npm install -g @opencode/cli@2.1.1`，完成安装或修正命令路径并复查后再接入。已有 V1 按指南保留配置并处理迁移，不在 V1 宿主中加载本模板的 V2 插件。
+
 ## 2. 给出接入清单
 
 列出拟新增、合并及保持现有的文件。明确目录映射、保护路径与允许例外、实际命令、审核分区、角色、所需扩展及尚未确定项。

@@ -18,8 +18,11 @@
 | [scripts/](scripts/) | 固定版本 CLI 获取与套件验证入口 |
 | [tests/](tests/) | 分发、自检、独立接入和原生运行测试 |
 | [docs/skills.md](docs/skills.md) | 官方与第三方技能来源、用途和可选接入方式 |
+| [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md) | 官方安装地址、V1 迁移、平台说明和版本检查 |
 
 ## 空项目快速开始
+
+**先运行 `opencode --version`。** 未安装或不是 V2 时，先按 [安装指南](template/docs/workflow/opencode-install.md) 安装并复查；本模板推荐 `npm install -g @opencode/cli@2.1.1`。其他 V2 版本按指南中的兼容性说明处理。
 
 1. 从干净分发包解压，在独立 Git 项目根目录复制其中 `template/` 的内容，包括隐藏文件。已有项目按 ADOPT.md 合并，避免覆盖已有配置。开发检出内的 node_modules、__pycache__ 和运行状态不要复制；分发包已排除这些文件。
 2. 运行下列命令。Node.js 24、Python 3.10+、Git、Linux/WSL；OpenCode 与插件验收基线均为 **2.1.1**。

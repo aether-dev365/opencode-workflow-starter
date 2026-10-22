@@ -49,6 +49,33 @@ test('doctor warns about tracked files hidden by credential rules', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('doctor gives actionable OpenCode installation guidance for unavailable or non-V2 executables', async t => {
+  for (const [name, script, reason] of [
+    ['missing executable', null, /未找到/],
+    ['V1 executable', 'echo "opencode v1.18.31"', /需要 OpenCode V2.*1\.18\.31/],
+    ['failed version command', 'exit 7', /无法执行.*--version/],
+    ['unrecognized version', 'echo "unknown-version"', /无法识别.*unknown-version/],
+  ]) {
+    await t.test(name, () => {
+      const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+      try {
+        const binary = join(root, 'opencode-test')
+        if (script) writeFileSync(binary, `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+        const result = spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'],
+          { env: { ...process.env, WORKFLOW_OPENCODE_BIN: binary }, encoding: 'utf8' })
+        assert.equal(result.status, 1)
+        const check = JSON.parse(result.stdout).checks.find(c => c.id === 'opencode-version')
+        assert.equal(check.status, 'fail')
+        assert.match(check.message, reason)
+        assert.match(check.message, /npm install -g @opencode\/cli@2\.1\.1/)
+        assert.match(check.message, /https:\/\/opencode\.ai\/v2\/docs\//)
+        assert.match(check.message, /docs\/workflow\/opencode-install\.md/)
+        assert.match(check.message, /WORKFLOW_OPENCODE_BIN/)
+      } finally { rmSync(root, { recursive: true, force: true }) }
+    })
+  }
+})
+
 test('policy CLI returns denied paths and rejects invalid requests', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-policy-'))
   try {

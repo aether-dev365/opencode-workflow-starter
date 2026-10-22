@@ -19,5 +19,6 @@
 - 测试与证据：`docs/workflow/testing.md`
 - 审核分级与结论：`docs/workflow/review-policy.md`
 - 接入检查：`node scripts/workflow/doctor.mjs --root .`
+- OpenCode V2 安装与版本检查：`docs/workflow/opencode-install.md`
 
 插件在实际 Location 下生效才能执行受保护操作。文件存在或静态自检成功不等于原生验收通过。

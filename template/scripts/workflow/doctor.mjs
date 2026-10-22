@@ -29,11 +29,21 @@ await check('python', () => {
 })
 await check('git', () => { command('git', ['--version']) })
 await check('opencode-version', () => {
-  const version = command(process.env.WORKFLOW_OPENCODE_BIN || 'opencode', ['--version'])
+  const binary = process.env.WORKFLOW_OPENCODE_BIN || 'opencode'
+  const guide = '官方安装入口：https://opencode.ai/v2/docs/\n安装验收版本：npm install -g @opencode/cli@2.1.1\n完整步骤及 V1 迁移：docs/workflow/opencode-install.md\n安装后运行 opencode --version，并确认 PATH 或 WORKFLOW_OPENCODE_BIN 指向所选 V2 CLI'
+  let version
+  try { version = command(binary, ['--version']) }
+  catch (error) {
+    const reason = error.code === 'ENOENT' ? `未找到 OpenCode CLI：${binary}` : `无法执行 ${binary} --version：${error.message}`
+    throw new Error(`${reason}；请检查命令路径或按指南安装 OpenCode V2。\n${guide}`)
+  }
   if (/\bv?2\.1\.1$/.test(version)) return
   const patch = version.match(/\bv?(2\.1\.\d+)$/)?.[1]
-  if (patch) return { status: 'warn', message: `未在 v${patch} 做原生验收；按 README 完成原生冒烟，并记录在接入报告` }
-  throw new Error(`验收基线为 OpenCode 2.1.1，实际为 ${version}；升级需同步依赖和原生验收`)
+  if (patch) return { status: 'warn', message: `未在 v${patch} 做原生验收；按 docs/workflow/opencode-install.md 完成安装后检查和原生冒烟，并记录在接入报告` }
+  const major = version.match(/\bv?(\d+)\.\d+\.\d+$/)?.[1]
+  if (!major) throw new Error(`无法识别 OpenCode 版本：${version || '（空输出）'}。\n${guide}`)
+  if (major !== '2') throw new Error(`本模板需要 OpenCode V2，实际为 ${version}；请按指南安装 V2 后重新检查。\n${guide}`)
+  throw new Error(`已检测到 OpenCode V2，实际为 ${version}，但验收基线为 2.1.1；使用其他系列版本需同步依赖和原生验收。\n${guide}`)
 })
 await check('dependencies', () => {
   for (const [name, version] of [['@opencode/plugin', '2.1.1'], ['jsonc-parser', '3.3.1']]) {
@@ -69,7 +79,7 @@ await check('placeholders', async () => {
   if (/REPLACE_ME|<YOUR_[A-Z_]+>/.test(JSON.stringify(active))) throw new Error('活动配置仍有未填写项；examples/ 和禁用扩展示例不会启用')
 })
 await check('references', () => {
-  for (const path of ['AGENTS.md', '.opencode/agents/implementer.md', '.opencode/agents/reviewer.md', '.opencode/commands/review.md', 'docs/workflow/development.md', 'docs/workflow/testing.md', 'docs/workflow/review-policy.md']) {
+  for (const path of ['AGENTS.md', '.opencode/agents/implementer.md', '.opencode/agents/reviewer.md', '.opencode/commands/review.md', 'docs/workflow/development.md', 'docs/workflow/testing.md', 'docs/workflow/review-policy.md', 'docs/workflow/opencode-install.md']) {
     if (!readFileSync(join(root, path), 'utf8').trim()) throw new Error('入口文档为空：' + path)
   }
 })
