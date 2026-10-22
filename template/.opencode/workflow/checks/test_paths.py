@@ -83,6 +83,29 @@ class PathGuards(unittest.TestCase):
         self.assertEqual(self.guard(command='rm -rf node_modules'), 'allow')
         self.assertLess(time.monotonic() - start, 5)
 
+    def test_recursive_delete_checks_links_inside_the_target_by_their_real_path(self):
+        # 目标内的链接按真实路径检查；通过链接的目录进入的内容同样按真实路径检查。
+        build = self.root / 'build'
+        (build / 'lib').mkdir(parents=True)
+        (build / 'lib/link.txt').symlink_to(self.root / '.env')
+        self.assertEqual(self.guard(command='rm -rf build'), 'deny')
+        (build / 'lib/link.txt').unlink()
+        self.assertEqual(self.guard(command='rm -rf build'), 'allow')
+        real = self.root / 'real'
+        real.mkdir()
+        (real / 'app.env').write_text('synthetic')
+        (self.root / 'alias').symlink_to(real, target_is_directory=True)
+        self.assertEqual(self.guard(command='rm -rf alias'), 'deny')
+
+    def test_recursive_delete_skips_nested_git_directories(self):
+        (self.root / 'build/.git').mkdir(parents=True)
+        (self.root / 'build/.git/config.env').write_text('synthetic')
+        self.assertEqual(self.guard(command='rm -rf build'), 'allow')
+        (self.root / 'build/.git/config.env').unlink()
+        (self.root / 'build/sub').mkdir()
+        (self.root / 'build/sub/.env').write_text('synthetic')
+        self.assertEqual(self.guard(command='rm -rf build'), 'deny')
+
     def test_recursive_delete_reports_target_instead_of_internal_probe(self):
         target = self.root / 'vendor'
         target.mkdir()

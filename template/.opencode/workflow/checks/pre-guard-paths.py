@@ -25,9 +25,9 @@ def check_event(event):
             policies[target_root] = load_policy(target_root)
         return target_root, policies[target_root]
 
-    def check(path, action, selected=None, reported_path=None):
+    def check(path, action, selected=None, reported_path=None, real=None):
         target_root, policy = selected if selected is not None else policy_for(path)
-        reason = check_path(target_root, path, action, policy)
+        reason = check_path(target_root, path, action, policy, real)
         if reason:
             raise ValueError(f'{reason} 路径：{reported_path or path}')
 
@@ -76,16 +76,44 @@ def check_event(event):
             check(str(absolute / '_'), 'edit', selected, reported_path=str(absolute))
             if absolute.is_dir():
                 # 目标内只拦截不可读文件，避免依赖内部的生成目录阻断清理；复用目标策略。
-                for folder, dirs, files in os.walk(absolute):
-                    dirs[:] = [d for d in dirs if d != '.git']
-                    for name in dirs + files:
-                        check(str(Path(folder) / name), 'read', selected)
+                for entry, real in walk_with_real_paths(absolute):
+                    check(str(entry), 'read', selected, real=real)
     candidate_event = {**event, 'paths': [], 'input': {**event['input'], 'command': '; '.join(filtered)}}
     for path in candidates_from(candidate_event, include_readonly=True)[0]:
         check(path, 'read')
     for path in candidates_from(candidate_event)[0]:
         check(path, 'edit')
     return volatile
+
+
+def walk_with_real_paths(top):
+    """遍历范围与 os.walk(top) 相同（不进入 .git 目录，不跟随指向目录的符号链接），并给出每项的真实路径。
+
+    普通项的真实路径是所在目录的真实路径加名字，不必逐个解析；链接和 Windows 联接点给 None，由调用方完整解析。
+    """
+    pending = [(top, top.resolve())]
+    while pending:
+        folder, real = pending.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                directory = entry.is_dir()
+            except OSError:
+                directory = False
+            if directory and entry.name == '.git':
+                continue
+            try:
+                symlink = entry.is_symlink()
+            except OSError:
+                symlink = False
+            linked = symlink or (hasattr(entry, 'is_junction') and entry.is_junction())
+            path = Path(entry.path)
+            yield path, None if linked else real / entry.name
+            if directory and not symlink:
+                pending.append((path, path.resolve() if linked else real / entry.name))
 
 
 def check(data):

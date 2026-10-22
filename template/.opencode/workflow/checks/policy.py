@@ -1,4 +1,5 @@
 """Ordered native wildcard rules, resolved against the actual checkout."""
+import functools
 import json
 import os
 from pathlib import Path
@@ -40,10 +41,16 @@ def matches(path, pattern):
     return re.fullmatch(expression, path, flags=re.DOTALL) is not None
 
 
-def check_path(root: str, path: str, action: str, policy: dict) -> str | None:
-    base = Path(root).resolve()
+@functools.lru_cache(maxsize=None)
+def _resolved_root(root: str) -> Path:
+    return Path(root).resolve()
+
+
+def check_path(root: str, path: str, action: str, policy: dict, real: Path | None = None) -> str | None:
+    """按字面路径和真实路径各匹配一次。调用方已知真实路径时传入 real，省去解析（Windows 上逐个解析很慢）。"""
+    base = _resolved_root(root)
     absolute = Path(os.path.abspath(Path(root) / path))
-    for candidate in dict.fromkeys([absolute, absolute.resolve()]):
+    for candidate in dict.fromkeys([absolute, real if real is not None else absolute.resolve()]):
         try:
             name = os.path.relpath(candidate, base).replace(os.sep, '/')
         except ValueError:
