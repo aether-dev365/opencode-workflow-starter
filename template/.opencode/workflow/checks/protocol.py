@@ -45,7 +45,7 @@ def read_event(raw: str) -> dict:
 
 
 def emit_result(decision: str = 'allow', *, reason: str = '', input: dict | None = None,
-                reminders: list[str] | None = None) -> None:
+                reminders: list[str] | None = None, extra: dict | None = None) -> None:
     if decision not in ('allow', 'deny', 'ask'):
         raise ValueError('Invalid check decision')
     reminder_text = '\n'.join(reminders or [])
@@ -57,6 +57,8 @@ def emit_result(decision: str = 'allow', *, reason: str = '', input: dict | None
         result['reason'] = reason
     if input is not None:
         result['input'] = input
+    if extra:
+        result.update(extra)
     print(json.dumps(result, ensure_ascii=False))
     if decision == 'deny' and reason:
         print(reason, file=sys.stderr)

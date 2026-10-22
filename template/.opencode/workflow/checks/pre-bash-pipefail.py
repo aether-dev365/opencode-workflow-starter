@@ -90,28 +90,29 @@ def needs_pipefail(text, prefixes=()):
     return any(needs_pipefail(inner, prefixes) for inner in inners)
 
 
-data = load_event()
-tool_input = data['input']
-command = tool_input.get("command")
-if data['tool'] != 'shell' or not isinstance(command, str) or "pipefail" in command:
-    emit_result()
-    sys.exit(0)
-prefixes = []
-try:
-    root = policy_root(Path(data['directory']) / windows_path(tool_input.get('workdir', '')))
-    config = root / '.opencode/workflow/pipefail.json' if root else None
-    if config and config.exists():
-        value = json.loads(config.read_text(encoding='utf-8'))
-        prefixes = value['commandPrefixes']
-        if value.get('version') != 1 or not isinstance(prefixes, list) or any(
-                not isinstance(p, list) or not p or any(not isinstance(t, str) or not t for t in p) for p in prefixes):
-            raise ValueError('命令前缀格式无效')
-except (OSError, ValueError, TypeError, KeyError):
-    emit_result('deny', reason='pipefail.json 无效；未执行操作。')
-    sys.exit(2)
-if not needs_pipefail(_drop_heredoc_bodies(command), prefixes):
-    emit_result()
-    sys.exit(0)
+def check(data):
+    tool_input = data['input']
+    command = tool_input.get("command")
+    if data['tool'] != 'shell' or not isinstance(command, str) or "pipefail" in command:
+        return dict(decision='allow')
+    prefixes = []
+    try:
+        root = policy_root(Path(data['directory']) / windows_path(tool_input.get('workdir', '')))
+        config = root / '.opencode/workflow/pipefail.json' if root else None
+        if config and config.exists():
+            value = json.loads(config.read_text(encoding='utf-8'))
+            prefixes = value['commandPrefixes']
+            if value.get('version') != 1 or not isinstance(prefixes, list) or any(
+                    not isinstance(p, list) or not p or any(not isinstance(t, str) or not t for t in p) for p in prefixes):
+                raise ValueError('命令前缀格式无效')
+    except (OSError, ValueError, TypeError, KeyError):
+        return dict(decision='deny', reason='pipefail.json 无效；未执行操作。')
+    if not needs_pipefail(_drop_heredoc_bodies(command), prefixes):
+        return dict(decision='allow')
+    return dict(decision='allow', input=dict(tool_input, command='set -o pipefail; ' + command))
 
-emit_result(input=dict(tool_input, command='set -o pipefail; ' + command))
-sys.exit(0)
+
+if __name__ == '__main__':
+    result = check(load_event())
+    emit_result(result['decision'], reason=result.get('reason', ''), input=result.get('input'))
+    sys.exit(0 if result['decision'] == 'allow' else 2)

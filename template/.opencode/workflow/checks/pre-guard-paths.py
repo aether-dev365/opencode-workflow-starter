@@ -84,14 +84,18 @@ def check_event(event):
         check(path, 'edit')
 
 
-def main():
+def check(data):
     try:
-        check_event(load_event())
-        emit_result()
-        return 0
+        check_event(data)
+        return dict(decision='allow')
     except (ValueError, OSError, KeyError, TypeError) as error:
-        emit_result('deny', reason=f'文件保护检查拒绝：{error}')
-        return 2
+        return dict(decision='deny', reason=f'文件保护检查拒绝：{error}')
+
+
+def main():
+    result = check(load_event())
+    emit_result(result['decision'], reason=result.get('reason', ''))
+    return 0 if result['decision'] == 'allow' else 2
 
 
 if __name__ == '__main__':

@@ -421,33 +421,42 @@ def scan_snapshot(root: str, base: str, tree: str) -> None:
     scan_commit((root, 'staged', False, []), Runner(), snapshot=(base, tree))
 
 
-def main():
+FAILED = '已拦截：凭据扫描失败；请检查 Git/Gitleaks 安装及检查输入后重试。'
+
+
+def check(data):
+    """One event's scan decision; never raises."""
     runner = Runner()
     try:
-        data = read_event(sys.stdin.read())
         if data['phase'] == 'inspect' and data['tool'] == 'snapshot':
             scan_snapshot(data['directory'], data['input']['base'], data['input']['tree'])
-            emit_result()
-            return 0
+            return dict(decision='allow')
         if data['phase'] != 'before' or data['tool'] != 'shell':
-            emit_result()
-            return 0
+            return dict(decision='allow')
         command = data['input'].get('command')
         if not isinstance(command, str):
             raise Blocked('已拦截：凭据扫描缺少 Bash command 输入。')
-        cwd = Path(data['directory']) / data['input'].get('workdir', '')
+        cwd = Path(data['directory']) / windows_path(data['input'].get('workdir', ''))
         parsed = commit_command(command, str(cwd))
         if parsed:
             scan_commit(parsed, runner)
     except Blocked as exc:
-        emit_result('deny', reason=str(exc))
-        return 2
+        return dict(decision='deny', reason=str(exc))
     except Exception:
         # Do not disclose exceptions containing command output, diff or reports.
-        emit_result('deny', reason='已拦截：凭据扫描失败；请检查 Git/Gitleaks 安装及检查输入后重试。')
+        return dict(decision='deny', reason=FAILED)
+    return dict(decision='allow')
+
+
+def main():
+    try:
+        data = read_event(sys.stdin.read())
+    except Exception:
+        emit_result('deny', reason=FAILED)
         return 2
-    emit_result()
-    return 0
+    result = check(data)
+    emit_result(result['decision'], reason=result.get('reason', ''))
+    return 0 if result['decision'] == 'allow' else 2
 
 
 if __name__ == '__main__':

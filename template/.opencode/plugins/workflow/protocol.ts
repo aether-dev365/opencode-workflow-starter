@@ -7,6 +7,7 @@ export type WorkflowEvent = {
   result?: unknown
 }
 export type CheckResult = { decision: 'allow' | 'deny' | 'ask'; reason?: string; input?: Record<string, unknown>; reminders: string[] }
+export type CombinedResult = CheckResult & { inspect?: { paths: string[]; readonly: boolean } }
 
 export function normalizeCall(tool: string, input: Record<string, unknown>, directory: string, sessionId: string, callId: string): WorkflowEvent {
   if (!isAbsolute(directory) || !sessionId || !callId || !tool || !input || typeof input !== 'object' || Array.isArray(input)) {
@@ -48,6 +49,15 @@ export function parseResult(text: string, code: number | null): CheckResult {
       (value.reason !== undefined && typeof value.reason !== 'string') ||
       (value.decision === 'deny' ? code !== 2 : code !== 0)) {
     throw new Error('检查失败：结果或退出码无效；未执行操作')
+  }
+  return value
+}
+
+export function parseCombined(text: string, code: number | null, inspect: boolean): CombinedResult {
+  const value = parseResult(text, code) as CombinedResult
+  if (inspect) {
+    if (!Array.isArray(value.inspect?.paths) || !value.inspect.paths.every(path => typeof path === 'string')) throw new Error('检查路径无效')
+    if (typeof value.inspect.readonly !== 'boolean') throw new Error('检查只读分类无效')
   }
   return value
 }

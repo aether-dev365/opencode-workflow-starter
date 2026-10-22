@@ -139,3 +139,17 @@ test('an oversized rule warns instead of breaking context assembly', async () =>
     await f.fire('tool.execute.before', before('write', { path: 'src/AGENTS.md' }))
   } finally { await f.close() }
 })
+
+test('a shell command approved by the tool hook is not checked twice', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    const shell = (command: string) => ({ command, cwd: f.root, timeout: 0, shell: '/bin/bash', env: {} })
+    await f.fire('tool.execute.before', before('shell', { command: 'cat README.md', workdir: f.root }))
+    // 保护配置损坏后，任何重新执行的守卫都会拒绝；能放行说明这次没有重复检查。
+    await writeFile(join(f.root, '.opencode/workflow/protection.json'), '{')
+    await f.fire('shell.create.before', shell('cat README.md'))
+    await assert.rejects(f.fire('shell.create.before', shell('cat README.md')), /文件保护检查拒绝/)
+    await assert.rejects(f.fire('shell.create.before', shell('ls')), /文件保护检查拒绝/)
+  } finally { await f.close() }
+})

@@ -2,8 +2,9 @@ import { Plugin } from '@opencode/plugin'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { normalizeCall } from './protocol.ts'
-import type { WorkflowEvent } from './protocol.ts'
-import { runCheck } from './runner.ts'
+import type { WorkflowEvent, CombinedResult } from './protocol.ts'
+import { runChecks } from './runner.ts'
+import type { CheckName } from './runner.ts'
 import { matchingScopes, SCOPE_TEXT_LIMIT } from './scopes.ts'
 import { registerPathPermissions } from './permissions.ts'
 import { registerWatchdog } from './watchdog.ts'
@@ -13,7 +14,7 @@ import { registerReview } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
 import { containedRelative, unsupportedShell, windowsPath } from './platform.ts'
 
-const pre = ['pre-guard-paths.py', 'pre-secret-scan.py', 'pre-bash-pipefail.py']
+const guards: CheckName[] = ['pre-guard-paths', 'pre-secret-scan', 'pre-bash-pipefail']
 const mutations = new Set(['patch', 'edit', 'write', 'shell'])
 type State = { directory: string; epoch: number; scopes: string[]; visible: string[] }
 const key = (sessionId: string) => `context/${sessionId}`
@@ -51,29 +52,22 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     return { directory, epoch: (old?.epoch ?? 0) + 1, scopes: [], visible: [] }
   }
   const save = async (sessionId: string, value: State) => { await ctx.storage.set(key(sessionId), value) }
-  const paths = async (event: WorkflowEvent) => {
-    if (event.tool === 'shell') {
-      const result = await runCheck('inspect-paths.py', event, controller.signal)
-      const values = result.input?.paths
-      if (!Array.isArray(values) || !values.every(path => typeof path === 'string')) throw new Error('检查路径无效')
-      event.paths = values
-      if (typeof result.input?.readonly !== 'boolean') throw new Error('检查只读分类无效')
-      return !result.input.readonly
-    }
-    return mutations.has(event.tool)
+  const allow = (result: CombinedResult, event: WorkflowEvent) => {
+    if (result.decision !== 'allow') throw new Error(result.reason || '操作已拒绝')
+    if (result.input) event.input = { ...event.input, ...result.input }
   }
-  const guards = async (event: WorkflowEvent) => {
-    if (!mutations.has(event.tool)) return
-    // Readonly candidates are for instruction discovery, not write intent.
-    const guardEvent = event.tool === 'shell' ? { ...event, paths: [] } : event
-    for (const name of pre) {
-      const result = await runCheck(name, guardEvent, controller.signal)
-      if (result.decision !== 'allow') throw new Error(result.reason || '操作已拒绝')
-      if (result.input) {
-        event.input = { ...event.input, ...result.input }
-        guardEvent.input = event.input
-      }
-    }
+  // OpenCode 的 shell 工具在 tool 钩子之后还会触发 create.before；刚检查过的同一条命令只放行一次，10 秒内有效。
+  const approvals = new Map<string, number>()
+  const approvalKey = (cwd: string, command: string) => `${cwd}\0${command}`
+  const approve = (event: WorkflowEvent) => {
+    const now = Date.now()
+    for (const [entry, expiry] of approvals) if (expiry < now) approvals.delete(entry)
+    approvals.set(approvalKey(resolve(event.directory, windowsPath(String(event.input.workdir || ''))), String(event.input.command)), now + 10_000)
+  }
+  const consume = (cwd: string, command: string) => {
+    const entry = approvalKey(cwd, command), expiry = approvals.get(entry)
+    approvals.delete(entry)
+    return expiry !== undefined && expiry >= Date.now()
   }
   const recordScopes = async (event: WorkflowEvent, requireVisible: boolean) => {
     let scopes: Awaited<ReturnType<typeof matchingScopes>>
@@ -90,19 +84,25 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
   registrations.push(await ctx.tool.hook('execute.before', async raw => {
     const directory = await sessionDirectory(raw.sessionID)
     const event = normalizeCall(raw.tool, raw.input as Record<string, unknown>, directory, raw.sessionID, raw.id)
-    const mutation = await paths(event)
+    if (!mutations.has(event.tool)) { await recordScopes(event, false); return }
+    // 一个检查进程完成 shell 路径分析和全部守卫；shell 的守卫只看命令本身，只读候选路径用于加载规则。
+    const shell = event.tool === 'shell'
+    const result = await runChecks(event, shell ? ['inspect-paths', ...guards] : guards, controller.signal)
+    if (shell) event.paths = result.inspect!.paths
+    const mutation = shell ? !result.inspect!.readonly : true
     const problem = mutation ? await configProblem(event.directory) : undefined
     if (problem) {
       const currentRoot = await scopeRoot(event.directory)
       if (['patch', 'edit', 'write'].includes(event.tool) && currentRoot && event.paths.length && event.paths.every(path => isRepairPath(path, currentRoot))) {
-        await guards(event)
+        allow(result, event)
         raw.input = event.input
         return
       }
       throw new Error(`工作流配置无效：${problem}。修复后重试；修复期间只允许用 patch/edit/write 修改 .opencode/workflow/**、opencode.jsonc 和各目录 AGENTS.md。`)
     }
-    await guards(event)
+    allow(result, event)
     await recordScopes(event, mutation)
+    if (shell) approve(event)
     raw.input = event.input
   }))
   registrations.push(await ctx.shell.hook('create.before', async raw => {
@@ -110,8 +110,9 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     if (refused) throw new Error(refused)
     // 工具的 workdir 可以是相对路径；OpenCode 在本钩子之后才把它解析为绝对路径。
     const cwd = resolve(ctx.location.directory, windowsPath(raw.cwd || ''))
+    if (consume(cwd, raw.command)) return
     const event = normalizeCall('shell', { command: raw.command }, cwd, '__shell__', '__shell__')
-    await guards(event)
+    allow(await runChecks(event, guards, controller.signal), event)
     raw.command = String(event.input.command)
   }))
   registrations.push(await ctx.session.hook('context', async raw => {
