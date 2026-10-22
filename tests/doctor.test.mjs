@@ -135,3 +135,31 @@ test('policy CLI returns denied paths and rejects invalid requests', () => {
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('doctor asks for an explicit reviewer model', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const config = join(root, 'opencode.jsonc'), agent = join(root, '.opencode/agents/reviewer.md')
+    const [originalConfig, originalAgent] = [readFileSync(config, 'utf8'), readFileSync(agent, 'utf8')]
+    const reviewer = () => JSON.parse(spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'], { encoding: 'utf8' }).stdout).checks.find(c => c.id === 'reviewer-model')
+    const inherited = reviewer()
+    assert.equal(inherited?.status, 'warn')
+    assert.match(inherited.message, /agents\.reviewer\.model/)
+    for (const model of ['"openai/gpt-fixture"', '{ "providerID": "openai", "model": "gpt-fixture" }']) {
+      writeFileSync(config, originalConfig.replace('"worktree":', `"agents": { "reviewer": { "model": ${model} } }, "worktree":`))
+      assert.equal(reviewer()?.status, 'pass', model)
+    }
+    writeFileSync(config, originalConfig)
+    const yaml = originalAgent.replace('mode: subagent', 'mode: subagent\nmodel: openai/gpt-fixture')
+    const json = '---\n{\n  "description": "只读审核员",\n  "mode": "subagent",\n  "model": "openai/gpt-fixture"\n}\n---\n只读审核。\n'
+    for (const text of [yaml, yaml.replaceAll('\n', '\r\n'), json]) {
+      writeFileSync(agent, text)
+      assert.equal(reviewer()?.status, 'pass', JSON.stringify(text.slice(0, 60)))
+    }
+    // 正文里出现 model: 不算指定模型。
+    writeFileSync(agent, originalAgent + '\nmodel: openai/gpt-fixture\n')
+    assert.equal(reviewer()?.status, 'warn')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

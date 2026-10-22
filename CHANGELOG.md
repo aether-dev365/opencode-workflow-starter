@@ -4,7 +4,13 @@
 
 ## [未发布]
 
-暂无。
+### 新增
+
+- doctor 新增 `reviewer-model` 检查：reviewer 未在 `opencode.jsonc` 的 `agents.reviewer.model` 或代理文件中指定模型时给出 warn。已接入的项目升级后，显式指定前会看到这条提示。
+
+### 变更
+
+- 模板补充代理模型的配置说明：根 `model` 是默认值，`agents.<名称>.model` 为单个代理指定，子代理未指定时继承发起它的会话的模型。
 
 ## [1.0.0] - 2026-10-22
 

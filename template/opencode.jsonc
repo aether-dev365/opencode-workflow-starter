@@ -3,7 +3,9 @@
   // 工作流守卫按 bash 语法检查命令；Windows 上 "bash" 解析为 Git Bash。不要改成 PowerShell 或 cmd，否则 shell 命令会被拒绝。
   "shell": "bash",
   "worktree": { "directory": ".worktrees" },
-  // 使用操作者可用的默认模型；可在 agents 中分别指定实际模型，reviewer 建议显式配置，不依赖父会话继承。
+  // 模型：根 "model" 是默认值；"agents" 可为单个代理指定，格式 provider/model 或 provider/model#variant。
+  // 子代理未指定时继承发起它的会话的模型。reviewer 建议显式指定（未指定时 doctor 会提示），例如：
+  // "agents": { "reviewer": { "model": "<YOUR_PROVIDER>/<YOUR_MODEL>" } },
   "permissions": [
     { "action": "workflow_release", "resource": "*", "effect": "ask" },
     { "action": "read", "resource": "*.env", "effect": "deny" },

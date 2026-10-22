@@ -62,6 +62,17 @@ async function diagnose() {
     const problem = unsupportedShell(String(native.shell))
     if (problem) throw new Error(problem)
   })
+  await check('reviewer-model', async () => {
+    const native = await readJson(join(root, 'opencode.jsonc'))
+    const model = native.agents?.reviewer?.model
+    if (typeof model === 'string' ? model.trim() : model && typeof model === 'object') return
+    // 代理文件的 frontmatter 与 agents 配置项接受相同字段，写在那里也算显式指定。
+    let front = '', json
+    try { front = readFileSync(join(root, '.opencode/agents/reviewer.md'), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? '' } catch {}
+    try { json = JSON.parse(front) } catch {}
+    if (json && typeof json === 'object' ? json.model : /^model\s*:\s*\S/m.test(front)) return
+    return { status: 'warn', message: 'reviewer 未指定模型，审核时会继承发起会话的模型，通常与实现是同一个；在 opencode.jsonc 的 agents.reviewer.model 指定（只有一个可用模型时也写上），或在接入报告中说明原因' }
+  })
   await check('node', () => { if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('需要 Node.js 24 或更新版本') })
   await check('python', () => {
     const version = python(['--version']).match(/Python (\d+)\.(\d+)/)
