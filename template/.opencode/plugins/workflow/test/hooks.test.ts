@@ -186,3 +186,44 @@ test('a recursive delete approved by the tool hook is checked again when the she
     await assert.rejects(f.fire('shell.create.before', { command: 'rm -rf build', cwd: f.root, timeout: 0, shell: '/bin/bash', env: {} }), /文件保护检查拒绝/)
   } finally { await f.close() }
 })
+
+test('reviewer sessions may only read and submit verdicts', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    for (const action of ['edit', 'shell', 'subagent', 'workflow_review', 'workflow_release', 'svc_query']) {
+      const permission = { action, resources: ['*'], effect: 'allow', sessionID: 'r1', agent: 'reviewer', message: '' }
+      await f.fire('permission.evaluate', permission)
+      assert.equal(permission.effect, 'deny', action)
+      assert.match(permission.message, /审核员只读/, action)
+    }
+    for (const action of ['read', 'glob', 'grep', 'workflow_review_submit']) {
+      const permission = { action, resources: ['README.md'], effect: 'allow', sessionID: 'r1', agent: 'reviewer' }
+      await f.fire('permission.evaluate', permission)
+      assert.equal(permission.effect, 'allow', action)
+    }
+    const secret = { action: 'read', resources: ['.env'], effect: 'allow', sessionID: 'r1', agent: 'reviewer' }
+    await f.fire('permission.evaluate', secret)
+    assert.equal(secret.effect, 'deny')
+    const build = { action: 'edit', resources: ['src/file.ts'], effect: 'allow', sessionID: 's1', agent: 'build' }
+    await f.fire('permission.evaluate', build)
+    assert.equal(build.effect, 'allow')
+  } finally { await f.close() }
+})
+
+test('the session agent decides reviewer restrictions when the event omits it', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    f.childSessions.set('r2', { id: 'r2', agent: 'reviewer', location: { directory: f.root } })
+    const edit = { action: 'edit', resources: ['src/file.ts'], effect: 'allow', sessionID: 'r2', message: '' }
+    await f.fire('permission.evaluate', edit)
+    assert.equal(edit.effect, 'deny')
+    assert.match(edit.message, /审核员只读/)
+    ;(f.ctx as any).session.get = async () => { throw new Error('session gone') }
+    const unknown = { action: 'glob', resources: ['*'], effect: 'allow', sessionID: 'gone', message: '' }
+    await f.fire('permission.evaluate', unknown)
+    assert.equal(unknown.effect, 'deny')
+    assert.match(unknown.message, /无法确认会话代理/)
+  } finally { await f.close() }
+})

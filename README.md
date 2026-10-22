@@ -104,6 +104,7 @@ doctor 对 2.1.2 报 pass，对其他 2.1.x 报 warn（需在该版本做原生�
 - 领域规则在压缩上下文和切换检出后重新确认。规则文件为空或超过 40000 个字符时不注入，并提示先修复它。
 - 所有路径配置（保护、范围映射、审核路由、发布范围）使用同一套语义：`*` 匹配任意字符（含 `/` 和点开头的目录），`?` 匹配一个字符，其余按字面；不支持花括号。
 - 暂存与提交分两次工具调用。普通提交不会自动派模型审核。
+- reviewer 只读由插件强制：reviewer 会话只能读取、搜索和提交审核结论，与 reviewer.md 是否被加载无关。
 - 看门狗只提醒，不自动中止或接管会话。
 - 配置无效时插件仍为 active：拒绝写入并给出原因，读取和对 `.opencode/workflow/**`、`opencode.jsonc`、各目录 `AGENTS.md` 的修复编辑仍可用。`protection.json` 本身无效时所有读写都拒绝，需在 OpenCode 之外修复，例如 `git checkout -- .opencode/workflow/protection.json`。
 - 不在 Git 检出内时读写和 shell 都会被拒绝，先 `git init`。

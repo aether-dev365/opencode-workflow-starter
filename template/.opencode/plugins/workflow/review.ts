@@ -12,6 +12,7 @@ import { validateEvidence, evidenceDigest, artifactDigests } from './evidence.ts
 import type { EvidenceEntry } from './evidence.ts'
 import { matchesPattern } from './patterns.ts'
 
+export const REVIEWER = 'reviewer'
 export type ReviewInput = { action?: string; mode?: Mode; base?: string; head?: string; batchId?: string; note?: string; evidence?: string }
 
 export function resolveBase(root: string, base: string | undefined, head: string): string {
@@ -105,7 +106,7 @@ export async function registerReview(ctx: Plugin.Context): Promise<() => Promise
     editor.add({ name: 'workflow_review_submit', options: { codemode: false }, description: '仅实际 reviewer 提交指定单元的真实结论。',
       input: { type: 'object', properties: { batchId: { type: 'string' }, taskId: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'findings', 'incomplete'] }, findings: { type: 'array', items: { type: 'object' } }, gaps: { type: 'array', items: { type: 'object' } }, note: { type: 'string' } }, required: ['batchId', 'taskId', 'verdict'], additionalProperties: false },
       execute: async (raw, context) => {
-        if (context.agent !== 'reviewer') throw new Error('仅实际 reviewer 可提交审核结论')
+        if (context.agent !== REVIEWER) throw new Error('仅实际 reviewer 可提交审核结论')
         const root = (await ctx.session.get({ sessionID: context.sessionID })).location.directory
         return { content: renderReport(submitVerdict(root, context.agent, raw as Submission)) }
       },

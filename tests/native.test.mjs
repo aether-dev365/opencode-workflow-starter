@@ -17,6 +17,23 @@ test('a stale scope mapping keeps the plugin active and blocks shell writes', { 
   } finally { await h.close() }
 })
 
+test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 180000 }, async t => {
+  // 空的 model 让 OpenCode 忽略整个 reviewer.md；夹具的 opencode.jsonc 仍定义 agents.reviewer，reviewer 于是退回默认权限。
+  const h = await start({ prepare: directory => {
+    const file = join(directory, '.opencode/agents/reviewer.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace('mode: subagent', 'mode: subagent\nmodel: ""'))
+  } })
+  try {
+    await t.test('reviewer edits and shell commands are denied', async () => {
+      const result = await runCase(h, [[patch('reviewer-probe.txt', 'x')], [patch('reviewer-probe.txt', 'x')],
+        [{ name: 'shell', input: { command: 'echo $((40+2))MARK', workdir: h.directory } }]], { agent: 'reviewer' })
+      assert.equal(existsSync(join(h.directory, 'reviewer-probe.txt')), false)
+      assert.doesNotMatch(result.toolResults, /42MARK/)
+      assert.match(result.toolResults, /审核员只读/)
+    })
+  } finally { await h.close() }
+})
+
 test(`OpenCode ${baseline} executes the isolated workflow through real native boundaries`, { timeout: 180000 }, async t => {
   const h = await start()
   try {
