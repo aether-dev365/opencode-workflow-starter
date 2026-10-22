@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const directory = resolve(root, '.verification')
 const windows = process.platform === 'win32'
-// Windows 子集：原生 OpenCode 夹具和分发测试的替身只支持 POSIX；守卫中依赖 bash 与目录符号链接的用例会跳过。
+// Windows 子集：原生 OpenCode 夹具和分发测试的替身只支持 POSIX；守卫中依赖 bash 与目录符号链接、质量扩展中需要符号链接的用例会跳过。
 const subset = process.argv.includes('--windows')
 if (windows && !subset) {
   console.error('完整验收需要 Linux 或 macOS（原生 OpenCode 夹具与依赖 bash 的守卫用例）；Windows 上运行 node scripts/verify.mjs --windows 执行 Windows 子集。')
@@ -20,11 +20,12 @@ const all = [
   ['typecheck', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'run', 'typecheck']],
   ['plugin', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'test']],
   ['guards', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', checks, '-t', checks, '-p', 'test_*.py']],
+  ['quality', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py']],
   ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs']],
   ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs']],
   ['native', process.execPath, ['--test', 'tests/native.test.mjs']],
 ]
-const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'adoption'].includes(id)) : all
+const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'quality', 'adoption'].includes(id)) : all
 const mode = subset ? 'windows' : 'full'
 // 单阶段上限 15 分钟：Windows runner 上进程启动和依赖安装都慢，接入阶段可达 5 分钟。
 const report = []
@@ -36,7 +37,7 @@ for (const [id, command, args] of stages) {
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? '\n' + result.error.message : '')
   writeFileSync(resolve(directory, id + '.log'), output)
   const empty = id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)
-  const skipped = /(?:skipped\s+[1-9]|skipped=[1-9])/.test(output) && !(subset && id === 'guards')
+  const skipped = /(?:skipped\s+[1-9]|skipped=[1-9])/.test(output) && !(subset && ['guards', 'quality'].includes(id))
   const ok = result.status === 0 && !empty && !skipped
   report.push({ id, command, args, cwd: root, exit: result.status, ok, log: `.verification/${id}.log` })
   const complete = report.length === stages.length

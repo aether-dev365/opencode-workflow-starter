@@ -26,7 +26,7 @@ console.log('tests 0\\npass 0\\nfail 0')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('the Windows subset runs only portable stages and accepts the POSIX-only guard skips', () => {
+test('the Windows subset runs only portable stages and accepts POSIX-only guard and quality skips', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-subset-'))
   try {
     mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
@@ -40,12 +40,12 @@ test('the Windows subset runs only portable stages and accepts the POSIX-only gu
       return { status: result.status, mode: report.mode, stages: report.stages.map(s => [s.id, s.ok]) }
     }
     // 临时根目录里没有 tests/，adoption 阶段必然失败；这里只看选中了哪些阶段、跳过是否放行。
-    assert.deepEqual(stages(['--windows']), { status: 1, mode: 'windows', stages: [['typecheck', true], ['plugin', true], ['guards', true], ['adoption', false]] })
+    assert.deepEqual(stages(['--windows']), { status: 1, mode: 'windows', stages: [['typecheck', true], ['plugin', true], ['guards', true], ['quality', true], ['adoption', false]] })
     assert.deepEqual(stages([]), { status: 1, mode: 'full', stages: [['typecheck', true], ['plugin', true], ['guards', false]] })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('the guard stage uses WORKFLOW_PYTHON like the plugin does', () => {
+test('the guard and quality stages use WORKFLOW_PYTHON like the plugin does', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-python-'))
   try {
     mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
@@ -56,5 +56,7 @@ test('the guard stage uses WORKFLOW_PYTHON like the plugin does', () => {
     spawnSync(process.execPath, ['scripts/verify.mjs'], { cwd: root, env: { ...process.env, WORKFLOW_PYTHON: python, PATH: join(root, 'bin') + ':' + process.env.PATH }, encoding: 'utf8' })
     const guards = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'guards')
     assert.deepEqual([guards.command, guards.ok], [python, true])
+    const quality = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'quality')
+    assert.deepEqual([quality.command, quality.args, quality.ok], [python, ['-m', 'unittest', 'discover', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py'], true])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

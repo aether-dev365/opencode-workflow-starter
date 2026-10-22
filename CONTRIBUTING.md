@@ -13,9 +13,9 @@ node scripts/fetch-opencode.mjs
 node scripts/verify.mjs
 ```
 
-`verify.mjs` 依次运行类型检查、插件测试、守卫测试、分发测试、独立接入测试和原生测试，各阶段日志写入被忽略的 `.verification/`。任一阶段失败、没有实际执行测试或出现跳过，都算验证失败。
+`verify.mjs` 依次运行类型检查、插件测试、守卫测试、质量扩展测试、分发测试、独立接入测试和原生测试，各阶段日志写入被忽略的 `.verification/`。任一阶段失败、没有实际执行测试或出现非预期的跳过，都算验证失败。
 
-在 Windows 上（PowerShell，需要 Git for Windows 和 Python 启动器 `py`）运行 Windows 子集：类型检查、插件测试、守卫测试和独立接入测试。依赖 bash 逻辑目录与目录符号链接的 3 个守卫用例在 Windows 上跳过；原生测试和分发测试只在 Linux 上运行。
+在 Windows 上（PowerShell，需要 Git for Windows 和 Python 启动器 `py`）运行 Windows 子集：类型检查、插件测试、守卫测试、质量扩展测试和独立接入测试。依赖 bash 逻辑目录与目录符号链接的 3 个守卫用例，以及需要符号链接权限的质量扩展用例在 Windows 上允许跳过；原生测试和分发测试在 Linux、macOS 上运行。
 
 ```powershell
 npm --prefix template/.opencode/plugins/workflow ci --ignore-scripts
