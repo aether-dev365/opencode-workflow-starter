@@ -122,6 +122,7 @@ doctor 对 2.1.2 报 pass，对其他 2.1.x 报 warn（需在该版本做原生�
 | [optional/protection/](optional/protection/) | 私钥、SSH 密钥、云凭据等扩展保护规则 |
 | [optional/production/](optional/production/) | 默认禁用的只读 MCP 配置示例 |
 | [optional/stacks/](optional/stacks/) | 按技术栈核实命令的接入指引 |
+| [optional/quality/](optional/quality/) | 只报告的注释审核、跳过测试检查和 post-commit hook |
 | [scripts/](scripts/)、[tests/](tests/) | 套件自身的验证入口与测试，不复制到业务项目 |
 | [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md) | 官方安装来源、V1 迁移、Windows 两条路线和版本检查 |
 

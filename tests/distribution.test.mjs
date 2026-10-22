@@ -123,3 +123,22 @@ test('extended secret rules are valid protection rules', async () => {
     assert.deepEqual(JSON.parse(result.stdout), { denied: ['deploy/key.pem', '.ssh/id_ed25519'] })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('the comment checklist joins the review catalog as the quality README describes', async () => {
+  const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
+  const root = mkdtempSync(join(tmpdir(), 'workflow-quality-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    const review = join(root, '.opencode/workflow/review')
+    cpSync('optional/quality/comments-checklist.md', join(review, 'checklists/comments.md'))
+    const catalog = JSON.parse(readFileSync(join(review, 'catalog.json'), 'utf8'))
+    writeFileSync(join(review, 'catalog.json'), JSON.stringify({ ...catalog, comments: { group: 'core', checklist: 'comments.md' } }))
+    const routing = JSON.parse(readFileSync(join(review, 'routing.json'), 'utf8'))
+    writeFileSync(join(review, 'routing.json'), JSON.stringify({ ...routing, units: [...routing.units, { id: 'comments', areas: ['*'] }] }))
+    const config = await loadProjectConfig(root)
+    assert.equal(config.catalog.comments.checklist, 'comments.md')
+    assert.ok(config.routing.units.some(unit => unit.id === 'comments'))
+    const readme = readFileSync('optional/quality/README.md', 'utf8')
+    for (const text of ['"comments": { "group": "core", "checklist": "comments.md" }', '{ "id": "comments", "areas": ["*"] }', 'install-hooks.py --uninstall']) assert.ok(readme.includes(text), text)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

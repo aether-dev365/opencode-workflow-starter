@@ -10,6 +10,7 @@
 - doctor 新增 `rule-size` 检查：`scopes.json` 引用的规则文件超过 20000 个字符（插件上限的一半）时给出 warn。
 - 插件强制 reviewer 只读：工具调用前和权限判定时各拦截一次，reviewer 会话只允许 read、glob、grep 和 workflow_review_submit，不依赖 reviewer.md 是否被加载；在 reviewer.md 中额外放开的工具从此不再生效。
 - `workflow_review` 的 run 与 `workflow_review_submit` 在 reviewer 定义缺失或没有审核说明时拒绝，提示检查 `.opencode/agents/reviewer.md`。
+- 新增可选的质量扩展 optional/quality：提交后由 post-commit hook 报告新增注释里的文档引用、追踪编号和日期、开发过程叙述与生成工具署名，以及新增的跳过、只运行部分测试和预期失败标记；只报告、不拦截，安装器不覆盖已有 hook。
 
 ### 变更
 
