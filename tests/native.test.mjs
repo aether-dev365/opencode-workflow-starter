@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { start, runCase, put, git, batches, baseline } from './fixtures/native-harness.mjs'
 
 const patch = (path, content) => ({ name: 'patch', input: { patchText: `*** Begin Patch\n*** Add File: ${path}\n+${content}\n*** End Patch` } })
@@ -46,6 +47,12 @@ test('a reviewer whose agent file OpenCode ignores stays read-only', { timeout: 
       assert.equal(existsSync(join(h.directory, 'reviewer-arith.txt')), false)
       assert.doesNotMatch(result.toolResults, /没有审核批次/)
       assert.match(result.toolResults, /审核员只读/)
+    })
+
+    await t.test('OpenCode does not dispatch the ignored reviewer as a subagent', async () => {
+      // 只有直接创建的 reviewer 会话会遇到这种情况；子代理派发在 OpenCode 这一层就被拒绝。
+      const result = await runCase(h, [[{ name: 'subagent', input: { agent: 'reviewer', description: 'probe', prompt: 'probe' } }]])
+      assert.match(result.toolResults, /cannot run as a subagent/)
     })
 
     await t.test('a review cannot start without a loaded reviewer', async () => {
@@ -131,6 +138,23 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
       await runCase(h, [[{ name: 'workflow_review', input: { action: 'close', batchId: batch.batchId } }]])
       assert.equal(batches(h)[0].status, 'closed')
       assert.ok(batches(h)[0].tasks.every(t => t.verdict === 'pass'))
+    })
+
+    await t.test('a reviewer dispatched through the subagent tool submits verdicts but cannot write', async () => {
+      // 实际审核时 build 用 subagent 工具派发 reviewer：子会话能提交结论，写入和 shell 仍然写不进去。
+      await runCase(h, [[{ name: 'workflow_review', input: { action: 'run', mode: 'branch', base: h.base } }]])
+      const batch = batches(h)[0]
+      assert.equal(batch.status, 'open')
+      const child = randomUUID().replaceAll('-', '')
+      h.model.enqueue(child, [[patch('reviewer-subagent.txt', 'x')],
+        [{ name: 'shell', input: { command: 'echo x > reviewer-subagent-shell.txt', workdir: h.directory } }],
+        ...batch.tasks.map(task => [{ name: 'workflow_review_submit', input: { batchId: batch.batchId, taskId: task.id, verdict: 'pass' } }])], true)
+      await runCase(h, [[{ name: 'subagent', input: { agent: 'reviewer', description: 'review probe', prompt: 'RUNTIME_CASE:' + child } }]])
+      assert.equal(h.model.remaining(child), 0)
+      assert.equal(existsSync(join(h.directory, 'reviewer-subagent.txt')), false)
+      assert.equal(existsSync(join(h.directory, 'reviewer-subagent-shell.txt')), false)
+      assert.ok(batches(h).find(b => b.batchId === batch.batchId).tasks.every(task => task.verdict === 'pass'))
+      await runCase(h, [[{ name: 'workflow_review', input: { action: 'close', batchId: batch.batchId } }]])
     })
 
     await t.test('shell writes to protected paths are denied before running', async () => {
