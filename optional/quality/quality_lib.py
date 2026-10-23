@@ -3,6 +3,7 @@
 import json
 import argparse
 import os
+import ntpath
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
@@ -24,7 +25,7 @@ class ConfigError(Exception):
 
 def default_config() -> dict:
     return {'version': 1, 'include': ['*'], 'exclude': [], 'timeoutSeconds': 30,
-            'comments': {'disable': [], 'extraRules': []}, 'skips': {'disable': [], 'extraMarkers': []}}
+            'comments': {'disable': [], 'extraRules': []}, 'skips': {'disable': [], 'extraMarkers': []}, 'formats': []}
 
 
 def _object(value, allowed, field):
@@ -44,7 +45,20 @@ def _strings(value, field, allowed=None):
     return value
 
 
-def load_config(directory: Path) -> dict:
+def _argv(value, field):
+    result = _strings(value, field)
+    if not result:
+        raise ConfigError(field)
+    for n, arg in enumerate(result):
+        if '\0' in arg:
+            raise ConfigError(f'{field}[{n}]')
+    if (result[0] == '{files}' or result.count('{files}') > 1
+            or any('{files}' in arg and arg != '{files}' for arg in result)):
+        raise ConfigError(field)
+    return result
+
+
+def load_config(directory: Path, *, root: Path | None = None) -> dict:
     file = directory / 'quality.json'
     config = default_config()
     if not file.exists():
@@ -63,6 +77,39 @@ def load_config(directory: Path) -> dict:
     if type(timeout) is not int or not 1 <= timeout <= 600:
         raise ConfigError('timeoutSeconds')
     config['timeoutSeconds'] = timeout
+    formats = data.get('formats', [])
+    if not isinstance(formats, list):
+        raise ConfigError('formats')
+    format_ids = set()
+    for n, entry in enumerate(formats):
+        field = f'formats[{n}]'
+        _object(entry, ('id', 'paths', 'check', 'fix', 'cwd', 'hook', 'timeoutSeconds'), field)
+        ident = entry.get('id')
+        if not isinstance(ident, str) or not re.fullmatch('[a-z][a-z0-9-]*', ident) or ident in format_ids:
+            raise ConfigError(field + '.id')
+        format_ids.add(ident)
+        paths = _strings(entry.get('paths'), field + '.paths')
+        if not paths:
+            raise ConfigError(field + '.paths')
+        result = {**entry, 'check': _argv(entry.get('check'), field + '.check')}
+        if 'fix' in entry:
+            result['fix'] = _argv(entry['fix'], field + '.fix')
+        cwd = entry.get('cwd', '.')
+        if (not isinstance(cwd, str) or not cwd or '\0' in cwd or ntpath.isabs(cwd) or ntpath.splitdrive(cwd)[0]
+                or ntpath.normpath(cwd).replace('\\', '/').split('/')[0] == '..'):
+            raise ConfigError(field + '.cwd')
+        if root is not None:
+            try:
+                if not (root / cwd).resolve().is_relative_to(root.resolve()):
+                    raise ConfigError(field + '.cwd')
+            except (OSError, RuntimeError):
+                raise ConfigError(field + '.cwd') from None
+        hook, timeout = entry.get('hook', True), entry.get('timeoutSeconds', 60)
+        if type(hook) is not bool:
+            raise ConfigError(field + '.hook')
+        if type(timeout) is not int or not 1 <= timeout <= 600:
+            raise ConfigError(field + '.timeoutSeconds')
+        config['formats'].append({**result, 'cwd': cwd, 'hook': hook, 'timeoutSeconds': timeout})
     used = set(COMMENT_RULE_IDS + SKIP_CATEGORIES)
     for section, extra, ids in [('comments', 'extraRules', COMMENT_RULE_IDS), ('skips', 'extraMarkers', SKIP_CATEGORIES)]:
         if section not in data:
@@ -307,7 +354,7 @@ def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd:
     try:
         mode = parse_mode(argv)
         root = repo_root(cwd or Path.cwd())
-        config = load_config(here)
+        config = load_config(here, root=root)
         directory = here.resolve()
         changes = collect(root, mode, lambda path: selected(path, config) and not (root / path).is_relative_to(directory))
         if changes.merge:

@@ -14,7 +14,7 @@ import unittest
 from quality_lib import load_config
 
 HERE = Path(__file__).resolve().parent
-SCRIPTS = ('quality_lexer.py', 'quality_lib.py', 'quality_snapshot.py', 'quality_process.py', 'review-comments.py', 'check-skips.py', 'run-hook.py', 'install-hooks.py')
+SCRIPTS = ('quality_lexer.py', 'quality_lib.py', 'quality_snapshot.py', 'quality_process.py', 'check-format.py', 'review-comments.py', 'check-skips.py', 'run-hook.py', 'install-hooks.py')
 
 
 def needs_symlink(function, *, os_name=None):
