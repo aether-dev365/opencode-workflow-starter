@@ -105,12 +105,16 @@ def glob_match(pattern: str, path: str) -> bool:
     return re.fullmatch(regex, path, re.DOTALL) is not None
 
 
-def selected(path: str, config: dict) -> bool:
+def path_selected(path: str, config: dict) -> bool:
     file = PurePosixPath(path)
-    return (family(path) is not None and not EXCLUDED.intersection(file.parts)
+    return (not EXCLUDED.intersection(file.parts)
             and not file.name.lower().endswith(('.min.js', '.min.css', '.bundle.js'))
             and any(glob_match(p, path) for p in config['include'])
             and not any(glob_match(p, path) for p in config['exclude']))
+
+
+def selected(path: str, config: dict) -> bool:
+    return family(path) is not None and path_selected(path, config)
 
 
 def utf8_stdio() -> None:
