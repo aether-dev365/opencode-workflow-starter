@@ -241,6 +241,27 @@ test('the session agent decides reviewer restrictions when the event omits it', 
   } finally { await f.close() }
 })
 
+test('an event without an agent that resolves to build keeps path checks with one session lookup', async () => {
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    const get = (f.ctx as any).session.get
+    let lookups = 0
+    ;(f.ctx as any).session.get = async (input: { sessionID: string }) => { lookups++; return get(input) }
+    const edit = { action: 'edit', resources: ['src/file.ts'], effect: 'allow', sessionID: 's1', message: '' }
+    await f.fire('permission.evaluate', edit)
+    assert.equal(edit.effect, 'allow')
+    assert.equal(lookups, 1)
+    const secret = { action: 'read', resources: ['.env'], effect: 'allow', sessionID: 's1', message: '' }
+    await f.fire('permission.evaluate', secret)
+    assert.equal(secret.effect, 'deny')
+    assert.doesNotMatch(secret.message, /审核员只读/)
+    const shell = { action: 'shell', resources: ['ls'], effect: 'allow', sessionID: 's1', message: '' }
+    await f.fire('permission.evaluate', shell)
+    assert.equal(shell.effect, 'allow')
+  } finally { await f.close() }
+})
+
 test('reviewer tool calls outside the read-only set are refused before they run', async () => {
   const f = await fixture()
   try {

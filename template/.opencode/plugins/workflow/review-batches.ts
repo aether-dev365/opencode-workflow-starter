@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import type { RoutingConfig } from './config.ts'
 import { matchesPattern } from './patterns.ts'
 
+export const REVIEWER = 'reviewer'
+
 export type Mode = 'branch' | 'range' | 'preflight' | 'release'
 export type Verdict = 'pass' | 'findings' | 'incomplete'
 export type Finding = { unitId: string; severity: 'P0' | 'P1' | 'P2' | 'P3'; summary: string; blocking: boolean }
@@ -59,7 +61,7 @@ export function planTasks(paths: string[], routing: RoutingConfig): PlannedTask[
   return tasks
 }
 export function submitVerdict(root: string, agent: string, input: Submission): Batch {
-  if (agent !== 'reviewer') throw new Error('仅实际 reviewer 可提交审核结论')
+  if (agent !== REVIEWER) throw new Error('仅实际 reviewer 可提交审核结论')
   const batch = loadBatch(root, input.batchId)
   if (batch.status !== 'open') throw new Error('批次已经关闭')
   const task = batch.tasks.find(t => t.id === input.taskId)

@@ -88,6 +88,9 @@ test('reviews start and accept verdicts only while the reviewer definition is lo
     const get = (f.ctx as any).agent.get
     ;(f.ctx as any).agent.get = async () => { throw new Error('agent not found') }
     await refuse()
+    // 读取代理定义本身出错时，拒绝信息带上原因，原始错误保留在 cause 里。
+    await assert.rejects(run.execute({ action: 'run', mode: 'branch', base: f.base }, context),
+      (error: Error) => /reviewer 没有正确加载.*agent not found/s.test(error.message) && (error.cause as Error)?.message === 'agent not found')
     ;(f.ctx as any).agent.get = get
     assert.equal(listBatches(f.root).length, 0)
     f.agents.set('reviewer', { id: 'reviewer', system: '只读审核。' })

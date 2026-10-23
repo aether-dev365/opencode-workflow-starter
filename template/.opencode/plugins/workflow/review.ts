@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os'
 import { loadProjectConfig } from './config.ts'
 import { runCheck } from './runner.ts'
 import { normalizeCall } from './protocol.ts'
-import { git, createBatch, planTasks, listBatches, loadBatch, closeBatch, submitVerdict, renderReport } from './review-batches.ts'
+import { REVIEWER, git, createBatch, planTasks, listBatches, loadBatch, closeBatch, submitVerdict, renderReport } from './review-batches.ts'
 import type { Batch, Mode, Submission } from './review-batches.ts'
 import { loadReleaseConfig, releaseBase, releaseConfigDigest, checkRelease } from './release.ts'
 import { validateEvidence, evidenceDigest, artifactDigests } from './evidence.ts'
 import type { EvidenceEntry } from './evidence.ts'
 import { matchesPattern } from './patterns.ts'
 
-export const REVIEWER = 'reviewer'
+export { REVIEWER }
 export type ReviewInput = { action?: string; mode?: Mode; base?: string; head?: string; batchId?: string; note?: string; evidence?: string }
 
 export function resolveBase(root: string, base: string | undefined, head: string): string {
@@ -91,9 +91,11 @@ export function runInstructions(batch: Batch): string {
 }
 // reviewer.md 缺失或 frontmatter 有错时 OpenCode 会静默忽略它；没有审核说明的 reviewer 不能开始审核或提交结论。
 async function assertReviewerLoaded(ctx: Plugin.Context, root: string): Promise<void> {
-  let system: unknown
-  try { system = (await ctx.agent.get({ agentID: REVIEWER, location: { directory: root } })).data.system } catch {}
-  if (typeof system !== 'string' || !system.trim()) throw new Error('reviewer 没有正确加载：找不到它，或缺少审核说明。.opencode/agents/reviewer.md 缺失或 frontmatter 有错误时，OpenCode 会静默忽略该文件；修复后重新加载 OpenCode，再运行审核。')
+  let system: unknown, cause: unknown
+  try { system = (await ctx.agent.get({ agentID: REVIEWER, location: { directory: root } })).data.system } catch (error) { cause = error }
+  if (typeof system === 'string' && system.trim()) return
+  const reason = cause === undefined ? '' : `读取代理定义失败：${(cause as Error).message}。`
+  throw new Error('reviewer 没有正确加载：找不到它，或缺少审核说明。' + reason + '.opencode/agents/reviewer.md 缺失或 frontmatter 有错误时，OpenCode 会静默忽略该文件；修复后重新加载 OpenCode，再运行审核。', cause === undefined ? undefined : { cause })
 }
 
 export async function registerReview(ctx: Plugin.Context): Promise<() => Promise<void>> {
