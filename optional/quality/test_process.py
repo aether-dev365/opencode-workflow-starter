@@ -156,13 +156,62 @@ class Processes(unittest.TestCase):
                     if p.poll() is None:
                         p.kill(); p.wait(timeout=5)
         # 模拟杀树失败且后代持管道；结束直接子进程后仍必须有限返回。
-        start = time.monotonic()
-        with mock.patch.object(process.os, 'killpg', side_effect=PermissionError(), create=True):
-            r = self.run_tool('import subprocess,sys,time; print("partial",flush=True); '
-                              'subprocess.Popen([sys.executable,"-c","import time; time.sleep(6)"]); time.sleep(30)', .1)
-        self.assertTrue(r.timed_out)
-        self.assertIn('partial', r.output)
-        self.assertLess(time.monotonic() - start, 5.8)
+        self.assert_bounded_drain()
+
+    def test_bounded_drain_survives_controlled_slow_start(self):
+        run_tool = self.run_tool
+        def delayed(source, *args, **kwargs):
+            return run_tool('import time; time.sleep(.2)\n' + source, *args, **kwargs)
+        with mock.patch.object(self, 'run_tool', side_effect=delayed):
+            self.assert_bounded_drain()
+
+    def assert_bounded_drain(self):
+        ready = self.root / 'ready'
+        pidfile = self.root / 'worker.pid'
+        ready_at = None
+        worker = ('import os,time,pathlib; print("PIPE_READY",flush=True); '
+                  'pathlib.Path("ready.tmp").write_text(str(os.getpid())); '
+                  'pathlib.Path("ready.tmp").replace("ready"); time.sleep(30); '
+                  'pathlib.Path("natural-exit").touch()')
+        source = ('import subprocess,sys,time,pathlib; print("partial",flush=True); '
+                  f'p=subprocess.Popen([sys.executable,"-c",{worker!r}]); '
+                  'pathlib.Path("worker.pid").write_text(str(p.pid)); time.sleep(30)')
+
+        def cancelled():
+            nonlocal ready_at
+            if ready.is_file():
+                ready_at = time.monotonic() if ready_at is None else ready_at
+                return True
+            return False
+
+        def kill_root_only(child, **kwargs):
+            # 真正结束根进程，故意留下持管道后代，跨平台注入同一种清理失败。
+            child.kill()
+            return False
+
+        try:
+            # 10 秒只保护启动/握手；ready 后取消，独立测量原有 5 秒输出收尾。
+            with mock.patch.object(process, 'kill_tree', side_effect=kill_root_only):
+                r = self.run_tool(source, timeout=10, cancelled=cancelled)
+            self.assertIsNotNone(ready_at, '启动保护期限内未就绪')
+            self.assertTrue(r.cancelled)
+            self.assertFalse(r.timed_out)
+            self.assertIn('partial', r.output)
+            self.assertIn('PIPE_READY', r.output)
+            self.assertEqual(r.error, '输出收尾未完成')
+            self.assertLess(time.monotonic() - ready_at, 5.8)
+            self.assertFalse((self.root / 'natural-exit').exists())
+        finally:
+            recorded = ready if ready.is_file() else pidfile
+            if recorded.is_file() and recorded.read_text().strip():
+                pid = int(recorded.read_text())
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True, timeout=5)
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
     def test_command_lookup_windows_pathext_and_paths(self):
         for name in ('tool.EXE', 'launch.CMD', 'direct'):
