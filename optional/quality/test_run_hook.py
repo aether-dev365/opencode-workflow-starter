@@ -2,7 +2,9 @@ import json
 import contextlib
 import io
 import os
+from pathlib import Path
 import subprocess
+import sys
 import time
 import unittest
 from types import SimpleNamespace
@@ -32,7 +34,8 @@ class Runner(unittest.TestCase):
 
     def test_clean_commit_prints_header_and_summaries(self):
         self.repo.write('src/a.ts', 'export const a = 1\n'); self.repo.commit()
-        self.assertEqual(self.run_hook(), [HEADER, '注释审核：检查了 1 个文件，0 处需复核。', '跳过测试检查：检查了 1 个文件，0 处新增标记。'])
+        self.assertEqual(self.run_hook(), [HEADER, '注释审核：检查了 1 个文件，0 处需复核。', '跳过测试检查：检查了 1 个文件，0 处新增标记。',
+                                          '链接检查：检查了 0 个文档，0 处断链。', '格式检查：没有登记格式命令。'])
 
     def test_findings_from_both_checks_are_forwarded(self):
         self.repo.write('tests/a.test.ts', '// Task 3: later\nit.skip("x", () => {})\n'); self.repo.commit()
@@ -72,12 +75,14 @@ class Runner(unittest.TestCase):
                 self.assertEqual(self.run_hook(), [])
                 state.rmdir()
 
-    def test_invalid_config_still_runs_both_checks(self):
+    def test_invalid_config_reports_four_incomplete_checks(self):
         (self.here / 'quality.json').write_text('{"version": 1, "timeoutSeconds": 0}', encoding='utf-8')
         self.repo.write('a.ts', 'x\n'); self.repo.commit()
         out = self.run_hook()
         self.assertIn('注释审核未完成：配置无效：timeoutSeconds', out)
         self.assertIn('跳过测试检查未完成：配置无效：timeoutSeconds', out)
+        self.assertIn('链接检查未完成：配置无效：timeoutSeconds', out)
+        self.assertIn('格式检查未完成：配置无效：timeoutSeconds', out)
 
     def test_runner_does_not_write_files_even_with_bytecode_enabled(self):
         self.repo.env.pop('PYTHONDONTWRITEBYTECODE')
@@ -133,7 +138,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(module.subprocess, 'run', side_effect=command_run), \
                     contextlib.redirect_stdout(out):
                 self.assertEqual(module.main(['post-commit'], os_name=os_name), 0)
-            self.assertEqual(len(processes), 2)
+            self.assertEqual(len(processes), 4)
             self.assertIsNotNone(processes[0].poll())
             self.assertIn('注释审核超时（1 秒）未完成，请手动重跑：', out.getvalue())
             self.assertIn('第二项已运行', out.getvalue())
@@ -164,3 +169,108 @@ class Runner(unittest.TestCase):
         for os_name in ('nt', 'posix'):
             with self.subTest(os_name=os_name):
                 self.run_with_failed_tree_kill(os_name, stalled_output=True)
+
+    def invoke(self, **patches):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, self.repo.env, clear=True), \
+                mock.patch.object(module, '__file__', str(self.here / 'run-hook.py')), \
+                mock.patch.object(module.Path, 'cwd', return_value=self.repo.root), contextlib.redirect_stdout(out):
+            self.assertEqual(module.main(['post-commit']), 0)
+        return out.getvalue()
+
+    def configure(self, formats):
+        (self.here / 'quality.json').write_text(json.dumps({'version': 1, 'formats': formats}), encoding='utf-8')
+
+    def test_timeout_for_uses_all_auto_entry_budgets(self):
+        self.assertEqual(module.timeout_for('check-format.py', {'formats': [
+            {'hook': True, 'timeoutSeconds': 2}, {'hook': False, 'timeoutSeconds': 600}, {'hook': True, 'timeoutSeconds': 3}]}), 15)
+        self.assertEqual(module.timeout_for('check-format.py', {'formats': []}), 10)
+        self.assertEqual(module.timeout_for('check-format.py', None), 30)
+        self.assertEqual(module.timeout_for('check-links.py', {'timeoutSeconds': 7}), 7)
+
+    def test_four_checks_run_in_order_and_commit_succeeds(self):
+        self.configure([{'id': 'probe', 'paths': ['tests/*'], 'check': [sys.executable, '-c', 'print("FORMAT_PROBE"); exit(1)']}])
+        self.repo.commit('config')
+        self.repo.run(self.here / 'install-hooks.py')
+        head = self.repo.git('rev-parse', 'HEAD').stdout
+        self.repo.write('tests/probe.test.js', '// Task 3: probe\nit.skip("x",()=>{})\n')
+        self.repo.write('docs/probe.md', '[x](missing)')
+        self.repo.git('add', '-A')
+        r = self.repo.git('commit', '-m', 'probe')
+        out = r.stdout + r.stderr
+        positions = [out.index(text) for text in ('[tracking]', '[skip]', '[link]', '格式检查 [probe] 未通过')]
+        self.assertEqual(positions, sorted(positions)); self.assertIn('FORMAT_PROBE', out)
+        self.assertNotEqual(head, self.repo.git('rev-parse', 'HEAD').stdout)
+        self.assertEqual(self.repo.git('status', '--porcelain').stdout, '')
+        before = {p: p.read_bytes() for p in self.repo.root.rglob('*') if p.is_file()}
+        self.run_hook()
+        self.assertEqual(before, {p: p.read_bytes() for p in self.repo.root.rglob('*') if p.is_file()})
+
+    def test_hook_never_runs_fix_or_disabled_entries(self):
+        marker = self.repo.root.parent / 'unexpected'
+        bad = [sys.executable, '-c', f'from pathlib import Path; Path({str(marker)!r}).touch()']
+        self.configure([{'id': 'disabled', 'paths': ['*.txt'], 'check': bad, 'hook': False},
+                        {'id': 'active', 'paths': ['*.txt'], 'check': [sys.executable, '-c', 'print("READ_ONLY")'], 'fix': bad}])
+        self.repo.write('a.txt', ''); self.repo.commit()
+        self.assertIn('格式检查 [active] 通过', '\n'.join(self.run_hook()))
+        self.assertFalse(marker.exists())
+
+    def test_start_failure_does_not_stop_later_checks(self):
+        popen = subprocess.Popen
+        started = []
+        def launch(command, **kwargs):
+            if command[0] != 'git':
+                started.append(Path(command[1]).name)
+                if len(started) == 1:
+                    raise PermissionError()
+            return popen(command, **kwargs)
+        with mock.patch.object(module.subprocess, 'Popen', side_effect=launch):
+            out = self.invoke()
+        self.assertEqual(started, ['review-comments.py', 'check-skips.py', 'check-links.py', 'check-format.py'])
+        self.assertIn('注释审核未执行', out); self.assertIn('格式检查：没有登记格式命令', out)
+
+    def test_format_rerun_keeps_hook_and_fixed_sha(self):
+        self.replace('check-format.py', 'raise SystemExit(2)')
+        short = self.repo.git('rev-parse', '--short', 'HEAD').stdout.strip()
+        self.assertIn(f'格式检查未完成，请手动重跑：{INTERPRETER} scripts/quality/check-format.py --commit {short} --hook', self.run_hook())
+        self.assertIn('只能固定候选文件范围', '\n'.join(self.run_hook()))
+
+    def test_outer_timeout_cleans_format_grandchildren(self):
+        ready = self.repo.root.parent / 'ready'
+        sentinel = self.repo.root.parent / 'late'
+        pidfile = self.repo.root.parent / 'pids'
+        child = ('import os,time,pathlib; '
+                 f'pathlib.Path({str(pidfile)!r}).open("a").write(str(os.getpid())+"\\n"); '
+                 f'time.sleep(2); pathlib.Path({str(sentinel)!r}).touch(); time.sleep(30)')
+        tool = ('import os,subprocess,sys,time,pathlib; '
+                f'pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())+"\\n"); '
+                f'pathlib.Path({str(ready)!r}).touch(); subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(30)')
+        self.configure([{'id': 'slow', 'paths': ['*.txt'], 'timeoutSeconds': 60, 'check': [sys.executable, '-c', tool]}])
+        self.repo.write('a.txt', ''); self.repo.commit()
+        deadlines = []
+        popen = subprocess.Popen
+        def launch(command, **kwargs):
+            p = popen(command, **kwargs)
+            if command[0] != 'git' and Path(command[1]).name == 'check-format.py':
+                communicate = p.communicate
+                def drain(**options):
+                    deadlines.append(options['timeout'])
+                    return communicate(**options)
+                p.communicate = drain
+            return p
+        with mock.patch.object(module, 'timeout_for', side_effect=lambda filename, config: .5 if filename == 'check-format.py' else 30), \
+                mock.patch.object(module.subprocess, 'Popen', side_effect=launch):
+            out = self.invoke()
+        self.assertTrue(ready.exists(), out)
+        self.assertIn('格式检查超时（0.5 秒）未完成', out)
+        self.assertNotIn('格式检查 [slow] 通过', out)
+        if os.name != 'nt':
+            self.assertEqual(deadlines, [.5, 5])
+        time.sleep(2.1)
+        self.assertFalse(sentinel.exists())
+        pids = [int(pid) for pid in pidfile.read_text().splitlines()]
+        self.assertEqual(len(pids), 2)
+        for pid in pids:
+            if sys.platform.startswith('linux'):
+                state = Path(f'/proc/{pid}/stat')
+                self.assertTrue(not state.exists() or state.read_text().split(') ')[1].startswith('Z'))

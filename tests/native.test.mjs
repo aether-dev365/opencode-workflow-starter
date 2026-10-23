@@ -68,6 +68,11 @@ test('a commit made through OpenCode shows the quality hook report', { timeout: 
   const scripts = readdirSync('optional/quality').filter(name => name.endsWith('.py') && !name.startsWith('test_') && name !== 'quality_testing.py')
   const h = await start({ prepare: directory => {
     for (const name of scripts) put(join(directory, 'scripts/quality', name), readFileSync(join('optional/quality', name), 'utf8'))
+    const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+    put(join(directory, 'scripts/quality/fake-format.py'), 'print("FORMAT_PROBE")\nraise SystemExit(1)\n')
+    put(join(directory, 'scripts/quality/quality.json'), JSON.stringify({ version: 1, formats: [
+      { id: 'probe', paths: ['tests/quality-probe.test.js'], check: [python, 'scripts/quality/fake-format.py', '{files}'] },
+    ] }))
   } })
   try {
     const empty = join(h.temp, 'empty-gitconfig')
@@ -75,13 +80,19 @@ test('a commit made through OpenCode shows the quality hook report', { timeout: 
     execFileSync('python3', [join(h.directory, 'scripts/quality/install-hooks.py')], { cwd: h.directory, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' } })
     const head = git(h, ['rev-parse', 'HEAD'])
     put(join(h.directory, 'tests/quality-probe.test.js'), '// Task 3: probe\nit.skip("probe", () => {})\n')
+    put(join(h.directory, 'docs/quality-probe.md'), '[probe](missing-quality-target.md)\n')
     const result = await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }],
-      [{ name: 'shell', input: { command: 'git add tests/quality-probe.test.js', workdir: h.directory } }],
+      [{ name: 'shell', input: { command: 'git add tests/quality-probe.test.js docs/quality-probe.md', workdir: h.directory } }],
       [{ name: 'shell', input: { command: 'git commit -m probe', workdir: h.directory } }]])
     assert.notEqual(git(h, ['rev-parse', 'HEAD']), head)
     assert.match(result.toolResults, /质量检查（提交已完成/)
     assert.match(result.toolResults, /tests\/quality-probe\.test\.js:1: \[tracking\]/)
     assert.match(result.toolResults, /tests\/quality-probe\.test\.js:2: \[skip\]/)
+    assert.match(result.toolResults, /docs\/quality-probe\.md:1: \[link\]/)
+    assert.match(result.toolResults, /格式检查 \[probe\].*未通过/)
+    assert.match(result.toolResults, /FORMAT_PROBE/)
+    const positions = ['[tracking]', '[skip]', '[link]', '格式检查 [probe] 未通过'].map(text => result.toolResults.indexOf(text))
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
     assert.deepEqual(h.model.failures, [])
   } finally { await h.close() }
 })
