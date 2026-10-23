@@ -272,31 +272,53 @@ class Runner(unittest.TestCase):
         ready = self.repo.root.parent / 'ready'
         sentinel = self.repo.root.parent / 'late'
         pidfile = self.repo.root.parent / 'pids'
-        child = ('import os,time,pathlib; '
-                 f'pathlib.Path({str(pidfile)!r}).open("a").write(str(os.getpid())+"\\n"); '
+        child = ('import os,time,pathlib\ntime.sleep(.8)\n'
+                 f'with pathlib.Path({str(pidfile)!r}).open("a") as pids:\n'
+                 ' pids.write(str(os.getpid())+"\\n")\n'
+                 f'pathlib.Path({str(ready)!r}).touch()\n'
                  f'time.sleep(2); pathlib.Path({str(sentinel)!r}).touch(); time.sleep(30)')
         tool = ('import os,subprocess,sys,time,pathlib; '
                 f'pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())+"\\n"); '
-                f'pathlib.Path({str(ready)!r}).touch(); subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(30)')
+                f'subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(30)')
         self.configure([{'id': 'slow', 'paths': ['*.txt'], 'timeoutSeconds': 60, 'check': [sys.executable, '-c', tool]}])
         self.repo.write('a.txt', ''); self.repo.commit()
         deadlines = []
-        popen = subprocess.Popen
+        start_process = module.start_process
         def launch(command, **kwargs):
-            p = popen(command, **kwargs)
+            p = start_process(command, **kwargs)
             if command[0] != 'git' and Path(command[1]).name == 'check-format.py':
                 communicate = p.communicate
+                # 启动握手与待测的 0.5 秒预算分开；Windows Job 恢复主线程后才等待。
+                startup_deadline = time.monotonic() + 10
+                try:
+                    while not ready.exists():
+                        self.assertIsNone(p.poll(), '格式检查在就绪前退出')
+                        self.assertLess(time.monotonic(), startup_deadline, '孙进程启动握手超时')
+                        time.sleep(.01)
+                    self.assertEqual(len(pidfile.read_text().splitlines()), 2)
+                except BaseException:
+                    try:
+                        if os.name != 'nt' and p.poll() is None:
+                            os.killpg(p.pid, module.signal.SIGTERM)
+                        else:
+                            module.kill_tree(p)
+                        communicate(timeout=5)
+                    finally:
+                        module.kill_tree(p)
+                        module.close_process(p)
+                    raise
                 def drain(**options):
                     deadlines.append(options['timeout'])
                     return communicate(**options)
                 p.communicate = drain
             return p
         with mock.patch.object(module, 'timeout_for', side_effect=lambda filename, config: .5 if filename == 'check-format.py' else 30), \
-                mock.patch.object(module.subprocess, 'Popen', side_effect=launch):
+                mock.patch.object(module, 'start_process', side_effect=launch):
             out = self.invoke()
         self.assertTrue(ready.exists(), out)
         self.assertIn('格式检查超时（0.5 秒）未完成', out)
         self.assertNotIn('格式检查 [slow] 通过', out)
+        self.assertEqual(deadlines[0], .5)
         if os.name != 'nt':
             self.assertEqual(deadlines, [.5, 5])
         time.sleep(2.1)
