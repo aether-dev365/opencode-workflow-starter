@@ -32,7 +32,7 @@ MARKERS = [
     ({'.py'}, False, 'skip', r'@(?:pytest\.mark\.(?:skip|skipif)|unittest\.(?:skip|skipIf|skipUnless))\b|'
      + CALL + r'pytest\.skip\s*\(|\.skipTest\s*\(|\braise\s+(?:unittest\.)?SkipTest\b'),
     ({'.py'}, False, 'expected-failure', r'@(?:pytest\.mark\.xfail|unittest\.expectedFailure)\b|' + CALL + r'pytest\.xfail\s*\('),
-    ({'.java', '.kt', '.kts', '.groovy'}, False, 'skip', r'@(?:Disabled\w*|Ignore)\b|@Test\s*\([^\n)]*\benabled\s*=\s*false\b'),
+    ({'.java', '.kt', '.kts', '.groovy'}, True, 'skip', r'@(?:Disabled\w*|Ignore)\b|@Test\s*\([^\n)]*\benabled\s*=\s*false\b'),
     ({'.go'}, False, 'skip', CALL + r'[tbf]\.(?:Skip|Skipf|SkipNow)\s*\('),
     ({'.rs'}, False, 'skip', r'#\s*\[\s*ignore\s*(?:\]|=)'),
     ({'.cs'}, False, 'skip', r'\[\s*Ignore\b|\[\s*(?:Fact|Theory)\s*\([^\n)]*\bSkip\s*=|'

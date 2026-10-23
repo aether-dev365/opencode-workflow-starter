@@ -93,6 +93,14 @@ class Markers(unittest.TestCase):
         with mock.patch('quality_lexer.ast.parse', side_effect=AssertionError('不应提取 docstring')):
             self.assertEqual(cats('test_a.py', '"""pytest.skip()"""\npytest.skip("x")'), [(2, 'skip')])
 
+    def test_jvm_annotations_are_recognized_only_in_test_files(self):
+        for ext in ('java', 'kt', 'kts', 'groovy'):
+            for marker in ('@Ignore', '@Disabled', '@DisabledOnOs(OS.WINDOWS)', '@Test(enabled = false)'):
+                with self.subTest(ext=ext, marker=marker):
+                    self.assertEqual(cats('src/Entity.' + ext, marker), [])
+                    self.assertEqual(cats('src/EntityTest.' + ext, marker), [(1, 'skip')])
+                    self.assertEqual(cats('tests/Entity.' + ext, marker), [(1, 'skip')])
+
 
 class CommandLine(unittest.TestCase):
     def test_commit_markers_are_reported_with_exit_one(self):
