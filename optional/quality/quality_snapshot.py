@@ -10,6 +10,10 @@ from quality_lib import Incomplete, Mode, _revision, git_bytes
 
 REGULAR = {'100644', '100755'}
 OID = re.compile(r'[0-9a-f]{40}(?:[0-9a-f]{24})?')
+INDEX_DEBUG = re.compile(
+    rb'  ctime: -?\d+:-?\d+\n  mtime: -?\d+:-?\d+\n'
+    rb'  dev: -?\d+\tino: -?\d+\n  uid: -?\d+\tgid: -?\d+\n'
+    rb'  size: -?\d+\tflags: ([0-9a-fA-F]+)\n')
 
 
 def _link_entry(info):
@@ -127,13 +131,25 @@ class FileChanges:
     merge: bool = False
 
 
-def _entries(root, revision=None):
-    raw = git_bytes(root, 'ls-tree', '-rz', '--full-tree', revision) if revision else git_bytes(root, 'ls-files', '--stage', '-z')
+def _entries(root, revision=None, *, staged=False):
+    raw = (git_bytes(root, 'ls-tree', '-rz', '--full-tree', revision) if revision else
+           git_bytes(root, 'ls-files', '--stage', '-z', *(['--debug'] if staged else [])))
     entries = {}
+    omitted = set()
     try:
-        if raw and not raw.endswith(b'\0'):
-            raise ValueError()
-        for record in raw.split(b'\0')[:-1]:
+        offset = 0
+        while offset < len(raw):
+            end = raw.index(b'\0', offset)
+            record = raw[offset:end]
+            offset = end + 1
+            flags = 0
+            if staged:
+                # Git 2.5 已支持此输出；NUL 分隔路径，固定元数据格式必须完整有效。
+                metadata = INDEX_DEBUG.match(raw, offset)
+                if metadata is None:
+                    raise ValueError()
+                flags = int(metadata[1], 16)
+                offset = metadata.end()
             header, path = record.split(b'\t', 1)
             mode, kind, oid = header.decode('ascii').split() if revision else ('', '', '')
             if not revision:
@@ -148,23 +164,11 @@ def _entries(root, revision=None):
             if not path or path.startswith('/') or '..' in PurePosixPath(path).parts or path in entries:
                 raise ValueError()
             entries[path] = mode, oid
-        return entries
+            if flags & (1 << 29):  # CE_INTENT_TO_ADD，不能根据空 blob 判断。
+                omitted.add(path)
+        return {path: entry for path, entry in entries.items() if path not in omitted}
     except (ValueError, IndexError, UnicodeError):
         raise Incomplete('git 快照输出无效') from None
-
-
-def _staged_entries(root):
-    entries = _entries(root)
-    # 新路径的 ITA 是可见性差集；原 HEAD 路径的 ITA 在实际快照中表现为删除。
-    names = []
-    for visibility, filters in (('visible', []), ('invisible', []), ('invisible', ['--diff-filter=D'])):
-        raw = git_bytes(root, 'diff', '--cached', '--name-only', '-z', '--no-ext-diff',
-                        '--no-renames', '--ita-' + visibility + '-in-index', *filters, '--')
-        if raw and not raw.endswith(b'\0'):
-            raise Incomplete('git 文件清单无效')
-        names.append({p.decode('utf-8', 'surrogateescape') for p in raw.split(b'\0') if p})
-    omitted = (names[0] - names[1]) | names[2]
-    return {p: entry for p, entry in entries.items() if p not in omitted}
 
 
 def collect_files(root: Path, mode: Mode) -> FileChanges:
@@ -190,7 +194,7 @@ def collect_files(root: Path, mode: Mode) -> FileChanges:
         after = Snapshot(root, _entries(root, sha))
         command = ['diff-tree', '-r', '--root', '--no-commit-id', sha]
     elif kind == 'staged':
-        after = Snapshot(root, _staged_entries(root))
+        after = Snapshot(root, _entries(root, staged=True))
         # 未出生分支没有 HEAD，其他 Git 故障仍由后续命令报告。
         try:
             before_rev = _revision(root, 'HEAD')
@@ -237,4 +241,7 @@ def collect_files(root: Path, mode: Mode) -> FileChanges:
             raise ValueError()
     except (ValueError, IndexError, UnicodeError):
         raise Incomplete('git 差异输出无效') from None
+    if kind == 'staged':
+        # 旧 Git 的 diff 把 ITA 显示为空文件；删除影响以实际可提交命名空间为准。
+        removed.update(before._entries.keys() - after._entries.keys())
     return FileChanges(before, after, tuple(sorted(changed)), tuple(sorted(removed)))
