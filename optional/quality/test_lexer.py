@@ -32,7 +32,7 @@ class CLikeComments(unittest.TestCase):
         ('a.c', "char c = '\"'; // yes\n", [(1, 'yes')]),
         ('a.cs', 'var p = @"C:\\dir\\"; // yes\n', [(1, 'yes')]),
         ('a.kt', 'val s = """a // no""" // yes\n', [(1, 'yes')]),
-        ('a.php', '$a = 1; # yes\n#[Attr]\nfunction f() {}\n', [(1, 'yes')]),
+        ('a.php', '<?php $a = 1; # yes\n#[Attr]\nfunction f() {}\n', [(1, 'yes')]),
         ('a.css', 'a { background: url(http://x/y.png); } /* yes */\n', [(1, 'yes')]),
         ('a.scss', 'a { background: url(http://x/y.png); } // yes\n', [(1, 'yes')]),
         ('a.sql', "SELECT 'a--b' AS x; -- yes\nSELECT a--b FROM t; /* two */\n", [(1, 'yes'), (2, 'two')]),
@@ -62,6 +62,24 @@ class CLikeComments(unittest.TestCase):
                 result = scan('a.ts', text)
                 self.assertEqual([(c.line, c.text) for c in result.comments], [(1, 'real')])
                 self.assertNotIn('it.skip', result.code)
+
+
+class PhpTemplates(unittest.TestCase):
+    TEXT = ("<p>Don't stop</p>\n<?php\n// php comment\n$a = 'x'; # hash\n?>\n"
+            "<!-- html note -->\n<p>It's done</p>\n<?= $x /* inline */ ?>\n<script>\n// js\n</script>\n")
+
+    def test_php_code_is_scanned_only_inside_php_tags(self):
+        # 标签外是原样输出的 HTML：其中的撇号不是字符串，// 也不是注释。
+        self.assertEqual(comments('page.php', self.TEXT), [(3, 'php comment'), (4, 'hash'), (6, 'html note'), (8, 'inline'), (10, 'js')])
+
+    def test_html_outside_php_tags_is_not_code(self):
+        code = scan('page.php', self.TEXT).code
+        self.assertEqual(len(code), len(self.TEXT))
+        self.assertNotIn("Don't", code)
+        self.assertIn('$a = ', code)
+
+    def test_file_without_closing_tag_stays_php(self):
+        self.assertEqual(comments('a.php', "<?php\n$s = \"it's\"; // yes\n"), [(2, 'yes')])
 
 
 class CodeMask(unittest.TestCase):
@@ -135,7 +153,9 @@ class HashComments(unittest.TestCase):
     def test_multiline_strings_remain_data(self):
         for path in ['a.rb', 'a.php']:
             with self.subTest(path=path):
-                result = scan(path, 'value = "data\n# Task 3\nskip\n"\n# real\n')
+                # PHP 文件里只有 <?php 标签之后才是代码。
+                prefix = '<?php ' if path.endswith('.php') else ''
+                result = scan(path, prefix + 'value = "data\n# Task 3\nskip\n"\n# real\n')
                 self.assertEqual([(c.line, c.text) for c in result.comments], [(5, 'real')])
                 self.assertNotIn('skip', result.code)
 

@@ -31,7 +31,7 @@ POSITIVE = [
     ('lib.rs', '#[ignore]', 'skip'), ('lib.rs', '#[ignore = "slow"]', 'skip'),
     ('ATests.cs', '[Fact(Skip = "x")]', 'skip'), ('ATests.cs', '[Theory(Skip = "x")]', 'skip'), ('ATests.cs', '[Ignore("x")]', 'skip'),
     ('ATests.cs', 'Assert.Ignore("x");', 'skip'), ('ATests.cs', 'Assert.Inconclusive("x");', 'skip'),
-    ('ATest.php', '$this->markTestSkipped("x");', 'skip'), ('ATest.php', '$this->markTestIncomplete("x");', 'skip'),
+    ('ATest.php', '<?php $this->markTestSkipped("x");', 'skip'), ('ATest.php', '<?php $this->markTestIncomplete("x");', 'skip'),
     ('ATests.swift', 'throw XCTSkip("x")', 'skip'), ('ATests.swift', 'try XCTSkipIf(true)', 'skip'),
     ('ATests.swift', 'try XCTSkipUnless(false)', 'skip'),
     ('test/a_test.dart', "test('x', () {}, skip: 'flaky');", 'skip'),

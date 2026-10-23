@@ -158,11 +158,41 @@ def _yaml_data(text):
     return spans
 
 
-def scan(path: str, text: str, *, docstrings: bool = True) -> Scan:
+# PHP 只在标签内是代码：<?php、<?= 或后接空白的短标签；<?xml 这类处理指令仍是 HTML。
+PHP_OPEN = re.compile(r'<\?(?:php\b|=|(?=\s))')
+
+
+def _scan_php(text: str, docstrings: bool) -> Scan:
+    """标签外的 HTML 按标记语言扫描，标签内按 PHP 代码扫描；标签本身在 code 中置空。"""
+    code, found = [], []
+    pos, html = 0, True
+    while pos < len(text):
+        if html:
+            match = PHP_OPEN.search(text, pos)
+            end = match.start() if match else len(text)
+            stop = match.end() if match else end
+            part = scan('embedded.html', text[pos:end])
+        else:
+            close = text.find('?>', pos)
+            end = len(text) if close < 0 else close
+            stop = end if close < 0 else end + 2
+            part = scan('embedded.php', text[pos:end], docstrings=docstrings, php_code=True)
+        offset = text.count('\n', 0, pos)
+        found.extend(Comment(c.line + offset, c.text) for c in part.comments)
+        code.append(part.code)
+        code.append(''.join(ch if ch in '\r\n' else ' ' for ch in text[end:stop]))
+        pos, html = stop, not html
+    return Scan(found, ''.join(code))
+
+
+def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = False) -> Scan:
+    """php_code 只供内部使用：表示文本已经是 PHP 标签内的代码。"""
     kind = family(path)
     if kind is None:
         return Scan([], text)
     ext = PurePosixPath(path).suffix.lower()
+    if ext == '.php' and not php_code:
+        return _scan_php(text, docstrings)
     code = list(text)
     found = []
     shell = ext in {'.sh', '.bash', '.zsh', '.bats', '.mk'} or PurePosixPath(path).name == 'Makefile'
