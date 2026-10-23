@@ -81,6 +81,19 @@ class LinkChecks(unittest.TestCase):
         self.assertIn('normal.md:1: [link] 链接目标不存在：missing.md', result.stdout)
         self.assertIn('检查了 1 个文档，1 处断链', result.stdout)
 
+    def test_overlapping_reference_destinations_charge_the_analysis_budget(self):
+        self.repo.write('overlap.md', '[id]: (\n' * 20000 + ')' * 20000)
+        self.repo.write('normal.md', '[x](missing.md)')
+        try:
+            result = subprocess.run([sys.executable, str(self.here / 'check-links.py'), '--all'],
+                                    cwd=self.repo.root, env=self.repo.env, capture_output=True,
+                                    encoding='utf-8', timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail('重叠目的地的解码和区间标记未受分析预算约束')
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('overlap.md 未完成：链接分析预算用尽', result.stdout)
+        self.assertIn('normal.md:1: [link] 链接目标不存在：missing.md', result.stdout)
+
     def test_changed_document_checks_all_links_and_reports_each_target(self):
         self.repo.write('doc.md', '[old](old.md)\n'); self.repo.commit()
         self.repo.write('doc.md', '[old](old.md)\n[z](z.md) [a](a.md)\n'); self.repo.commit()

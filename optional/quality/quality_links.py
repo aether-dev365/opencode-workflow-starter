@@ -102,8 +102,8 @@ class _Scan:
                     self.parens[stack.pop()] = i
             escaped = ch == '\\' and not escaped
 
-    def step(self):
-        self.remaining -= 1
+    def step(self, count=1):
+        self.remaining -= count
         if self.remaining < 0:
             raise Incomplete('链接分析预算用尽')
 
@@ -119,6 +119,7 @@ def _destination(text, start, scan):
         while i < len(text):
             scan.step()
             if text[i] == '>' and not scan.escaped[i]:
+                scan.step(i - begin)
                 return _unescape(text[begin:i]), i + 1
             if text[i] == '\n' or (text[i] == '<' and not scan.escaped[i]):
                 return None
@@ -139,6 +140,7 @@ def _destination(text, start, scan):
                 return None
             i = end
         i += 1
+    scan.step(i - begin)
     return _unescape(text[begin:i]), i
 
 
