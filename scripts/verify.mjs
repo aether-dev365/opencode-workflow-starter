@@ -28,6 +28,7 @@ const all = [
 const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'quality', 'adoption'].includes(id)) : all
 const mode = subset ? 'windows' : 'full'
 // 质量扩展在 Windows 子集中只允许因缺少符号链接权限而跳过：-v 输出的每条跳过原因都要是它，条数与汇总一致。
+// 该阶段以 UTF-8 输出；否则非 UTF-8 代码页下中文原因会变成转义序列或乱码。
 const symlinkSkipsOnly = output => {
   const reasons = [...output.matchAll(/ \.\.\. skipped '([^'\n]*)'$/gm)].map(match => match[1])
   return reasons.length === Number(output.match(/skipped=(\d+)/)?.[1] ?? 0) && reasons.every(reason => reason === '需要创建符号链接的权限')
@@ -38,7 +39,7 @@ for (const [id, command, args] of stages) {
   console.log(`Running ${id}: ${command} ${args.join(' ')}`)
   // Windows 上 npm 是 .cmd 启动器，只能经 shell 启动；这里的参数都是固定字面量，无需转义。
   const shell = windows && command === 'npm'
-  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: process.env, encoding: 'utf8', timeout: 900000, maxBuffer: 16 * 1024 * 1024, shell })
+  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: id === 'quality' ? { ...process.env, PYTHONIOENCODING: 'utf-8' } : process.env, encoding: 'utf8', timeout: 900000, maxBuffer: 16 * 1024 * 1024, shell })
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? '\n' + result.error.message : '')
   writeFileSync(resolve(directory, id + '.log'), output)
   const empty = id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)
