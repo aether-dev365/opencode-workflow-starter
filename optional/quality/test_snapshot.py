@@ -132,3 +132,9 @@ class Snapshots(unittest.TestCase):
                 self.assertTrue(c.after.exists('docs'))
                 self.assertFalse(c.after.exists(f'absent/{n}'))
             self.assertEqual(git.call_count - count, 1)
+
+    def test_all_missing_submodule_is_not_a_worktree_target(self):
+        self.repo.write('a', ''); sha = self.repo.commit()
+        self.repo.git('update-index', '--add', '--cacheinfo', f'160000,{sha},missing-module')
+        self.assertFalse(self.collect('all', None).after.exists('missing-module'))
+        self.assertTrue(self.collect('staged', None).after.exists('missing-module'))

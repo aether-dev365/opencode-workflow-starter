@@ -51,8 +51,6 @@ class Snapshot:
     def exists(self, path: str) -> bool:
         if not self._worktree:
             return path in self._entries or path in self._directories
-        if path in self._entries and self._entries[path][0] == '160000':
-            return True
         file = self._file(path)
         return file is not None and (file.exists() or file.is_symlink())
 
@@ -65,7 +63,14 @@ class Snapshot:
                 regular = set(self.regular_paths())
                 if not set(paths) <= regular:
                     raise Incomplete('文件已不在快照中')
-                return {path: self._file(path).read_bytes() for path in paths}
+                result = {}
+                for path in paths:
+                    try:
+                        result[path] = self._file(path).read_bytes()
+                    except OSError:
+                        # 缺失的键由消费者作为单文件未完成报告，其他文件仍可检查。
+                        pass
+                return result
             oids = [self._entries[path][1] for path in paths]
             output = git_bytes(self.root, 'cat-file', '--batch', input=''.join(oid + '\n' for oid in oids).encode('ascii'))
             offset, result = 0, {}

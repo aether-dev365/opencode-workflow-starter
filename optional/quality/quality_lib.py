@@ -25,7 +25,8 @@ class ConfigError(Exception):
 
 def default_config() -> dict:
     return {'version': 1, 'include': ['*'], 'exclude': [], 'timeoutSeconds': 30,
-            'comments': {'disable': [], 'extraRules': []}, 'skips': {'disable': [], 'extraMarkers': []}, 'formats': []}
+            'comments': {'disable': [], 'extraRules': []}, 'skips': {'disable': [], 'extraMarkers': []},
+            'formats': [], 'links': {'exclude': [], 'ignoreTargets': []}}
 
 
 def _object(value, allowed, field):
@@ -77,6 +78,10 @@ def load_config(directory: Path, *, root: Path | None = None) -> dict:
     if type(timeout) is not int or not 1 <= timeout <= 600:
         raise ConfigError('timeoutSeconds')
     config['timeoutSeconds'] = timeout
+    if 'links' in data:
+        _object(data['links'], ('exclude', 'ignoreTargets'), 'links')
+        for key in ('exclude', 'ignoreTargets'):
+            config['links'][key] = _strings(data['links'].get(key, []), 'links.' + key)
     formats = data.get('formats', [])
     if not isinstance(formats, list):
         raise ConfigError('formats')

@@ -116,6 +116,19 @@ class FormatsConfig(unittest.TestCase):
             self.assertEqual(caught.exception.args[0], 'formats[0].cwd')
 
 
+class LinksConfig(unittest.TestCase):
+    def test_link_defaults_and_invalid_config(self):
+        self.assertEqual(config_from({'version': 1})['links'], {'exclude': [], 'ignoreTargets': []})
+        cases = [(None, 'links'), ([], 'links'), ({'unknown': []}, 'links.unknown')]
+        for key in ('exclude', 'ignoreTargets'):
+            cases += [({key: value}, 'links.' + key + ('[0]' if value == [''] else ''))
+                      for value in (None, '*', [''])]
+        for links, field in cases:
+            with self.subTest(links=links), self.assertRaises(ConfigError) as caught:
+                config_from({'version': 1, 'links': links})
+            self.assertEqual(caught.exception.args[0], field)
+
+
 class Selection(unittest.TestCase):
     def test_glob_matches_like_workflow_configs(self):
         for pattern, path, expected in [('*', 'a/b.py', True), ('src/*', 'src/a/b.py', True), ('src/*', 'lib/src/a.py', False),

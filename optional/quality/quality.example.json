@@ -1,6 +1,7 @@
 {
   "version": 1,
   "formats": [],
+  "links": {"exclude": [], "ignoreTargets": []},
   "include": ["*"],
   "exclude": [],
   "timeoutSeconds": 30,
