@@ -124,7 +124,8 @@ def _template_end(text, start):
 
 
 def _yaml_data(text):
-    lines = text.splitlines(keepends=True)
+    parts = text.split('\n')
+    lines = [part + '\n' for part in parts[:-1]] + [parts[-1]]
     offsets = [0]
     for line in lines:
         offsets.append(offsets[-1] + len(line))

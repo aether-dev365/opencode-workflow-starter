@@ -55,7 +55,7 @@ def find_skips(path: str, text: str, added: frozenset[int] | None, config: dict)
                  if any(glob_match(pattern, path) for pattern in item['paths']))
     rules = [(category, regex) for category, regex in rules if category not in config['skips']['disable']]
     findings = []
-    for number, line in enumerate(scan(path, text).code.splitlines(), 1):
+    for number, line in enumerate(scan(path, text).code.split('\n'), 1):
         if added is not None and number not in added:
             continue
         categories = {category for category, regex in rules if regex.search(line)}

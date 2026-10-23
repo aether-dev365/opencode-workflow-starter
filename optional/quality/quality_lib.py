@@ -2,6 +2,7 @@
 
 import json
 import argparse
+import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
@@ -165,9 +166,10 @@ def parse_mode(argv: list[str]) -> Mode:
     return 'commit', args.commit if args.commit is not None else 'HEAD'
 
 
-def git_bytes(root: Path, *args: str, reason='git 命令失败') -> bytes:
+def git_bytes(root: Path, *args: str, reason='git 命令失败', input=None) -> bytes:
+    env = {key: value for key, value in os.environ.items() if key not in {'GIT_DIFF_OPTS', 'GIT_EXTERNAL_DIFF'}}
     result = subprocess.run(['git', '-c', 'core.quotepath=off', '--literal-pathspecs', *args],
-                            cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            cwd=root, env=env, input=input, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
         raise Incomplete(reason)
     return result.stdout
@@ -183,13 +185,48 @@ def _revision(root, rev):
     return git_bytes(root, 'rev-parse', '--verify', rev + '^{commit}', reason='修订号无效').decode('ascii').strip()
 
 
-def collect(root: Path, mode: Mode) -> Changes:
+def raw_entries(raw: bytes):
+    records = raw.split(b'\0')
+    i = 0
+    while i < len(records) and records[i]:
+        header = records[i].split()
+        renamed = header[4][:1] in {b'R', b'C'}
+        path = records[i + (2 if renamed else 1)].decode('utf-8', 'surrogateescape')
+        yield header, path
+        i += 3 if renamed else 2
+
+
+def added_lines(patch: bytes) -> frozenset[int]:
+    lines = set()
+    for match in re.finditer(rb'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', patch, re.M):
+        start = int(match[1])
+        count = int(match[2]) if match[2] is not None else 1
+        lines.update(range(start, start + count))
+    return frozenset(lines)
+
+
+def path_batches(paths):
+    batch, size = [], 0
+    for path in paths:
+        length = len(path.encode('utf-8', 'surrogateescape')) + 1
+        if batch and size + length > 12000:
+            yield batch
+            batch, size = [], 0
+        batch.append(path)
+        size += length
+    if batch:
+        yield batch
+
+
+def collect(root: Path, mode: Mode, select=lambda path: True) -> Changes:
     kind, rev = mode
     if kind == 'all':
         paths = git_bytes(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard').split(b'\0')
         targets = []
         for raw in sorted(set(paths) - {b''}):
             path = raw.decode('utf-8', 'surrogateescape')
+            if not select(path):
+                continue
             file = root / path
             if file.is_file() and not file.is_symlink():
                 targets.append(Target(path, file.read_bytes, None))
@@ -200,44 +237,64 @@ def collect(root: Path, mode: Mode) -> Changes:
         if len(parents) > 2:
             return Changes([], True)
         command = ['diff-tree', '-r', '--root', '--no-commit-id', sha]
-        source = sha
     elif kind == 'staged':
         command = ['diff', '--cached']
-        source = ''
     elif kind == 'range':
         parts = rev.split('..')
         if len(parts) != 2 or not all(parts) or '...' in rev:
             raise Incomplete('修订号无效')
         left, right = (_revision(root, p) for p in parts)
         command = ['diff', left + '...' + right]
-        source = right
     else:
         raise Incomplete('修订号无效')
-    common = ['-M', '--no-color', '--no-ext-diff', '--no-textconv']
-    records = git_bytes(root, *command, *common, '--raw', '--no-abbrev', '-z').split(b'\0')
-    targets = []
-    i = 0
-    while i < len(records) and records[i]:
-        header = records[i].split()
-        old = records[i + 1].decode('utf-8', 'surrogateescape')
+    common = ['-M', '--no-color', '--no-ext-diff', '--no-textconv', '--inter-hunk-context=0']
+    records = git_bytes(root, *command, *common, '--raw', '--no-abbrev', '-z')
+    entries = [(header, path) for header, path in raw_entries(records)
+               if header[4][:1] in {b'A', b'M', b'R', b'C', b'T'}
+               and header[1] in {b'100644', b'100755'} and select(path)]
+    changed, ordinary = [], []
+    for header, path in entries:
         status = header[4][:1]
-        new = records[i + 2].decode('utf-8', 'surrogateescape') if status in {b'R', b'C'} else old
-        i += 3 if status in {b'R', b'C'} else 2
-        if status not in {b'A', b'M', b'R', b'C', b'T'} or header[1] not in {b'100644', b'100755'}:
-            continue
         if status in {b'R', b'C'}:
             # 直接比较已识别改名的两个 blob，避免旧路径现在是目录时混入其他文件。
             patch = git_bytes(root, 'diff', *common, '-p', '-U0', header[2].decode('ascii'), header[3].decode('ascii'))
+            changed.append((path, header[3], added_lines(patch)))
+        elif status == b'T':
+            # 从符号链接或子模块变成普通文件时，新文件的所有行都是新增行。
+            changed.append((path, header[3], None))
         else:
-            patch = git_bytes(root, *command, *common, '-p', '-U0', '--', new)
-        lines = set()
-        for match in re.finditer(rb'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', patch, re.M):
-            start = int(match[1])
-            count = int(match[2]) if match[2] is not None else 1
-            lines.update(range(start, start + count))
-        if lines:
-            target = source + ':' + new
-            targets.append(Target(new, lambda target=target: git_bytes(root, 'cat-file', 'blob', target), frozenset(lines)))
+            ordinary.append(path)
+    wanted = set(ordinary)
+    for batch in path_batches(ordinary):
+        output = git_bytes(root, *command, *common, '--no-renames', '--raw', '--no-abbrev', '-z', '-p', '-U0', '--', *batch)
+        if not output:
+            continue
+        raw, patches = output.split(b'\0\0', 1)
+        sections = re.split(rb'^diff --git ', patches, flags=re.M)[1:]
+        batch_entries = list(raw_entries(raw))
+        if len(batch_entries) != len(sections):
+            raise Incomplete('git 差异输出无效')
+        for (header, path), patch in zip(batch_entries, sections):
+            if path in wanted:
+                changed.append((path, header[3], added_lines(patch)))
+    changed = [(path, oid, lines) for path, oid, lines in changed if lines or lines is None]
+    targets = []
+    if changed:
+        output = git_bytes(root, 'cat-file', '--batch', input=b''.join(oid + b'\n' for _, oid, _ in changed))
+        offset = 0
+        for path, oid, lines in changed:
+            end = output.index(b'\n', offset)
+            header = output[offset:end].split()
+            if len(header) != 3 or header[0] != oid or header[1] != b'blob':
+                raise Incomplete('git 文件输出无效')
+            size = int(header[2])
+            content = output[end + 1:end + 1 + size]
+            offset = end + size + 2
+            if lines is None:
+                count = content.count(b'\n') + int(bool(content) and not content.endswith(b'\n'))
+                lines = frozenset(range(1, count + 1))
+            if lines:
+                targets.append(Target(path, lambda content=content: content, lines))
     return Changes(targets)
 
 
@@ -247,12 +304,13 @@ def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd:
         mode = parse_mode(argv)
         root = repo_root(cwd or Path.cwd())
         config = load_config(here)
-        changes = collect(root, mode)
+        directory = here.resolve()
+        changes = collect(root, mode, lambda path: selected(path, config) and not (root / path).is_relative_to(directory))
         if changes.merge:
             print(f'{name}：合并提交不检查。')
             return 0
         findings = {}
-        checked = skipped = 0
+        checked = skipped = unanalyzable = 0
         for target in changes.targets:
             if not selected(target.path, config):
                 continue
@@ -263,19 +321,29 @@ def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd:
                 skipped += 1
                 continue
             try:
-                text = raw.decode('utf-8')
+                text = raw.decode('utf-8-sig')
             except UnicodeDecodeError:
                 skipped += 1
                 continue
-            if re.search(r'@generated|DO NOT EDIT|Code generated|auto-generated', '\n'.join(text.splitlines()[:5]), re.I):
+            if re.search(r'@generated|DO NOT EDIT|Code generated|auto-generated', '\n'.join(text.split('\n')[:5]), re.I):
                 continue
-            for finding in check(target.path, text, target.added, config):
+            try:
+                results = check(target.path, text, target.added, config)
+            except Exception:
+                unanalyzable += 1
+                continue
+            for finding in results:
                 findings[(finding.path, finding.line, finding.rule)] = finding
             checked += 1
         for key in sorted(findings):
             f = findings[key]
             print(f'{f.path}:{f.line}: [{f.rule}] {f.message}')
-        suffix = f'（跳过 {skipped} 个非 UTF-8 或过大的文件）' if skipped else ''
+        counts = []
+        if skipped:
+            counts.append(f'{skipped} 个非 UTF-8 或过大的文件')
+        if unanalyzable:
+            counts.append(f'{unanalyzable} 个无法分析的文件')
+        suffix = '（跳过 ' + '，'.join(counts) + '）' if counts else ''
         print(f'{name}：检查了 {checked} 个文件，{len(findings)} 处{unit}{suffix}。')
         return 1 if findings else 0
     except ConfigError as error:

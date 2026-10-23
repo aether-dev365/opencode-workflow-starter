@@ -103,6 +103,9 @@ class HashComments(unittest.TestCase):
     def test_here_strings_do_not_consume_later_lines(self):
         self.assertEqual(comments('a.sh', 'cat <<<"hello"\n# Task 4\n'), [(2, 'Task 4')])
 
+    def test_yaml_form_feed_does_not_end_a_physical_data_line(self):
+        self.assertEqual(comments('a.yaml', 'value: |\n  data\f# Task 3\n# real\n'), [(3, 'real')])
+
     def test_heredoc_delimiters_can_contain_punctuation_and_quotes(self):
         for word in ['EOF.data', "'EOF'.data", '"EOF.data"', r'EOF\.data']:
             with self.subTest(word=word):

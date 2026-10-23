@@ -83,6 +83,11 @@ class Markers(unittest.TestCase):
         findings = module.find_skips('a.ts', 'it.skip("a", f)\nit.skip("b", f)\n', frozenset({2}), default_config())
         self.assertEqual([f.line for f in findings], [2])
 
+    def test_form_feed_does_not_advance_git_line_numbers(self):
+        findings = module.find_skips('a.ts', 'const x = 1;\f it.skip("x", fn)\nit.only("y", fn)\n',
+                                    frozenset({1, 2}), default_config())
+        self.assertEqual([(f.line, f.rule) for f in findings], [(1, 'skip'), (2, 'focus')])
+
 
 class CommandLine(unittest.TestCase):
     def test_commit_markers_are_reported_with_exit_one(self):

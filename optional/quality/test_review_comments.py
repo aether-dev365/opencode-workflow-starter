@@ -114,6 +114,14 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('src/b.ts:1: [document] 文档引用：改为直接写出规则和原因', result.stdout.splitlines())
 
+    def test_bom_python_docstring_is_reviewed(self):
+        self.repo.write('a.py', '\ufeff"""Task 3"""\n')
+        self.repo.commit()
+        result = self.repo.run(self.here / 'review-comments.py')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('a.py:1: [tracking]', result.stdout)
+        self.assertEqual(result.stderr, '')
+
     def test_each_invalid_config_exits_two(self):
         from test_lib import Config
         for text, field in Config.INVALID:

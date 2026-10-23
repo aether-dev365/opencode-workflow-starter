@@ -1,12 +1,15 @@
 import contextlib
 import io
 import os
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 from quality_lib import Finding, Incomplete, collect, main, parse_mode
-from quality_testing import NEEDS_SYMLINK, TempRepo
+from quality_testing import HERE, NEEDS_SYMLINK, TempRepo
 
 
 def added(changes):
@@ -108,6 +111,73 @@ class Collect(unittest.TestCase):
         r.write('src/my file.ts', 'a\n'); r.write('src/中文.ts', 'b\n'); r.commit()
         self.assertEqual(set(added(collect(r.root, ('commit', 'HEAD')))), {'src/my file.ts', 'src/中文.ts'})
 
+    def test_selected_paths_use_batched_diff_and_blob_reads(self):
+        paths = [f'src/{n:03d}-' + 'a' * 150 + '.ts' for n in range(100)]
+        paths += ['src/中文 file.ts', "src/[literal]'name.ts"]
+        for path in paths:
+            self.repo.write(path, 'first\nsecond\n')
+        self.repo.commit()
+        with mock.patch('quality_lib.subprocess.run', wraps=subprocess.run) as run:
+            changes = collect(self.repo.root, ('commit', 'HEAD'))
+            self.assertEqual(added(changes), {path: [1, 2] for path in paths})
+            self.assertTrue(all(target.read() == b'first\nsecond\n' for target in changes.targets))
+        commands = [call.args[0] for call in run.call_args_list]
+        diffs = [cmd for cmd in commands if '-p' in cmd]
+        self.assertGreater(len(diffs), 1)
+        self.assertLess(len(diffs), 10)
+        self.assertEqual(len([cmd for cmd in commands if 'cat-file' in cmd]), 1)
+        self.assertTrue(all(sum(len(p.encode('utf-8')) + 1 for p in cmd[cmd.index('--') + 1:]) <= 12000 for cmd in diffs))
+
+    def test_user_diff_context_never_marks_unchanged_lines(self):
+        r = self.repo
+        r.write('a.ts', 'one\n// Task 3\nthree\nfour\nfive\n')
+        base = r.commit()
+        r.write('a.ts', 'ONE\n// Task 3\nthree\nfour\nFIVE\n')
+        r.git('add', '-A')
+        for setting in ('config', 'environment'):
+            with self.subTest(setting=setting):
+                r.git('config', 'diff.interHunkContext', '10' if setting == 'config' else '0')
+                with mock.patch.dict(os.environ, {'GIT_DIFF_OPTS': '--unified=10'} if setting == 'environment' else {}):
+                    self.assertEqual(added(collect(r.root, ('staged', None))), {'a.ts': [1, 5]})
+        r.commit(add=False)
+        r.git('config', 'diff.interHunkContext', '10')
+        for mode in [('commit', 'HEAD'), ('range', base + '..HEAD')]:
+            with self.subTest(mode=mode), mock.patch.dict(os.environ, {'GIT_DIFF_OPTS': '-u10'}):
+                self.assertEqual(added(collect(r.root, mode)), {'a.ts': [1, 5]})
+
+    def test_git_subprocesses_do_not_inherit_diff_overrides(self):
+        self.repo.write('a.ts', 'x\n'); self.repo.commit()
+        real_run = subprocess.run
+        def run(*args, **kwargs):
+            environment = kwargs.get('env', os.environ)
+            self.assertFalse('GIT_DIFF_OPTS' in environment)
+            self.assertFalse('GIT_EXTERNAL_DIFF' in environment)
+            return real_run(*args, **kwargs)
+        with mock.patch.dict(os.environ, {'GIT_DIFF_OPTS': '-u10', 'GIT_EXTERNAL_DIFF': 'unused'}), mock.patch('quality_lib.subprocess.run', side_effect=run):
+            self.assertEqual(added(collect(self.repo.root, ('commit', 'HEAD'))), {'a.ts': [1]})
+
+    def test_type_change_to_regular_file_keeps_all_added_lines_and_other_files(self):
+        r = self.repo
+        r.write('a.ts', 'link-target\n')
+        oid = r.git('hash-object', '-w', 'a.ts').stdout.strip()
+        r.git('update-index', '--add', '--cacheinfo', f'120000,{oid},a.ts')
+        base = r.commit(add=False)
+        r.write('a.ts', '// Task 3\n// next\n')
+        r.write('ok.ts', '// Task 4\n')
+        r.git('-c', 'core.symlinks=false', 'add', '-A')
+        oid = r.git('hash-object', '-w', 'a.ts').stdout.strip()
+        r.git('update-index', '--cacheinfo', f'100644,{oid},a.ts')
+        expected = {'a.ts': [1, 2], 'ok.ts': [1]}
+        with self.subTest(mode='staged'):
+            self.assertEqual(added(collect(r.root, ('staged', None))), expected)
+        r.commit(add=False)
+        for mode in [('commit', 'HEAD'), ('range', base + '..HEAD')]:
+            with self.subTest(mode=mode):
+                changes = collect(r.root, mode)
+                self.assertEqual(added(changes), expected)
+                self.assertEqual({t.path: t.read() for t in changes.targets},
+                                 {'a.ts': b'// Task 3\n// next\n', 'ok.ts': b'// Task 4\n'})
+
     def test_invalid_revisions_are_incomplete(self):
         r = self.repo
         r.write('a.ts', 'x\n'); r.commit()
@@ -149,6 +219,23 @@ class Driver(unittest.TestCase):
         self.repo.write('a.ts', 'x\n'); self.repo.commit()
         self.assertEqual(self.run_main([]), (0, ['演示检查：检查了 1 个文件，0 处需复核。'], []))
 
+    def test_large_vendor_commit_checks_only_selected_file_within_five_seconds(self):
+        for n in range(10000):
+            self.repo.write(f'vendor/file{n}.go', '// Task 3\n')
+        self.repo.write('main.go', '// Task 3\n')
+        self.repo.commit()
+        start = time.monotonic()
+        try:
+            result = subprocess.run([sys.executable, str(HERE / 'review-comments.py')],
+                                    cwd=self.repo.root, env=self.repo.env, capture_output=True,
+                                    encoding='utf-8', timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail('排除 vendor 后的检查超过 5 秒')
+        self.assertLess(time.monotonic() - start, 5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('main.go:1: [tracking]', result.stdout)
+        self.assertIn('检查了 1 个文件', result.stdout)
+
     def test_large_and_non_utf8_files_are_counted_as_skipped(self):
         r = self.repo
         r.write('a.ts', 'x\n'); r.write('big.ts', 'x' * (1024 * 1024 + 1)); r.write('latin.ts', b'\xff\xfe\n'); r.commit()
@@ -180,7 +267,20 @@ class Driver(unittest.TestCase):
 
         def broken(*args):
             raise RuntimeError('synthetic-value')
-        self.assertEqual(self.run_main([], check=broken), (2, [], ['演示检查未完成：RuntimeError']))
+        self.assertEqual(self.run_main([], check=broken), (0, ['演示检查：检查了 0 个文件，0 处需复核（跳过 1 个无法分析的文件）。'], []))
+
+    def test_analysis_failure_skips_one_file_and_keeps_other_findings(self):
+        self.repo.write('a.ts', 'FLAG\n')
+        self.repo.write('b.ts', 'FLAG\n')
+        self.repo.write('bad.ts', b'\xff')
+        self.repo.commit()
+        def check(path, text, lines, config):
+            if path == 'a.ts':
+                raise ValueError('不能回显的内容')
+            return flag(path, text, lines, config)
+        self.assertEqual(self.run_main([], check=check), (1, [
+            'b.ts:1: [demo] 演示',
+            '演示检查：检查了 1 个文件，1 处需复核（跳过 1 个非 UTF-8 或过大的文件，1 个无法分析的文件）。'], []))
 
     def test_all_mode_binary_is_not_a_source_file(self):
         self.repo.write('binary.ts', b'FLAG\x00payload')
@@ -194,3 +294,28 @@ class Driver(unittest.TestCase):
         (self.here / 'quality.json').write_text('{"version":1,"include":["src/*"],"exclude":["src/old.ts"]}', encoding='utf-8')
         result = self.run_main(['--all'])
         self.assertEqual(result, (1, ['src/a.ts:1: [demo] 演示', '演示检查：检查了 1 个文件，1 处需复核。'], []))
+
+    def test_extension_directory_is_excluded_in_every_mode(self):
+        here = self.repo.install_scripts('tools/quality')
+        self.repo.write('base.txt', 'base\n'); base = self.repo.commit()
+        self.repo.write('tools/quality/fixture.ts', '// Task 3\nit.skip("x", fn)\n')
+        self.repo.write('tools/quality-other/app.ts', '// Task 3\nit.skip("x", fn)\n')
+        self.repo.git('add', '-A')
+        for script in ('review-comments.py', 'check-skips.py'):
+            with self.subTest(script=script, mode='staged'):
+                result = self.repo.run(here / script, '--staged')
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn('tools/quality/fixture.ts:', result.stdout)
+                self.assertIn('检查了 1 个文件', result.stdout)
+        self.repo.commit(add=False)
+        for script in ('review-comments.py', 'check-skips.py'):
+            for args in ((), ('--range', base + '..HEAD'), ('--all',)):
+                with self.subTest(script=script, args=args):
+                    result = self.repo.run(here / script, *args)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertNotIn('tools/quality/fixture.ts:', result.stdout)
+                    self.assertIn('检查了 1 个文件', result.stdout)
+
+    def test_generated_header_counts_only_newline_characters(self):
+        self.repo.write('a.ts', '\f' * 6 + '// DO NOT EDIT\nFLAG\n')
+        self.assertEqual(self.run_main(['--all']), (0, ['演示检查：检查了 0 个文件，0 处需复核。'], []))
