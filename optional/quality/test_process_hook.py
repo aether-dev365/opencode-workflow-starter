@@ -15,8 +15,19 @@ from quality_testing import HERE, load_script
 
 class HookLifecycle(unittest.TestCase):
     def test_native_outer_timeout_owns_nested_tool_descendants_without_git(self):
+        self.check_nested_tool_descendants()
+
+    def test_native_outer_timeout_with_alias_root_without_git(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            child = Path(directory) / 'child'; child.mkdir()
+            alias = child / '..'
+            self.assertNotEqual(alias, alias.resolve())
+            with mock.patch.object(tempfile, 'TemporaryDirectory', return_value=contextlib.nullcontext(str(alias))):
+                self.check_nested_tool_descendants()
+
+    def check_nested_tool_descendants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
             here = root / 'quality'; here.mkdir()
             shutil.copyfile(HERE / 'quality_process.py', here / 'quality_process.py')
             pidfile = root / 'worker.pid'
