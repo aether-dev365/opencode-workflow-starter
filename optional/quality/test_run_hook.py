@@ -1,8 +1,15 @@
 import json
+import contextlib
+import io
 import os
+import subprocess
 import time
 import unittest
-from quality_testing import TempRepo
+from types import SimpleNamespace
+from unittest import mock
+from quality_testing import TempRepo, load_script
+
+module = load_script('run-hook.py')
 
 INTERPRETER = 'py -3' if os.name == 'nt' else 'python3'
 HEADER = '质量检查（提交已完成，以下只是报告）：'
@@ -82,3 +89,78 @@ class Runner(unittest.TestCase):
         before = snapshot()
         self.run_hook()
         self.assertEqual(snapshot(), before)
+
+    def run_with_failed_tree_kill(self, os_name, *, stalled_output=False, missing_taskkill=False):
+        (self.here / 'quality.json').write_text('{"version":1,"timeoutSeconds":1}', encoding='utf-8')
+        self.replace('review-comments.py', 'import time\nprint("开始检查", flush=True)\ntime.sleep(30)\n')
+        self.replace('check-skips.py', 'print("第二项已运行")\n')
+        processes, deadlines = [], []
+        popen, run = subprocess.Popen, subprocess.run
+
+        def launch(command, **kwargs):
+            if os.name != 'nt':
+                kwargs.pop('creationflags', None)
+            else:
+                kwargs.pop('start_new_session', None)
+            process = popen(command, **kwargs)
+            if command[0] != 'git':
+                processes.append(process)
+                if stalled_output and len(processes) == 1:
+                    communicate = process.communicate
+                    def drain(*args, **options):
+                        deadlines.append(options.get('timeout'))
+                        if len(deadlines) > 1:
+                            raise subprocess.TimeoutExpired(command, options.get('timeout'), output=b'partial\n')
+                        return communicate(*args, **options)
+                    process.communicate = drain
+            return process
+
+        def command_run(command, **kwargs):
+            if command[0] == 'taskkill':
+                if missing_taskkill:
+                    raise FileNotFoundError()
+                raise subprocess.CalledProcessError(1, command)
+            return run(command, **kwargs)
+
+        out = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, self.repo.env, clear=True), \
+                    mock.patch.object(module, '__file__', str(self.here / 'run-hook.py')), \
+                    mock.patch.object(module.Path, 'cwd', return_value=self.repo.root), \
+                    mock.patch.object(module.os, 'killpg', side_effect=PermissionError(), create=True), \
+                    mock.patch.object(module.signal, 'SIGKILL', 9, create=True), \
+                    mock.patch.object(module.subprocess, 'Popen', side_effect=launch), \
+                    mock.patch.object(module.subprocess, 'run', side_effect=command_run), \
+                    contextlib.redirect_stdout(out):
+                self.assertEqual(module.main(['post-commit'], os_name=os_name), 0)
+            self.assertEqual(len(processes), 2)
+            self.assertIsNotNone(processes[0].poll())
+            self.assertIn('注释审核超时（1 秒）未完成，请手动重跑：', out.getvalue())
+            self.assertIn('第二项已运行', out.getvalue())
+            self.assertNotIn(module.FAILURE, out.getvalue())
+            if os_name == 'nt':
+                self.assertIn('py -3 scripts/quality/review-comments.py', out.getvalue())
+            if stalled_output:
+                self.assertEqual(deadlines, [1, 5])
+                self.assertIn('partial', out.getvalue())
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+                if process.stdout:
+                    process.stdout.close()
+
+    def test_failed_posix_tree_kill_falls_back_and_continues(self):
+        with mock.patch.object(module, 'signal', SimpleNamespace()):
+            self.run_with_failed_tree_kill('posix')
+
+    def test_failed_windows_taskkill_falls_back_and_continues(self):
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                self.run_with_failed_tree_kill('nt', missing_taskkill=missing)
+
+    def test_timeout_output_drain_is_bounded_and_next_check_runs(self):
+        for os_name in ('nt', 'posix'):
+            with self.subTest(os_name=os_name):
+                self.run_with_failed_tree_kill(os_name, stalled_output=True)

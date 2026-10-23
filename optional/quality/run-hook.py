@@ -15,8 +15,9 @@ CHECKS = (('注释审核', 'review-comments.py'), ('跳过测试检查', 'check-
 FAILURE = '质量检查执行失败；提交已完成，请手动重跑。'
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], *, os_name=None) -> int:
     utf8_stdio()
+    os_name = os_name or os.name
     try:
         root = repo_root(Path.cwd())
         for state in ('rebase-merge', 'rebase-apply'):
@@ -37,9 +38,9 @@ def main(argv: list[str]) -> int:
             if not script.is_file():
                 print(f'{name}未执行：缺少 {relative}。')
                 continue
-            interpreter = 'py -3' if os.name == 'nt' else 'python3'
+            interpreter = 'py -3' if os_name == 'nt' else 'python3'
             rerun = f'{interpreter} {shlex.quote(relative)} --commit {short}'
-            options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
+            options = {'creationflags': 0x08000000} if os_name == 'nt' else {'start_new_session': True}
             process = subprocess.Popen([sys.executable, str(script), '--commit', 'HEAD'], cwd=root, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **options)
             timed_out = False
@@ -47,15 +48,24 @@ def main(argv: list[str]) -> int:
                 output, _ = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                if os.name == 'nt':
-                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                else:
-                    try:
+                try:
+                    if os_name == 'nt':
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=5)
+                    else:
                         os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
+                except (OSError, subprocess.SubprocessError):
+                    try:
+                        process.kill()
+                    except OSError:
                         pass
-                output, _ = process.communicate()
+                try:
+                    output, _ = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired as error:
+                    output = error.output or b''
+                    # Windows 的后台读取线程可能仍持有管道锁，不能在这里等待关闭。
+                    if os_name != 'nt' and process.stdout:
+                        process.stdout.close()
             sys.stdout.write(output.decode('utf-8', 'replace'))
             if timed_out:
                 print(f'{name}超时（{timeout} 秒）未完成，请手动重跑：{rerun}')
