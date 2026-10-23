@@ -1,7 +1,9 @@
+import json
 import time
 import subprocess
 import sys
 import unittest
+from unittest import mock
 from quality_lib import default_config
 from quality_testing import HERE, TempRepo, config_from, load_script
 
@@ -10,6 +12,85 @@ module = load_script('review-comments.py')
 
 def rules(path, text, config=None):
     return [(f.line, f.rule) for f in module.review(path, text, None, config or default_config())]
+
+
+def assert_review_fast(case, expression, *, setup='', finish='', timeout=10):
+    source = ('import json,time\nfrom quality_testing import load_script\nfrom quality_lib import default_config\n'
+              'review = load_script("review-comments.py").review\n'
+              + setup + '\n'
+              'text = "// " + (' + expression + ')\nconfig = default_config()\n'
+              'print("READY", flush=True)\n'
+              'start = time.monotonic()\n'
+              'result = review("a.ts", text, None, config)\n'
+              'elapsed = time.monotonic() - start\n'
+              'print("REVIEW_DONE " + json.dumps({"elapsed": elapsed, "result": result}, default=repr), flush=True)\n'
+              + finish + '\n')
+    try:
+        result = subprocess.run([sys.executable, '-B', '-c', source], cwd=HERE,
+                                capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        evidence = ((error.stdout or b'') + (error.stderr or b'')).decode('utf-8', 'replace')
+        case.fail(f'子进程保护期限（{timeout} 秒）耗尽；不能据此判定实际匹配耗时。\n{evidence}')
+    output = result.stdout.decode('utf-8', 'replace')
+    evidence = output + result.stderr.decode('utf-8', 'replace')
+    print(f'{expression}:\n{output}', end='')
+    case.assertEqual(result.returncode, 0, f'性能探针异常退出。\n{evidence}')
+    lines = output.splitlines()
+    case.assertEqual(len(lines), 2, f'缺少或无效的匹配完成证据。\n{evidence}')
+    case.assertEqual(lines[0], 'READY', evidence)
+    case.assertTrue(lines[1].startswith('REVIEW_DONE '), evidence)
+    try:
+        receipt = json.loads(lines[1].removeprefix('REVIEW_DONE '))
+    except ValueError:
+        case.fail(f'匹配完成证据不是有效 JSON。\n{evidence}')
+    case.assertIsInstance(receipt, dict, evidence)
+    case.assertEqual(set(receipt), {'elapsed', 'result'}, evidence)
+    case.assertIs(type(receipt['elapsed']), float, evidence)
+    case.assertGreaterEqual(receipt['elapsed'], 0, evidence)
+    case.assertLess(receipt['elapsed'], 1, f'实际匹配耗时必须小于 1 秒。\n{evidence}')
+    case.assertEqual(receipt['result'], [], evidence)
+
+
+class PerformanceProbe(unittest.TestCase):
+    def test_slow_preparation_does_not_consume_review_budget(self):
+        assert_review_fast(self, '"ordinary"', setup='time.sleep(1.25)')
+
+    def test_slow_review_fails_with_measured_completion(self):
+        setup = ('original_review = review\ndef review(*args):\n'
+                 ' time.sleep(1.25)\n return original_review(*args)\n')
+        with self.assertRaisesRegex(AssertionError, '实际匹配耗时') as failure:
+            assert_review_fast(self, '"ordinary"', setup=setup)
+        self.assertIn('READY', str(failure.exception))
+        self.assertIn('REVIEW_DONE', str(failure.exception))
+
+    def test_nonterminating_process_is_bounded_and_reaped(self):
+        processes = []
+        popen = subprocess.Popen
+        def launch(*args, **kwargs):
+            process = popen(*args, **kwargs)
+            processes.append(process)
+            return process
+        start = time.monotonic()
+        with mock.patch.object(subprocess, 'Popen', side_effect=launch):
+            with self.assertRaises(AssertionError) as failure:
+                assert_review_fast(self, '"ordinary"', finish='time.sleep(30)', timeout=2)
+        self.assertLess(time.monotonic() - start, 7)
+        self.assertEqual(len(processes), 1)
+        self.assertIsNotNone(processes[0].returncode)
+        self.assertIsNotNone(processes[0].poll())
+        self.assertTrue(processes[0].stdout.closed)
+        self.assertTrue(processes[0].stderr.closed)
+        self.assertIn('子进程保护期限', str(failure.exception))
+        self.assertIn('READY', str(failure.exception))
+        self.assertIn('REVIEW_DONE', str(failure.exception))
+
+    def test_zero_exit_without_completion_is_rejected(self):
+        with self.assertRaises(AssertionError):
+            assert_review_fast(self, '"ordinary"', setup='raise SystemExit(0)')
+
+    def test_abnormal_exit_is_rejected(self):
+        with self.assertRaises(AssertionError):
+            assert_review_fast(self, '"ordinary"', finish='raise SystemExit(7)')
 
 
 POSITIVE = [
@@ -120,15 +201,7 @@ class Rules(unittest.TestCase):
                        '"评审" + " " * 40000 + "x"']
         for expression in expressions:
             with self.subTest(expression=expression):
-                source = ('from quality_testing import load_script\nfrom quality_lib import default_config\n'
-                          'result = load_script("review-comments.py").review("a.ts", "// " + (' + expression + '), None, default_config())\n'
-                          'assert result == []\n')
-                try:
-                    result = subprocess.run([sys.executable, '-B', '-c', source], cwd=HERE,
-                                            capture_output=True, timeout=1)
-                except subprocess.TimeoutExpired:
-                    self.fail('极端行的匹配超过 1 秒')
-                self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+                assert_review_fast(self, expression)
 
     def test_note_link_length_is_bounded(self):
         self.assertEqual(rules('a.ts', '// [[' + 'x' * 200 + ']]'), [(1, 'document')])
