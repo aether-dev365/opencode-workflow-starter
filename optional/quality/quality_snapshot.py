@@ -12,6 +12,17 @@ REGULAR = {'100644', '100755'}
 OID = re.compile(r'[0-9a-f]{40}(?:[0-9a-f]{24})?')
 
 
+def _link_entry(info):
+    # Python 3.10 的 lstat 已提供 reparse 属性；无需 Path.is_junction。
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_file_attributes', 0) & 0x400)
+
+
+def _windows_special(part):
+    device = part.split('.')[0].rstrip(' ').upper()
+    return (part.endswith((' ', '.')) or device in {'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$'}
+            or re.fullmatch(r'(?:COM|LPT)[1-9¹²³]', device) is not None)
+
+
 class Snapshot:
     def __init__(self, root, entries=None, *, worktree=False, sources=(), os_name=None):
         self.root = root
@@ -27,26 +38,31 @@ class Snapshot:
         parts = PurePosixPath(path).parts
         if PurePosixPath(path).is_absolute() or '..' in parts:
             return None
-        if self._os_name == 'nt' and ('\\' in path or ':' in path):
+        if self._os_name == 'nt' and ('\\' in path or ':' in path or any(_windows_special(p) for p in parts)):
             return None
         current = self.root
         for n, part in enumerate(parts):
             current /= part
             if n < len(parts) - 1:
                 entry = self._entries.get('/'.join(parts[:n + 1]))
-                if current.is_symlink() or (entry and entry[0] == '160000'):
+                try:
+                    info = current.lstat()
+                except FileNotFoundError:
+                    return None
+                if _link_entry(info) or (entry and entry[0] == '160000'):
                     return None
         return current
 
-    def regular_paths(self) -> tuple[str, ...]:
+    def regular_paths(self, paths=None) -> tuple[str, ...]:
         if not self._worktree:
             return tuple(sorted(p for p, (mode, _) in self._entries.items() if mode in REGULAR))
         result = []
-        for path in self._sources:
+        for path in self._sources if paths is None else paths:
             file = self._file(path)
             if file is not None:
                 try:
-                    if stat.S_ISREG(file.lstat().st_mode):
+                    info = file.lstat()
+                    if stat.S_ISREG(info.st_mode) and not _link_entry(info):
                         result.append(path)
                 except FileNotFoundError:
                     pass
@@ -56,7 +72,13 @@ class Snapshot:
         if not self._worktree:
             return path in self._entries or path in self._directories
         file = self._file(path)
-        return file is not None and (file.exists() or file.is_symlink())
+        if file is None:
+            return False
+        try:
+            info = file.lstat()
+        except FileNotFoundError:
+            return False
+        return stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode) or _link_entry(info)
 
     def read_many(self, paths: list[str]) -> dict[str, bytes]:
         paths = list(dict.fromkeys(paths))

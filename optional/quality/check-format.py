@@ -122,7 +122,7 @@ def main(argv: list[str], *, here: Path | None = None, cwd: Path | None = None, 
             print('格式检查：没有登记格式命令。')
             return 0
         paths = [p for p in changes.changed if path_selected(p, config) and not (root / p).is_relative_to(here)]
-        current = set(collect_files(root, ('all', None)).after.regular_paths()) if mode[0] != 'all' else set(changes.changed)
+        current = set(collect_files(root, ('all', None)).after.regular_paths(paths)) if mode[0] != 'all' else set(changes.changed)
         runs = failures = 0
         incomplete = False
         with termination_flag() as cancelled:

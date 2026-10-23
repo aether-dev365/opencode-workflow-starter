@@ -45,6 +45,19 @@ class Formatting(unittest.TestCase):
         self.assertEqual(self.run_format('--all'), '格式检查：运行了 0 条命令，0 条未通过。\n')
         self.assertEqual(self.calls(), [])
 
+    def test_historical_candidate_can_be_currently_ignored(self):
+        base = self.repo.git('rev-parse', 'HEAD').stdout.strip()
+        self.repo.write('a.txt', 'current'); old = self.repo.commit()
+        self.repo.git('rm', '--cached', 'a.txt')
+        self.repo.write('.gitignore', 'a.txt\n'); self.repo.commit()
+        self.configure([self.entry()])
+        for args in [('--commit', old), ('--range', base + '..' + old)]:
+            self.run_format(*args)
+            self.assertEqual(self.calls()[-1]['argv'], ['a.txt'])
+            self.assertEqual(self.calls()[-1]['contents'], [b'current'.hex()])
+        self.run_format('--all')
+        self.assertEqual(len(self.calls()), 2)
+
     def test_modes_select_files_but_tools_read_worktree(self):
         self.repo.write('a.txt', 'one\ntwo\n'); self.repo.write('old.txt', 'rename content')
         base = self.repo.commit()
