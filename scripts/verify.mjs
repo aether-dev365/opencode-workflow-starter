@@ -20,13 +20,18 @@ const all = [
   ['typecheck', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'run', 'typecheck']],
   ['plugin', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'test']],
   ['guards', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', checks, '-t', checks, '-p', 'test_*.py']],
-  ['quality', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py']],
+  ['quality', python, [...pythonArgs, '-m', 'unittest', 'discover', '-v', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py']],
   ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs']],
   ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs']],
   ['native', process.execPath, ['--test', 'tests/native.test.mjs']],
 ]
 const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'quality', 'adoption'].includes(id)) : all
 const mode = subset ? 'windows' : 'full'
+// 质量扩展在 Windows 子集中只允许因缺少符号链接权限而跳过：-v 输出的每条跳过原因都要是它，条数与汇总一致。
+const symlinkSkipsOnly = output => {
+  const reasons = [...output.matchAll(/ \.\.\. skipped '([^'\n]*)'$/gm)].map(match => match[1])
+  return reasons.length === Number(output.match(/skipped=(\d+)/)?.[1] ?? 0) && reasons.every(reason => reason === '需要创建符号链接的权限')
+}
 // 单阶段上限 15 分钟：Windows runner 上进程启动和依赖安装都慢，接入阶段可达 5 分钟。
 const report = []
 for (const [id, command, args] of stages) {
@@ -37,7 +42,7 @@ for (const [id, command, args] of stages) {
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? '\n' + result.error.message : '')
   writeFileSync(resolve(directory, id + '.log'), output)
   const empty = id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)
-  const skipped = /(?:skipped\s+[1-9]|skipped=[1-9])/.test(output) && !(subset && ['guards', 'quality'].includes(id))
+  const skipped = /(?:skipped\s+[1-9]|skipped=[1-9])/.test(output) && !(subset && (id === 'guards' || (id === 'quality' && symlinkSkipsOnly(output))))
   const ok = result.status === 0 && !empty && !skipped
   report.push({ id, command, args, cwd: root, exit: result.status, ok, log: `.verification/${id}.log` })
   const complete = report.length === stages.length

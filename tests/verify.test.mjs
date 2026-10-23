@@ -26,21 +26,25 @@ console.log('tests 0\\npass 0\\nfail 0')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('the Windows subset runs only portable stages and accepts POSIX-only guard and quality skips', () => {
+test('the Windows subset runs only portable stages and accepts only the known POSIX-only skips', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-subset-'))
   try {
     mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
     cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
     writeFileSync(join(root, 'bin/npm'), '#!/bin/sh\necho "tests 1"\n', { mode: 0o755 })
-    writeFileSync(join(root, 'bin/python3'), '#!/bin/sh\necho "Ran 3 tests"\necho "OK (skipped=2)"\n', { mode: 0o755 })
-    const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }
-    const stages = args => {
+    // 质量扩展阶段以 -v 运行，逐条输出跳过原因；守卫阶段只输出汇总。
+    writeFileSync(join(root, 'bin/python3'), '#!/bin/sh\ncase "$*" in\n  *optional/quality*) echo "test_a (m.C.test_a) ... skipped \'$SKIP_A\'"; echo "test_b (m.C.test_b) ... skipped \'$SKIP_B\'" ;;\nesac\necho "Ran 3 tests"\necho "OK (skipped=2)"\n', { mode: 0o755 })
+    const symlink = '需要创建符号链接的权限'
+    const stages = (args, skips = [symlink, symlink]) => {
+      const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH, SKIP_A: skips[0], SKIP_B: skips[1] }
       const result = spawnSync(process.execPath, ['scripts/verify.mjs', ...args], { cwd: root, env, encoding: 'utf8' })
       const report = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8'))
       return { status: result.status, mode: report.mode, stages: report.stages.map(s => [s.id, s.ok]) }
     }
     // 临时根目录里没有 tests/，adoption 阶段必然失败；这里只看选中了哪些阶段、跳过是否放行。
     assert.deepEqual(stages(['--windows']), { status: 1, mode: 'windows', stages: [['typecheck', true], ['plugin', true], ['guards', true], ['quality', true], ['adoption', false]] })
+    // 质量扩展只接受缺少符号链接权限这一种跳过，其他原因照常判失败。
+    assert.deepEqual(stages(['--windows'], [symlink, '需要网络']).stages.at(-1), ['quality', false])
     assert.deepEqual(stages([]), { status: 1, mode: 'full', stages: [['typecheck', true], ['plugin', true], ['guards', false]] })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
@@ -57,6 +61,6 @@ test('the guard and quality stages use WORKFLOW_PYTHON like the plugin does', ()
     const guards = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'guards')
     assert.deepEqual([guards.command, guards.ok], [python, true])
     const quality = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'quality')
-    assert.deepEqual([quality.command, quality.args, quality.ok], [python, ['-m', 'unittest', 'discover', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py'], true])
+    assert.deepEqual([quality.command, quality.args, quality.ok], [python, ['-m', 'unittest', 'discover', '-v', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py'], true])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
