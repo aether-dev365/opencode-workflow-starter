@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 from quality_lib import default_config
 from quality_testing import TempRepo, config_from, load_script
 
@@ -87,6 +88,10 @@ class Markers(unittest.TestCase):
         findings = module.find_skips('a.ts', 'const x = 1;\f it.skip("x", fn)\nit.only("y", fn)\n',
                                     frozenset({1, 2}), default_config())
         self.assertEqual([(f.line, f.rule) for f in findings], [(1, 'skip'), (2, 'focus')])
+
+    def test_skip_checks_do_not_parse_python_docstrings(self):
+        with mock.patch('quality_lexer.ast.parse', side_effect=AssertionError('不应提取 docstring')):
+            self.assertEqual(cats('test_a.py', '"""pytest.skip()"""\npytest.skip("x")'), [(2, 'skip')])
 
 
 class CommandLine(unittest.TestCase):

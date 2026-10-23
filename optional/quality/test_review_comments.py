@@ -49,6 +49,29 @@ class Rules(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(rules('a.ts', text + '\n'), [])
 
+    def test_url_schemes_in_template_text_do_not_start_comments(self):
+        for path in ('view.php', 'view.jsx', 'view.tsx', 'a.hcl'):
+            for scheme in ('https', 'file'):
+                with self.subTest(path=path, scheme=scheme):
+                    self.assertEqual(rules(path, '<p>' + scheme + '://example.invalid/docs/api.md</p>\n'), [])
+        self.assertEqual(rules('a.ts', 'x: // Task 3\n'), [(1, 'tracking')])
+
+    def test_ordinary_chinese_jian_is_not_a_document_reference(self):
+        for text in ('常见设计', '可见文档', '见设计'):
+            with self.subTest(text=text):
+                self.assertEqual(rules('a.ts', '// ' + text), [])
+        for text in ('详见设计', '参见文档', '参考： docs/'):
+            with self.subTest(text=text):
+                self.assertEqual(rules('a.ts', '// ' + text), [(1, 'document')])
+
+    def test_document_suffix_followed_by_dot_alphanumeric_is_not_reported(self):
+        for text in ('schema.md.ts', 'schema.mdx.js', 'schema.rst.1', 'schema.adoc.Z'):
+            with self.subTest(text=text):
+                self.assertEqual(rules('a.ts', '// ' + text), [])
+        for text in ('schema.md.', 'schema.md#anchor', 'schema.mdx'):
+            with self.subTest(text=text):
+                self.assertEqual(rules('a.ts', '// ' + text), [(1, 'document')])
+
     def test_messages_follow_the_spec(self):
         self.assertEqual({rule: message for rule, _, message in module.RULES}, {
             'document': '文档引用：改为直接写出规则和原因',
@@ -90,6 +113,26 @@ class Rules(unittest.TestCase):
         except subprocess.TimeoutExpired:
             self.fail('连续长注释超过 5 秒仍未完成')
         self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+
+    def test_extreme_note_and_optional_whitespace_lines_finish_within_one_second(self):
+        expressions = ['"[[" * 131072', '"Task" + " " * 40000 + "x"',
+                       '"详见" + " " * 40000 + "x"', '"bug" + " " * 40000 + "x"',
+                       '"评审" + " " * 40000 + "x"']
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                source = ('from quality_testing import load_script\nfrom quality_lib import default_config\n'
+                          'result = load_script("review-comments.py").review("a.ts", "// " + (' + expression + '), None, default_config())\n'
+                          'assert result == []\n')
+                try:
+                    result = subprocess.run([sys.executable, '-B', '-c', source], cwd=HERE,
+                                            capture_output=True, timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.fail('极端行的匹配超过 1 秒')
+                self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+
+    def test_note_link_length_is_bounded(self):
+        self.assertEqual(rules('a.ts', '// [[' + 'x' * 200 + ']]'), [(1, 'document')])
+        self.assertEqual(rules('a.ts', '// [[' + 'x' * 201 + ']]'), [])
 
 
 class CommandLine(unittest.TestCase):

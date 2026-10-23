@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 import shlex
+import warnings
 
 
 JS = set('.js .mjs .cjs .jsx .ts .tsx .mts .cts'.split())
@@ -157,7 +158,7 @@ def _yaml_data(text):
     return spans
 
 
-def scan(path: str, text: str) -> Scan:
+def scan(path: str, text: str, *, docstrings: bool = True) -> Scan:
     kind = family(path)
     if kind is None:
         return Scan([], text)
@@ -263,7 +264,7 @@ def scan(path: str, text: str) -> Scan:
             i = comment(i, i + 2, end, min(end + 2, len(text)))
             continue
         line_size = 0
-        if (kind == 'c' or ext in {'.tf', '.hcl'}) and text.startswith('//', i) and not (ext in {'.scss', '.less'} and i > 0 and text[i - 1] == ':'):
+        if (kind == 'c' or ext in {'.tf', '.hcl'}) and text.startswith('//', i) and not (i >= 2 and text[i - 1] == ':' and text[i - 2].isalpha()):
             line_size = 2
         elif kind == 'sql' and text.startswith('--', i) and (i + 2 == len(text) or text[i + 2].isspace()):
             line_size = 2
@@ -271,7 +272,7 @@ def scan(path: str, text: str) -> Scan:
             line_size = 1
         elif kind == 'hash' and text[i] in '#;!':
             name = PurePosixPath(path).name
-            head_only = ext in {'.toml', '.ini', '.properties', '.conf', '.cfg', '.dockerfile'} or name == '.env.example' or name == 'Dockerfile' or name.startswith('Dockerfile.')
+            head_only = ext in {'.ini', '.properties', '.conf', '.cfg', '.dockerfile'} or name == '.env.example' or name == 'Dockerfile' or name.startswith('Dockerfile.')
             token_only = shell or ext in {'.yaml', '.yml'} or name == '.env.example'
             valid_symbol = text[i] == '#' or (ext == '.ini' and text[i] == ';') or (ext == '.properties' and text[i] == '!')
             line_start = text.rfind('\n', 0, i) + 1
@@ -315,7 +316,7 @@ def scan(path: str, text: str) -> Scan:
                 continue
             triple = ext in {'.kt', '.kts', '.java', '.swift', '.dart', '.scala', '.py', '.pyi', '.toml'} and text.startswith(quote * 3, i)
             quote = quote * 3 if triple else quote
-            raw = ext == '.go' or (ext == '.dart' and i > 0 and text[i - 1] == 'r')
+            raw = ext == '.go' or (ext == '.toml' and quote.startswith("'")) or (ext == '.dart' and i > 0 and text[i - 1] == 'r')
             escape = not raw
             if shell and quote == "'" and not (i > 0 and text[i - 1] == '$'):
                 escape = False
@@ -323,13 +324,22 @@ def scan(path: str, text: str) -> Scan:
                 escape = 'backtick' if quote == '"' else False
             end, stop = _literal_end(text, i, quote, escape, triple or quote == '`' or kind == 'sql' or shell or ext in {'.rb', '.php'},
                                      kind == 'sql' or (ext in {'.ps1', '.psm1'} and quote == "'"))
+            if ext == '.toml' and triple:
+                for _ in range(2):
+                    if stop < len(text) and text[stop] == quote[0]:
+                        end += 1
+                        stop += 1
+                    else:
+                        break
             blank(i + len(quote), end)
             i = stop
             continue
         i += 1
-    if ext in {'.py', '.pyi'}:
+    if docstrings and ext in {'.py', '.pyi'}:
         try:
-            tree = ast.parse(text)
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                tree = ast.parse(text)
         except (SyntaxError, ValueError):
             tree = None
         if tree:

@@ -15,15 +15,15 @@ ACTION = (r'(?:修复|修改|改为|改成|新增|增加|删除|移除|更新|�
 MODEL = r'(?:AI|ChatGPT|GPT(?:[- ]?\d+(?:\.\d+)*)?|Claude|Copilot|Gemini|Codex|OpenCode|LLM)'
 RULES = [
     ('document', re.compile(
-        r'(?<!\S)\S+\.(?:mdx?|rst|adoc)\b(?:#[^\s]*)?|\bREADME\b|'
-        r'(?:详见|参见|参考|见)\s*[:：]?\s*(?:docs/|doc/|spec|wiki|设计|文档|手册)|'
-        r'\b(?:see|refer to)\s+(?:the\s+)?(?:docs|documentation|spec|design doc|wiki)\b|\[\[[^\n]*?\]\]', re.I),
+        r'(?<!\S)\S+\.(?:mdx?|rst|adoc)\b(?!\.[^\W_])(?:#[^\s]*)?|\bREADME\b|'
+        r'(?:详见|参见|参考)\s*(?:[:：]\s*)?(?:docs/|doc/|spec|wiki|设计|文档|手册)|'
+        r'\b(?:see|refer to)\s+(?:the\s+)?(?:docs|documentation|spec|design doc|wiki)\b|\[\[[^\n]{0,200}?\]\]', re.I),
      '文档引用：改为直接写出规则和原因'),
     ('tracking', re.compile(
-        r'\b(?:Task|Phase|Sprint|Milestone|Iteration)\s*#?\s*\d+|(?:任务|阶段)\s*\d+|'
+        r'\b(?:Task|Phase|Sprint|Milestone|Iteration)\s*(?:#\s*)?\d+|(?:任务|阶段)\s*\d+|'
         r'\b(?:FR|NFR|SC|US|AC|REQ)-\d+|'
-        r'(?:\b(?:bug|issue|ticket|defect|feedback)\b|缺陷|问题单|反馈|工单)\s*(?:(?:编号|号|id|no\.)\s*)?[:：#]?\s*\d+|'
-        r'\b(?:Critical|Important|Minor)\s*#\s*\d+|(?:评审|审核|审查|复审)(?:意见|发现)?\s*#?\s*\d+|'
+        r'(?:\b(?:bug|issue|ticket|defect|feedback)\b|缺陷|问题单|反馈|工单)\s*(?:(?:编号|号|id|no\.)\s*)?(?:[:：#]\s*)?\d+|'
+        r'\b(?:Critical|Important|Minor)\s*#\s*\d+|(?:评审|审核|审查|复审)(?:意见|发现)?\s*(?:#\s*)?\d+|'
         + DATE + r'.{0,12}' + ACTION + '|' + ACTION + r'.{0,12}' + DATE, re.I),
      '追踪编号或日期：写进提交说明，注释只写现行规则和原因'),
     ('process', re.compile(

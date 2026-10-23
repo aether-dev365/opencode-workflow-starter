@@ -1,4 +1,6 @@
 import unittest
+from unittest import mock
+import warnings
 from quality_lexer import family, scan
 from quality_lexer import test_titles
 
@@ -89,13 +91,31 @@ class HashComments(unittest.TestCase):
         ('a.properties', '! yes\nkey=a!b\n', [(1, 'yes')]),
         ('a.tf', '# one\n// two\n/* three */\n', [(1, 'one'), (2, 'two'), (3, 'three')]),
         ('.env.example', '# yes\nKEY=a#b\n', [(1, 'yes')]),
-        ('a.toml', 'k = "a#b" # data\n# yes\n', [(2, 'yes')]),
+        ('a.toml', 'k = "a#b" # data\n# yes\n', [(1, 'data'), (2, 'yes')]),
     ]
 
     def test_hash_comments_follow_each_language(self):
         for path, text, expected in self.CASES:
             with self.subTest(path=path, text=text):
                 self.assertEqual(comments(path, text), expected)
+
+    def test_toml_four_string_forms_preserve_trailing_comments(self):
+        cases = [
+            ('key = "escaped \\" # data" # real\n', [(1, 'real')]),
+            ("key = 'literal \\' # real\n", [(1, 'real')]),
+            ('key = """multi\n# data \\""" still data\n""" # real\n', [(3, 'real')]),
+            ("key = '''multi\n# data \\''' # real\n", [(2, 'real')]),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(comments('a.toml', text), expected)
+
+    def test_toml_multiline_closing_quotes_do_not_hide_trailing_comments(self):
+        for quote in ('"', "'"):
+            for count in (4, 5):
+                with self.subTest(quote=quote, count=count):
+                    text = 'key = ' + quote * 3 + 'text' + quote * count + ' # Task 3\n'
+                    self.assertEqual(comments('a.toml', text), [(1, 'Task 3')])
 
     def test_heredoc_body_is_blank_code(self):
         self.assertNotIn('rm -rf', scan('a.sh', "cat <<'EOF'\nrm -rf x\nEOF\n").code)
@@ -136,6 +156,23 @@ class Docstrings(unittest.TestCase):
 
     def test_unparsable_python_keeps_hash_comments(self):
         self.assertEqual(comments('bad.py', 'def f(:\n    # yes\n'), [(2, 'yes')])
+
+    def test_python_parse_warnings_are_silenced_even_when_errors(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('error')
+            self.assertEqual(comments('a.py', '"""Task 3 \\q"""\n'), [(1, 'Task 3 \\q')])
+            self.assertEqual(caught, [])
+
+    def test_all_ast_warning_categories_are_silenced(self):
+        import ast
+        parse = ast.parse
+        def warning_parse(text):
+            warnings.warn('不能回显的内容', RuntimeWarning)
+            return parse(text)
+        with mock.patch('quality_lexer.ast.parse', side_effect=warning_parse), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('error')
+            self.assertEqual(comments('a.py', '"""Task 3"""\n'), [(1, 'Task 3')])
+            self.assertEqual(caught, [])
 
 
 class TestTitles(unittest.TestCase):
