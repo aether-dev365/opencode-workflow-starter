@@ -149,8 +149,11 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
       h.model.enqueue(child, [[patch('reviewer-subagent.txt', 'x')],
         [{ name: 'shell', input: { command: 'echo x > reviewer-subagent-shell.txt', workdir: h.directory } }],
         ...batch.tasks.map(task => [{ name: 'workflow_review_submit', input: { batchId: batch.batchId, taskId: task.id, verdict: 'pass' } }])], true)
-      await runCase(h, [[{ name: 'subagent', input: { agent: 'reviewer', description: 'review probe', prompt: 'RUNTIME_CASE:' + child } }]])
+      const result = await runCase(h, [[{ name: 'subagent', input: { agent: 'reviewer', description: 'review probe', prompt: 'RUNTIME_CASE:' + child } }]])
       assert.equal(h.model.remaining(child), 0)
+      // 子会话的写入和 shell 由插件的只读检查拒绝，不依赖 reviewer.md 的权限。
+      assert.match(result.toolResults, /审核员只读[^"]*已拒绝 patch/)
+      assert.match(result.toolResults, /审核员只读[^"]*已拒绝 shell/)
       assert.equal(existsSync(join(h.directory, 'reviewer-subagent.txt')), false)
       assert.equal(existsSync(join(h.directory, 'reviewer-subagent-shell.txt')), false)
       assert.ok(batches(h).find(b => b.batchId === batch.batchId).tasks.every(task => task.verdict === 'pass'))
