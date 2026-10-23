@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve, dirname, join } from 'node:path'
+import { resolve, dirname, join, posix } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -44,8 +44,9 @@ async function check(id, run) {
 // 与 OpenCode 接受的模型写法一致：provider/model 字符串，或带 providerID 与 model 的对象。
 const modelSet = value => typeof value === 'string' ? !!value.trim() : [value?.providerID, value?.model].every(part => typeof part === 'string' && part.trim())
 // 代理文件 frontmatter 中的 model：没有这个键返回 undefined，值为空返回 ''。
+// 与 OpenCode 的解析一致：开头的 BOM 去掉，分隔行允许尾随空白。
 function frontmatterModel(text) {
-  const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1]
+  const front = text.replace(/^\uFEFF/, '').match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/)?.[1]
   if (front === undefined) return undefined
   let json
   try { json = JSON.parse(front) } catch {}
@@ -75,7 +76,8 @@ async function diagnose() {
   // 任何一份规则超过上限，插件都会拒绝本检出的修改（规则与工作流配置除外），超过一半就提前提示精简。
   if (config) await check('rule-size', () => {
     const limit = requirePlugin().SCOPE_TEXT_LIMIT
-    const long = [...new Set(config.scopes.map(scope => scope.instruction))]
+    if (!Number.isInteger(limit)) return { status: 'unverified', message: '插件没有导出规则上限（插件早于本脚本），未检查规则大小；更新 .opencode/plugins/workflow 后重试。' }
+    const long = [...new Set(config.scopes.map(scope => posix.normalize(scope.instruction.replaceAll('\\', '/'))))]
       .map(path => [path, readFileSync(join(root, path), 'utf8').length])
       .filter(([, length]) => length > limit / 2)
     if (long.length) return { status: 'warn', message: `规则文件超过 ${limit / 2} 个字符（插件上限 ${limit}；超过上限时，除各目录 AGENTS.md 和工作流配置外，本检出的所有修改都会被拒绝）：\n${long.map(([path, length]) => `${path}：${length} 个字符`).join('\n')}\n规则每次都会注入上下文；删去历史、日期和重复的命令，操作步骤移到手册并写明何时阅读` }

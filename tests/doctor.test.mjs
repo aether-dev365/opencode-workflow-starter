@@ -154,7 +154,9 @@ test('doctor asks for an explicit reviewer model', () => {
     writeFileSync(config, originalConfig)
     const yaml = originalAgent.replace('mode: subagent', 'mode: subagent\nmodel: openai/gpt-fixture')
     const json = '---\n{\n  "description": "只读审核员",\n  "mode": "subagent",\n  "model": "openai/gpt-fixture"\n}\n---\n只读审核。\n'
-    for (const text of [yaml, yaml.replaceAll('\n', '\r\n'), json]) {
+    // OpenCode 解析 frontmatter 时去掉 BOM，分隔行带尾随空白也照常识别。
+    const lenient = ['﻿' + yaml, yaml.replace(/^---\n/, '---  \n').replace(/\n---\n/, '\n--- \t\n')]
+    for (const text of [yaml, yaml.replaceAll('\n', '\r\n'), json, ...lenient]) {
       writeFileSync(agent, text)
       assert.equal(reviewer()?.status, 'pass', JSON.stringify(text.slice(0, 60)))
     }
@@ -174,13 +176,31 @@ test('doctor warns about rule files over half the injection limit', () => {
     writeFileSync(join(root, 'AGENTS.md'), 'x'.repeat(20000))
     assert.equal(ruleSize()?.status, 'pass')
     writeFileSync(join(root, 'AGENTS.md'), 'x'.repeat(20001))
-    writeFileSync(join(root, '.opencode/workflow/scopes.json'), JSON.stringify([{ paths: ['**'], instruction: 'AGENTS.md' }, { paths: ['docs/**'], instruction: 'AGENTS.md' }]))
+    writeFileSync(join(root, '.opencode/workflow/scopes.json'), JSON.stringify([{ paths: ['**'], instruction: 'AGENTS.md' }, { paths: ['docs/**'], instruction: './AGENTS.md' }]))
     const check = ruleSize()
     assert.equal(check?.status, 'warn')
     assert.equal(check.message.match(/AGENTS\.md：20001 个字符/g)?.length, 1)
     assert.match(check.message, /插件上限 40000/)
     // 任何一份规则超限都会让插件拒绝整个检出的修改，不只是该规则所在的领域。
     assert.match(check.message, /本检出的所有修改都会被拒绝/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('doctor reports the rule size as unverified when the plugin exports no limit', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    cpSync('template/.opencode/plugins/workflow/node_modules', join(root, '.opencode/plugins/workflow/node_modules'), { recursive: true })
+    spawnSync('git', ['init', '-q', root])
+    // 早期插件没有导出规则上限：常量只在模块内部使用。
+    const plugin = join(root, '.opencode/plugins/workflow')
+    const edit = (name, from, to) => writeFileSync(join(plugin, name), readFileSync(join(plugin, name), 'utf8').replace(from, to))
+    edit('config.ts', 'export const SCOPE_TEXT_LIMIT', 'const SCOPE_TEXT_LIMIT')
+    edit('scopes.ts', "import { containedFile, SCOPE_TEXT_LIMIT } from './config.ts'", "import { containedFile } from './config.ts'\nconst SCOPE_TEXT_LIMIT = 40_000")
+    const result = spawnSync(process.execPath, [join(root, 'scripts/workflow/doctor.mjs'), '--root', root, '--json'], { encoding: 'utf8' })
+    const check = JSON.parse(result.stdout).checks.find(c => c.id === 'rule-size')
+    assert.equal(check?.status, 'unverified', result.stderr)
+    assert.match(check.message, /规则上限/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
