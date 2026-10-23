@@ -158,31 +158,40 @@ def _yaml_data(text):
     return spans
 
 
-# PHP 只在标签内是代码：<?php、<?= 或后接空白的短标签；<?xml 这类处理指令仍是 HTML。
-PHP_OPEN = re.compile(r'<\?(?:php\b|=|(?=\s))')
+# PHP 只在标签内是代码：<?php（不区分大小写）、<?= 或后接空白的短标签；<?xml 这类处理指令仍是 HTML。
+PHP_OPEN = re.compile(r'<\?(?:(?i:php)\b|=|(?=\s))')
+
+
+def _php_segment(text: str, start: int, docstrings: bool) -> tuple[int, Scan]:
+    """从 start 起按 PHP 代码扫描到第一个代码层面的 ?>；字符串和块注释里的 ?> 不算，候选位置按需后移。"""
+    close = text.find('?>', start)
+    while True:
+        end = len(text) if close < 0 else close + 2
+        part = scan('embedded.php', text[start:end], docstrings=docstrings, php_code=True)
+        if close < 0 or len(part.code) < end - start:
+            return start + len(part.code), part
+        close = text.find('?>', close + 2)
 
 
 def _scan_php(text: str, docstrings: bool) -> Scan:
-    """标签外的 HTML 按标记语言扫描，标签内按 PHP 代码扫描；标签本身在 code 中置空。"""
-    code, found = [], []
-    pos, html = 0, True
-    while pos < len(text):
-        if html:
-            match = PHP_OPEN.search(text, pos)
-            end = match.start() if match else len(text)
-            stop = match.end() if match else end
-            part = scan('embedded.html', text[pos:end])
-        else:
-            close = text.find('?>', pos)
-            end = len(text) if close < 0 else close
-            stop = end if close < 0 else end + 2
-            part = scan('embedded.php', text[pos:end], docstrings=docstrings, php_code=True)
-        offset = text.count('\n', 0, pos)
+    """PHP 段各自按代码扫描；其余部分把 PHP 段换成空白后整份按 HTML 扫描，被标签隔开的 <script> 块仍连成一段。"""
+    regions, pos = [], 0
+    while (match := PHP_OPEN.search(text, pos)):
+        code_end, part = _php_segment(text, match.end(), docstrings)
+        stop = code_end + 2 if text.startswith('?>', code_end) else code_end
+        regions.append((match.start(), match.end(), stop, part))
+        pos = stop
+    masked = list(text)
+    for start, _, stop, _ in regions:
+        masked[start:stop] = [ch if ch in '\r\n' else ' ' for ch in text[start:stop]]
+    html = scan('embedded.html', ''.join(masked))
+    code, found = list(html.code), list(html.comments)
+    newlines = [i for i, ch in enumerate(text) if ch == '\n']
+    for _, body, _, part in regions:
+        code[body:body + len(part.code)] = part.code
+        offset = bisect_left(newlines, body)
         found.extend(Comment(c.line + offset, c.text) for c in part.comments)
-        code.append(part.code)
-        code.append(''.join(ch if ch in '\r\n' else ' ' for ch in text[end:stop]))
-        pos, html = stop, not html
-    return Scan(found, ''.join(code))
+    return Scan(sorted(found, key=lambda c: c.line), ''.join(code))
 
 
 def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = False) -> Scan:
@@ -214,7 +223,7 @@ def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = Fals
         blank(start, stop)
         return stop
 
-    i = 0
+    i, stopped = 0, None
     while i < len(text):
         if i in data:
             end = data[i]
@@ -283,6 +292,9 @@ def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = Fals
             i += 1
             continue
 
+        if php_code and text.startswith('?>', i):
+            stopped = i
+            break
         block_end = None
         if text.startswith('/*', i) and (kind in {'c', 'css', 'sql'} or ext in {'.tf', '.hcl'}):
             block_end = '*/'
@@ -311,6 +323,9 @@ def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = Fals
         if line_size:
             end = text.find('\n', i)
             end = len(text) if end < 0 else end
+            # PHP 的单行注释在 ?> 处结束，?> 同时结束代码段。
+            close = text.find('?>', i, end) if php_code else -1
+            end = close if close >= 0 else end
             i = comment(i, i + line_size, end, end)
             continue
 
@@ -386,7 +401,7 @@ def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = Fals
                     for n, value in enumerate(body.split('\n'), first.lineno):
                         if value.strip():
                             found.append(Comment(n, value.strip()))
-    return Scan(sorted(found, key=lambda c: c.line), ''.join(code))
+    return Scan(sorted(found, key=lambda c: c.line), ''.join(code if stopped is None else code[:stopped]))
 
 
 def test_titles(path: str, text: str) -> list[Comment]:

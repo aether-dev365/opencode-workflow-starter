@@ -1,3 +1,4 @@
+import time
 import unittest
 from unittest import mock
 import warnings
@@ -77,6 +78,26 @@ class PhpTemplates(unittest.TestCase):
         self.assertEqual(len(code), len(self.TEXT))
         self.assertNotIn("Don't", code)
         self.assertIn('$a = ', code)
+
+    def test_question_mark_tag_inside_strings_and_block_comments_stays_code(self):
+        text = "<?php\n$x = '<?xml version=\"1.0\"?><a/>';\n/* block ?> still code */\n// line comment\n$this->markTestSkipped('x');\n"
+        result = scan('ATest.php', text)
+        self.assertEqual([(c.line, c.text) for c in result.comments], [(3, 'block ?> still code'), (4, 'line comment')])
+        self.assertIn('markTestSkipped(', result.code)
+
+    def test_question_mark_tag_ends_line_comments_like_php(self):
+        text = "<?php // note ?> <p>Don't</p>\n<?PHP // upper\n"
+        result = scan('page.php', text)
+        self.assertEqual([(c.line, c.text) for c in result.comments], [(1, 'note'), (2, 'upper')])
+        self.assertNotIn("Don't", result.code)
+
+    def test_script_blocks_continue_across_php_tags(self):
+        self.assertEqual(comments('page.php', '<script>var x = <?= $x ?>;\n// Task 3\n</script>\n'), [(2, 'Task 3')])
+
+    def test_many_php_tags_scan_in_linear_time(self):
+        start = time.monotonic()
+        scan('page.php', '<p>x</p><?= $v ?>\n' * 40000)
+        self.assertLess(time.monotonic() - start, 5)
 
     def test_file_without_closing_tag_stays_php(self):
         self.assertEqual(comments('a.php', "<?php\n$s = \"it's\"; // yes\n"), [(2, 'yes')])

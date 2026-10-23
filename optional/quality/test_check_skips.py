@@ -80,6 +80,10 @@ class Markers(unittest.TestCase):
         self.assertEqual(cats('a.ts', 'LATER(fn)', config), [(1, 'skip')])
         self.assertEqual(cats('a.js', 'LATER(fn)', config), [])
 
+    def test_php_markers_after_a_quoted_question_mark_tag_are_reported(self):
+        text = "<?php\n$x = '<?xml version=\"1.0\"?><a/>';\n$this->markTestSkipped('x');\n"
+        self.assertEqual([(f.line, f.rule) for f in module.find_skips('ATest.php', text, None, default_config())], [(3, 'skip')])
+
     def test_only_added_lines_are_reported(self):
         findings = module.find_skips('a.ts', 'it.skip("a", f)\nit.skip("b", f)\n', frozenset({2}), default_config())
         self.assertEqual([f.line for f in findings], [2])
