@@ -43,6 +43,32 @@ class Runner(unittest.TestCase):
         self.assertIn('tests/a.test.ts:1: [tracking]', out)
         self.assertIn('tests/a.test.ts:2: [skip]', out)
 
+    def test_runner_and_format_forward_crlf_and_real_blank_lines(self):
+        payload = '中文输出\r\n\r\n末行\n'.encode('utf-8')
+        source = f'import sys; sys.stdout.buffer.write({payload!r}); sys.exit(1)'
+        for name in ('review-comments.py', 'check-skips.py', 'check-links.py'):
+            self.replace(name, '')
+        self.configure([{'id': 'probe', 'paths': ['*.txt'], 'check': [sys.executable, '-c', source]}])
+        self.repo.write('a.txt', ''); self.repo.commit()
+        format_source = (self.here / 'check-format.py').read_text(encoding='utf-8')
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                self.replace('check-format.py', 'import sys\nsys.stdout.reconfigure(newline="\\r\\n")\n' + format_source if nested else source)
+                with io.TextIOWrapper(io.BytesIO(), encoding='ascii', newline='\r\n') as output:
+                    with mock.patch.dict(os.environ, self.repo.env, clear=True), \
+                            mock.patch.object(module, '__file__', str(self.here / 'run-hook.py')), \
+                            mock.patch.object(module.Path, 'cwd', return_value=self.repo.root), \
+                            contextlib.redirect_stdout(output):
+                        self.assertEqual(module.main(['post-commit']), 0)
+                    output.flush()
+                    expected = (HEADER + '\n').encode('utf-8')
+                    if nested:
+                        expected += '格式检查 [probe] 未通过。\n'.encode('utf-8')
+                    expected += payload
+                    if nested:
+                        expected += '格式检查：运行了 1 条命令，1 条未通过。\n'.encode('utf-8')
+                    self.assertEqual(output.buffer.getvalue(), expected)
+
     def test_incomplete_failed_and_missing_checks_get_hints(self):
         self.repo.write('a.ts', 'x\n'); self.repo.commit()
         short = self.repo.git('rev-parse', '--short', 'HEAD').stdout.strip()

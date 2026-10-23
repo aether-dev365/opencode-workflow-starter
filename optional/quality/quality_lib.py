@@ -173,7 +173,8 @@ def utf8_stdio() -> None:
     for stream, errors in ((sys.stdin, 'strict'), (sys.stdout, 'replace'), (sys.stderr, 'backslashreplace')):
         reconfigure = getattr(stream, 'reconfigure', None)
         if reconfigure:
-            reconfigure(encoding='utf-8', errors=errors)
+            options = {} if stream is sys.stdin else {'newline': '\n'}
+            reconfigure(encoding='utf-8', errors=errors, **options)
 
 
 class Incomplete(Exception):
