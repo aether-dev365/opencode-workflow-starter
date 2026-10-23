@@ -7,6 +7,7 @@ import argparse
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from quality_lib import Incomplete, git_bytes, repo_root, utf8_stdio
 
@@ -19,9 +20,10 @@ def dispatcher(relative_dir: str) -> str:
 # workflow-quality-hook
 # 只报告：任何情况下都以 0 退出，不影响已经完成的提交。
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-runner="$repo_root/{dir}/run-hook.py"
+quality_dir={dir}
+runner="$repo_root/$quality_dir/run-hook.py"
 if [ ! -f "$runner" ]; then
-  echo '质量检查未执行：当前检出缺少 {dir}/run-hook.py。' >&2
+  echo "质量检查未执行：当前检出缺少 $quality_dir/run-hook.py。" >&2
   exit 0
 fi
 usable() {
@@ -47,12 +49,18 @@ if [ "$#" -eq 0 ]; then
 fi
 "$@" "$runner" post-commit || echo '质量检查执行失败；提交已完成，请手动重跑。' >&2
 exit 0
-'''.replace('{dir}', relative_dir)
+'''.replace('{dir}', "'" + relative_dir.replace("'", "'\\''") + "'")
 
 
 def manual_line(relative_dir: str) -> str:
     interpreter = 'py -3' if os.name == 'nt' else 'python3'
-    return f'{interpreter} "$(git rev-parse --show-toplevel)/{relative_dir}/run-hook.py" post-commit || true'
+    escaped = re.sub(r'([$`"\\])', r'\\\1', relative_dir)
+    return f'{interpreter} "$(git rev-parse --show-toplevel)/{escaped}/run-hook.py" post-commit || true'
+
+
+def unsupported_directory(relative_dir: str) -> bool:
+    """分发器逐行写入目录；换行和回车会拆开那一行，其余字符都由 sh 单引号转义。"""
+    return any(ch in relative_dir for ch in '\n\r\0')
 
 
 def owned_hook(hook: Path) -> bool:
@@ -62,8 +70,12 @@ def owned_hook(hook: Path) -> bool:
     lines = content.split(b'\n')
     if len(lines) < 2 or lines[1] != MARKER.encode('utf-8'):
         return False
-    runner = re.search(rb'^runner="\$repo_root/([A-Za-z0-9._/-]+)/run-hook.py"$', content, re.M)
-    return runner is not None and content == dispatcher(runner[1].decode('ascii')).encode('utf-8')
+    found = re.search(rb'^quality_dir=(.*)$', content, re.M)
+    try:
+        words = shlex.split(found[1].decode('utf-8')) if found else []
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return len(words) == 1 and content == dispatcher(words[0]).encode('utf-8')
 
 
 def main(argv: list[str]) -> int:
@@ -78,8 +90,8 @@ def main(argv: list[str]) -> int:
         except ValueError:
             print('脚本不在当前检出内，未安装。')
             return 2
-        if not re.fullmatch(r'[A-Za-z0-9._/-]+', relative):
-            print('脚本目录的路径只能包含字母、数字和 . _ / -，未安装。')
+        if unsupported_directory(relative):
+            print('脚本目录的路径含有换行等控制字符，未安装。')
             return 2
         configured = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], cwd=root,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)

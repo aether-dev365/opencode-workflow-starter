@@ -3,7 +3,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from quality_testing import NEEDS_SYMLINK, TempRepo
+from quality_testing import NEEDS_SYMLINK, TempRepo, load_script
 
 HEADER = '质量检查（提交已完成，以下只是报告）：'
 
@@ -130,7 +130,7 @@ class Installer(unittest.TestCase):
         result = self.install(cwd=self.repo.root.parent)
         self.assertEqual((result.returncode, result.stdout.strip()), (2, '安装失败：不在 git 仓库中'))
 
-    def test_scripts_outside_the_checkout_or_with_unsupported_paths_are_refused(self):
+    def test_scripts_outside_the_checkout_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             outside = Path(directory)
             for name in ['install-hooks.py', 'quality_lib.py', 'quality_lexer.py']:
@@ -138,10 +138,31 @@ class Installer(unittest.TestCase):
             result = self.repo.run(outside / 'install-hooks.py')
             self.assertEqual(result.returncode, 2)
             self.assertIn('脚本不在当前检出内，未安装。', result.stdout + result.stderr)
-        spaced = self.repo.install_scripts('scripts/my quality')
-        result = self.repo.run(spaced / 'install-hooks.py')
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('脚本目录的路径只能包含字母、数字和 . _ / -，未安装。', result.stdout + result.stderr)
+
+    def test_install_directories_with_spaces_quotes_and_non_ascii_work(self):
+        # 目录写进 sh 的单引号里；$HOME 若被展开，分发器就找不到运行器。
+        for directory in ['tools/my quality', "tools/it's $HOME", 'tools/质量']:
+            with self.subTest(directory=directory):
+                here = self.repo.install_scripts(directory)
+                self.repo.commit('scripts')
+                result = self.repo.run(here / 'install-hooks.py')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.repo.write('src/a.ts', f'// Task 3 {directory}\n')
+                self.repo.git('add', '-A')
+                out = self.commit_output('commit', '-q', '-m', 'probe')
+                self.assertIn(HEADER, out)
+                self.assertIn('src/a.ts:1: [tracking]', out)
+                self.assertEqual(self.repo.run(here / 'install-hooks.py', '--uninstall').stdout.strip(), '已卸载质量检查 hook。')
+
+    def test_manual_line_quotes_the_directory_and_only_line_breaks_are_unsupported(self):
+        install = load_script('install-hooks.py')
+        interpreter = 'py -3' if os.name == 'nt' else 'python3'
+        self.assertEqual(install.manual_line("tools/it's $HOME"),
+                         f'{interpreter} "$(git rev-parse --show-toplevel)/tools/it\'s \\$HOME/run-hook.py" post-commit || true')
+        for directory in ['tools/a\nb', 'tools/a\rb']:
+            self.assertTrue(install.unsupported_directory(directory), repr(directory))
+        for directory in ['scripts/quality', 'tools/my quality', "tools/it's $HOME", 'tools/质量', 'tools/a\tb']:
+            self.assertFalse(install.unsupported_directory(directory), repr(directory))
 
     def test_real_commit_reports_and_succeeds(self):
         self.install()

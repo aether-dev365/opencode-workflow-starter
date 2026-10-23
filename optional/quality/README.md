@@ -29,7 +29,7 @@ JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，
 
 ## 启用
 
-1. 把本目录下的所有 `.py` 文件和 [quality.example.json](quality.example.json) 一起复制到项目的 `scripts/quality/`，包括测试和共用模块；示例保留原名，测试会读取它。需要调整时，再把 `quality.example.json` 另存为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录；安装目录相对检出根只能包含英文字母、数字和 `. _ / -`，不支持空格或中文（被检查的源码路径支持）。
+1. 把本目录下的所有 `.py` 文件和 [quality.example.json](quality.example.json) 一起复制到项目的 `scripts/quality/`，包括测试和共用模块；示例保留原名，测试会读取它。需要调整时，再把 `quality.example.json` 另存为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录，目录名可以含空格和中文；只有含换行等控制字符的目录会被拒绝。
 2. 在检出根运行：
 
    ```bash
@@ -90,7 +90,7 @@ python3 scripts/quality/review-comments.py --all
 python3 scripts/quality/install-hooks.py --uninstall
 ```
 
-只有非符号链接、第二行是本扩展标记，且内容与按 `runner=` 目录生成的分发器逐字节一致的 hook 才会被删除；手动增加过命令的 hook 不再属于本扩展，安装和卸载都不改动。卸载不受 `core.hooksPath` 或 hooks 目录符号链接的限制，不删除脚本或配置。若由你手动加入现有 hook，需要自行移除那一行命令。
+只有非符号链接、第二行是本扩展标记，且内容与按 `quality_dir=` 行里的目录生成的分发器逐字节一致的 hook 才会被删除；手动增加过命令的 hook 不再属于本扩展，安装和卸载都不改动。卸载不受 `core.hooksPath` 或 hooks 目录符号链接的限制，不删除脚本或配置。若由你手动加入现有 hook，需要自行移除那一行命令。
 
 ## 局限
 
