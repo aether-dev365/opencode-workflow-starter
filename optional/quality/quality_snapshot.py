@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+import os
 import re
 import stat
 from quality_lib import Incomplete, Mode, _revision, git_bytes
@@ -12,11 +13,12 @@ OID = re.compile(r'[0-9a-f]{40}(?:[0-9a-f]{24})?')
 
 
 class Snapshot:
-    def __init__(self, root, entries=None, *, worktree=False, sources=()):
+    def __init__(self, root, entries=None, *, worktree=False, sources=(), os_name=None):
         self.root = root
         self._entries = entries or {}
         self._worktree = worktree
         self._sources = sources
+        self._os_name = os_name or os.name
         self._directories = {'.'}
         for path in self._entries:
             self._directories.update(str(p) for p in PurePosixPath(path).parents)
@@ -24,6 +26,8 @@ class Snapshot:
     def _file(self, path):
         parts = PurePosixPath(path).parts
         if PurePosixPath(path).is_absolute() or '..' in parts:
+            return None
+        if self._os_name == 'nt' and ('\\' in path or ':' in path):
             return None
         current = self.root
         for n, part in enumerate(parts):
@@ -116,6 +120,8 @@ def _entries(root, revision=None):
                     raise Incomplete('索引存在冲突')
             if mode not in REGULAR | {'120000', '160000'} or not OID.fullmatch(oid):
                 raise ValueError()
+            if revision and kind != ('commit' if mode == '160000' else 'blob'):
+                raise ValueError()
             path = path.decode('utf-8', 'surrogateescape')
             if not path or path.startswith('/') or '..' in PurePosixPath(path).parts or path in entries:
                 raise ValueError()
@@ -170,25 +176,29 @@ def collect_files(root: Path, mode: Mode) -> FileChanges:
     before = Snapshot(root, _entries(root, before_rev)) if before_rev else empty
     raw = git_bytes(root, *command, '-M', '--no-ext-diff', '--no-textconv', '--raw', '--no-abbrev', '-z')
     changed, removed = set(), set()
+    regular = set(after.regular_paths())
     try:
         records = raw.split(b'\0')
         i = 0
         while i < len(records) - 1:
             header = records[i].split()
-            if len(header) != 5 or not header[0].startswith(b':') or header[4][:1] not in b'AMRCDTUX':
+            if (len(header) != 5 or header[0][1:].decode('ascii') not in REGULAR | {'000000', '120000', '160000'}
+                    or not header[0].startswith(b':') or header[1].decode('ascii') not in REGULAR | {'000000', '120000', '160000'}
+                    or any(not OID.fullmatch(oid.decode('ascii')) for oid in header[2:4])
+                    or not re.fullmatch(rb'(?:[AMDTU]|[RC](?:100|[0-9]{1,2}))', header[4])):
                 raise ValueError()
             status = header[4][:1]
             old = records[i + 1].decode('utf-8', 'surrogateescape')
             new = records[i + 2].decode('utf-8', 'surrogateescape') if status in (b'R', b'C') else old
             if status in (b'D', b'R'):
                 removed.add(old)
-            if status in (b'A', b'M', b'R', b'C', b'T') and new in after.regular_paths():
+            if status in (b'A', b'M', b'R', b'C', b'T') and new in regular:
                 changed.add(new)
             if status == b'U':
                 raise Incomplete('索引存在冲突')
             i += 3 if status in (b'R', b'C') else 2
         if records[-1] or i != len(records) - 1:
             raise ValueError()
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, UnicodeError):
         raise Incomplete('git 差异输出无效') from None
     return FileChanges(before, after, tuple(sorted(changed)), tuple(sorted(removed)))

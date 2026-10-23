@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+import os
 from quality_testing import TempRepo, NEEDS_SYMLINK
 from quality_lib import default_config, selected, Incomplete
 import quality_lib
@@ -119,7 +120,9 @@ class Snapshots(unittest.TestCase):
                 self.collect('commit', 'HEAD')
 
     def test_reads_and_existence_queries_are_batched(self):
-        paths = ['a space.md', '中文.md', 'tab\tname.md'] + [f'docs/{n}.md' for n in range(20)]
+        paths = ['a space.md', '中文.md', 'bracket[1].md'] + [f'docs/{n}.md' for n in range(20)]
+        if os.name != 'nt':
+            paths.append('tab\tname.md')
         for path in paths:
             self.repo.write(path, 'bytes')
         self.repo.commit()
@@ -138,3 +141,24 @@ class Snapshots(unittest.TestCase):
         self.repo.git('update-index', '--add', '--cacheinfo', f'160000,{sha},missing-module')
         self.assertFalse(self.collect('all', None).after.exists('missing-module'))
         self.assertTrue(self.collect('staged', None).after.exists('missing-module'))
+
+    def test_posix_link_paths_cannot_become_windows_traversal_or_streams(self):
+        self.repo.write('file.txt', 'content')
+        snap = snapshot.Snapshot(self.repo.root, worktree=True, os_name='nt')
+        for path in ('..\\outside', 'docs/..\\..\\outside', 'file.txt:stream', 'C:\\outside'):
+            self.assertFalse(snap.exists(path))
+            self.assertIsNone(snap._file(path))
+
+    def test_malformed_tree_diff_and_blob_are_incomplete(self):
+        self.repo.write('doc.md', 'bytes'); self.repo.commit()
+        oid = self.repo.git('rev-parse', 'HEAD:doc.md').stdout.strip().encode('ascii')
+        real_git = snapshot.git_bytes
+        cases = [('ls-tree', b'100644 tree ' + oid + b'\tdoc.md\0'),
+                 ('diff-tree', b':100644 100644 invalid invalid M\0doc.md\0'),
+                 ('cat-file', oid + b' blob 100\nbytes\n')]
+        for command, malformed in cases:
+            def git(root, *args, **kwargs):
+                return malformed if args[0] == command else real_git(root, *args, **kwargs)
+            with self.subTest(command=command), mock.patch.object(snapshot, 'git_bytes', side_effect=git):
+                with self.assertRaises(Incomplete):
+                    self.collect().after.read_many(['doc.md'])

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 import quality_process as process
 
@@ -114,3 +115,14 @@ class Processes(unittest.TestCase):
             signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
             self.assertTrue(cancelled())
         self.assertEqual(before, {sig: signal.getsignal(sig) for sig in before})
+
+    def test_injected_posix_kill_without_platform_signal_falls_back(self):
+        p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            with mock.patch.object(process, 'signal', SimpleNamespace()):
+                process.kill_tree(p, os_name='posix')
+            p.wait(timeout=5)
+            self.assertNotEqual(p.returncode, 0)
+        finally:
+            if p.poll() is None:
+                p.kill(); p.wait(timeout=5)

@@ -174,3 +174,39 @@ test('quality README copy instructions produce a passing standalone test suite',
     assert.doesNotMatch(output, /skipped=[1-9]/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('quality documentation describes snapshot and format boundaries', () => {
+  const readme = readFileSync('optional/quality/README.md', 'utf8')
+  for (const text of ['注释审核', '跳过测试检查', '链接检查', '格式检查', '--all --fix', '--staged', '--range', '--hook', '工作区', '快照', '.cmd', '.bat', '只读', '手动', '不会自动暂存', 'ignoreTargets']) {
+    assert.ok(readme.includes(text), text)
+  }
+  assert.doesNotMatch(readme, /不做格式、链接检查|两个脚本的模式一致/)
+})
+
+test('format examples load and gofmt wrapper maps results to exits', async () => {
+  const { pythonCommand } = await import('../template/.opencode/plugins/workflow/platform.ts')
+  const python = pythonCommand()
+  const readme = readFileSync('optional/quality/README.md', 'utf8')
+  const examples = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1])).filter(x => x.formats)
+  assert.equal(examples.length, 6)
+  const source = 'import json,sys; from quality_testing import config_from; '
+    + 'print(json.dumps([entry for data in json.load(sys.stdin) for entry in config_from(data)["formats"]]))'
+  const entries = JSON.parse(execFileSync(python.command, [...python.args, '-c', source], {
+    cwd: 'optional/quality', input: JSON.stringify(examples), encoding: 'utf8',
+  }))
+  assert.deepEqual(entries.map(x => x.id).sort(), ['black', 'cargo', 'gofmt', 'prettier', 'ruff', 'spotless'])
+  assert.equal(entries.find(x => x.id === 'spotless').hook, false)
+  assert.deepEqual(entries.find(x => x.id === 'cargo').check, ['cargo', 'fmt', '--check'])
+  assert.deepEqual(entries.find(x => x.id === 'prettier').check.slice(0, 3), ['node', 'node_modules/prettier/bin/prettier.cjs', '--check'])
+  const wrapper = readme.match(/<!-- gofmt-wrapper -->\s*```python\n([\s\S]*?)\n```/)?.[1]
+  assert.ok(wrapper, 'scripts/check-gofmt.py code block')
+  for (const [code, stdout, stderr, expectedExit] of [[0, '', '', 0], [0, 'a.go\n', '', 1], [2, '', 'error\n', 2]]) {
+    const runner = `import subprocess,sys\nfrom unittest.mock import patch\nsource=${JSON.stringify(wrapper)}\n`
+      + `result=subprocess.CompletedProcess(['gofmt'],${code},${JSON.stringify(stdout)}.encode(),${JSON.stringify(stderr)}.encode())\n`
+      + `with patch('subprocess.run', return_value=result) as run:\n try:\n  exec(compile(source,'scripts/check-gofmt.py','exec'))\n finally:\n  assert run.call_args.args[0] == ['gofmt','-l','a.go']\n  assert run.call_args.kwargs == {'capture_output': True}\n`
+    const r = spawnSync(python.command, [...python.args, '-c', runner, 'a.go'], { encoding: 'utf8' })
+    assert.equal(r.status, expectedExit, r.stderr)
+    assert.equal(r.stdout, stdout)
+    assert.equal(r.stderr, stderr)
+  }
+})

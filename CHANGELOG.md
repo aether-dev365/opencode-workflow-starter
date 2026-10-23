@@ -11,6 +11,7 @@
 - 插件强制 reviewer 只读：工具调用前和权限判定时各拦截一次，reviewer 会话只允许 read、glob、grep 和 workflow_review_submit，不依赖 reviewer.md 是否被加载；在 reviewer.md 中额外放开的工具从此不再生效。
 - `workflow_review` 的 run 与 `workflow_review_submit` 在 reviewer 定义缺失或没有审核说明时拒绝，提示检查 `.opencode/agents/reviewer.md`。
 - 新增可选的质量扩展 optional/quality：提交后由 post-commit hook 报告新增注释里的文档引用、追踪编号和日期、开发过程叙述与生成工具署名，以及新增的跳过、只运行部分测试和预期失败标记；只报告、不拦截，安装器不覆盖已有 hook。
+- 质量扩展增加登记式格式检查和文档本地链接检查：格式工具由接入方提供，按 Git 差异选文件、读取工作区，支持只手动执行的修复命令；链接内容与存在性使用指定快照，删除或改名资源也检查未改动文档的新断链。post-commit 顺序报告四项结果，含有界输出和两层超时清理；保持配置 version 1，无新增运行时依赖。
 
 ### 变更
 

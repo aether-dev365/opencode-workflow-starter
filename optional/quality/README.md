@@ -1,6 +1,6 @@
 # 可选质量扩展
 
-提交后检查新增注释、测试标题和跳过测试标记，**只报告，不拦截提交，不改代码**。默认未启用，不依赖 OpenCode；人手动提交和代理通过 shell 提交都会在工具输出中看到报告。只用 Python 标准库，需要 Python 3.10+ 和 Git；支持 Linux、macOS、WSL，Windows 需要完整的 Git for Windows（由其 sh 执行 hook）。
+提交后依次报告**注释审核、跳过测试检查、链接检查、格式检查**，只报告，不拦截提交，不自动修复、暂存或提交。默认未启用，不依赖 OpenCode；人手动提交和代理通过 shell 提交都会在工具输出中看到报告。只用 Python 标准库，需要 Python 3.10+ 和 Git；支持 Linux、macOS、WSL，Windows 需要完整的 Git for Windows（由其 sh 执行 hook）。格式器由接入方自行安装并显式登记；不登记就不启动外部工具，不猜测技术栈、不下载格式器。
 
 ## 检查什么
 
@@ -25,7 +25,9 @@
 
 JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，以及 Java/Kotlin/Groovy、Ruby、Dart 标记只在测试文件中识别。测试文件名匹配 `*.test.*`、`*.spec.*`、`*_test.*`、`test_*.py`、`*_spec.rb`、`*Test.*`、`*Tests.*`，或路径包含 `test`、`tests`、`__tests__`、`spec`、`e2e`、`cypress` 目录。Ruby/Bats 的短标记只在语句开头识别；Dart 的 `skip: false` 和 `skip: null` 不报；`pytest.importorskip` 不报。
 
-默认忽略第三方、构建和生成目录（如 `node_modules`、`vendor`、`third_party`、`dist`、`build`、`out`、`target`、`coverage`、`__pycache__`、`.venv`、`venv`、`.next`、`.nuxt`、`generated`），以及 `.min.js`、`.min.css`、`.bundle.js`。前五行含 `@generated`、`DO NOT EDIT`、`Code generated`、`auto-generated` 的文件不检查。二进制、子模块、符号链接不检查；超过 1 MiB 或非 UTF-8 的文件在汇总中注明跳过数。
+所有检查默认忽略第三方、构建和生成目录（如 `node_modules`、`vendor`、`third_party`、`dist`、`build`、`out`、`target`、`coverage`、`__pycache__`、`.venv`、`venv`、`.next`、`.nuxt`、`generated`），以及 `.min.js`、`.min.css`、`.bundle.js` 和扩展自身目录。
+
+以下仍是原有两项行级检查的规则：前五行含 `@generated`、`DO NOT EDIT`、`Code generated`、`auto-generated` 的文件不检查。二进制、子模块、符号链接不检查；超过 1 MiB 或非 UTF-8 的文件在汇总中注明跳过数。格式检查不读取文本做筛选，没有语言族、编码、生成标记或大小限制；链接检查扫描普通 Markdown 文档，不按生成标记跳过。
 
 ## 启用
 
@@ -39,7 +41,7 @@ JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，
    Windows PowerShell 中使用 `py -3 scripts/quality/install-hooks.py`。安装器不修改 Git 配置，遇到任何范围的 `core.hooksPath`、外来的 `post-commit` 或符号链接时拒绝安装，并打印可手动加入现有 hook 的命令。自己的 hook 可以重复安装更新。分发器先试 `WORKFLOW_PYTHON` 指定的解释器，Windows 再试 `py -3`，然后试 `python3`、`python`，逐一确认不低于 Python 3.10。`WORKFLOW_PYTHON` 应是一个解释器路径，不带参数。
 3. 在项目根 AGENTS.md 的规则里加入：
 
-   > 源码注释和测试标题直接写规则、原因和预期；文档路径、任务/评审/缺陷编号、日期和修改过程写进提交说明，不写进注释。提交后 post-commit 会报告新增注释和跳过测试的问题，确认后修正，或在提交说明里写明保留原因。
+   > 源码注释和测试标题直接写规则、原因和预期；文档路径、任务/评审/缺陷编号、日期和修改过程写进提交说明，不写进注释。提交后复核 post-commit 的四项报告：注释、跳过测试、文档本地链接、已登记的格式检查。未执行、超时或配置无效不算通过；修正问题，或在提交说明里写明保留原因。格式检查读取当前工作区，修复只能手动运行，不自动暂存或提交。
 
 4. 可选：把 [comments-checklist.md](comments-checklist.md) 复制为 `.opencode/workflow/review/checklists/comments.md`。在 `catalog.json` 中加入 `"comments": { "group": "core", "checklist": "comments.md" }`，在 `routing.json` 的 `units` 中加入 `{ "id": "comments", "areas": ["*"] }`，然后重新加载 OpenCode。保留已有项目的目录和路由条目；doctor 不校验检查单，插件加载配置时校验。
 
@@ -50,39 +52,148 @@ JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，
 ```bash
 python3 scripts/quality/review-comments.py --staged
 python3 scripts/quality/check-skips.py --staged
+python3 scripts/quality/check-links.py --staged
+python3 scripts/quality/check-format.py --staged
 ```
 
-两个脚本的模式一致，且互斥：
+四个脚本支持相同的互斥模式，默认 `--commit HEAD`：
 
-| 参数 | 内容来源与范围 |
-| --- | --- |
-| `--commit REV` | 读取该提交相对父提交新增或改动的行；根提交全部算新增。默认 `--commit HEAD` |
-| `--staged` | 暂存区相对 HEAD；尚无提交时与空树比较 |
-| `--range BASE..HEAD` | 从两个提交的合并基点到右端提交的改动，读取右端内容；两端都必须是有效提交 |
-| `--all` | 工作区已跟踪及未被忽略的未跟踪文件，全部行 |
+| 参数 | 选择范围 | 链接内容与目标存在性 | 格式工具读取 |
+| --- | --- | --- | --- |
+| `--commit REV` | 提交相对唯一父提交；根提交相对空树 | REV 快照 | 当前工作区 |
+| `--staged` | 暂存区相对 HEAD；无 HEAD 时相对空树 | 索引快照 | 当前工作区 |
+| `--range BASE..HEAD` | 两端合并基点到右端提交；两端须有效 | 右端提交快照，不是当前 HEAD | 当前工作区 |
+| `--all` | 已跟踪和未被忽略的未跟踪文件 | 当前工作区，目标允许被忽略资源 | 当前工作区 |
 
-可以从检出的任意子目录运行。改名后修改按新路径、新行号报告；旧注释只有命中所在行确有改动才报，`--all` 除外。
+可以从检出的任意子目录运行。注释和跳过测试仍只检查新增或改动行，`--all` 才检查全部行；旧注释不会因新功能扩大报告。格式按文件选择，纯删行、空文件、纯改名也参与，删除路径不传给工具。链接对改动文档检查整份新内容，纯改名按新目录解析；资源删除或改名还会扫描未改动的文档，但只报起点存在、终点缺失的目标，不混入无关历史断链。目录的最后一个文件被删除也会触发此检查。
 
 ```bash
 python3 scripts/quality/review-comments.py --commit HEAD
 python3 scripts/quality/check-skips.py --range main..HEAD
 python3 scripts/quality/review-comments.py --all
+python3 scripts/quality/check-links.py --range main..HEAD
+python3 scripts/quality/check-format.py --all
+python3 scripts/quality/check-format.py --all --fix
 ```
 
-每处发现只输出 `路径:行号: [ID] 说明`，不回显代码或注释原文。检查脚本退出码：`0` 无发现，`1` 需复核，`2` 未完成。仓库、修订号、Git 或配置出错以及影响整次运行的意外异常都属于未完成，不当作通过；单个文件分析异常时跳过该文件，汇总注明“无法分析的文件”，其他文件继续检查。hook 永远返回 `0`；超时、缺少脚本或解释器、执行失败时会明确提示未完成或未执行，并尽可能给出针对该提交的手动重跑命令。
+Windows PowerShell 对应命令：
+
+```powershell
+py -3 scripts/quality/check-format.py --staged
+py -3 scripts/quality/check-format.py --all
+py -3 scripts/quality/check-format.py --all --fix
+py -3 scripts/quality/check-links.py --staged
+py -3 scripts/quality/check-links.py --range main..HEAD
+```
+
+**格式检查只用 Git 差异选文件，工具始终读取当前工作区。** 部分暂存和历史提交模式都不是对应快照的格式验证。重跑提示的短 SHA 只能固定候选文件范围，不能恢复历史版本的格式内容。所选文件在工作区缺失或不是普通文件会报告未完成，其他现存候选仍检查。
+
+`--fix` 只执行登记的 `fix`，可能修改工作区，不执行 `check`，不会自动暂存或提交。未登记 fix 的匹配项按未执行处理。`--hook` 只选 `hook: true` 项；普通手动运行包含全部登记项。`--hook --fix` 非法，不启动工具；hook 永远不传 `--fix`。
+
+每处行级/链接发现输出 `路径:行号: [ID] 说明`，不回显代码或文档整行；链接显示目标，控制字符转义。检查脚本退出码：`0` 无发现/通过，`1` 需复核/断链/普通格式失败，`2` 未完成，优先级 `2 > 1 > 0`。Git 或配置出错不当作通过。旧行级检查单文件分析异常仍按原规则在汇总注明跳过；链接文档非 UTF-8、二进制、超过 1 MiB 或不可分析时明确报告未完成，继续其他文档，整体退出 2。
+
+链接汇总为 `链接检查：检查了 N 个文档，K 处断链。`，N 只计成功分析的唯一文档。格式汇总为 `格式检查：运行了 N 条命令，K 条未通过。`，N 按实际启动过的登记项计数，不按批次数；K 只计普通非零退出的项。未执行和超时另报；无登记时输出 `格式检查：没有登记格式命令。`，有登记但无匹配时运行 0 条。
+
+hook 始终返回 `0`；某一项失败、缺失、启动异常或超时不会阻止后续项。超时结束进程树，收尾等待有上限；未完成会给出重跑提示。
 
 ## 配置
 
-`quality.json` 可省略。示例里的补充规则也可删除；默认仅启用内置规则。
+`quality.json` 可省略。旧配置无需修改，仍为 `version: 1`；默认启用内置行级规则和链接检查，格式登记为空。示例里的补充规则也可删除。
 
 - `version` 必须是整数 `1`。其他字段可省略。
 - `include` 默认为 `["*"]`，`exclude` 默认为 `[]`。匹配相对检出根的 POSIX 路径，整串匹配；`*` 包含 `/`，`?` 匹配一个字符，其余按字面。`exclude` 优先。
-- `timeoutSeconds` 是 1–600 的整数，默认 30，只限制 hook 中每个检查的执行时间。超时结束整个进程树，不依赖系统的 `timeout` 命令。配置读不出来时运行器使用 30 秒，各检查仍会报告配置无效。
+- `timeoutSeconds` 是 1–600 的整数，默认 30，只限制 hook 中前三项的执行时间。格式入口外层预算为全部 `hook: true` 项的预算之和加 10 秒，不因没有匹配而缩短；没有自动项时为 10 秒。配置读不出来时各项保底 30 秒，并自行报告配置无效。不依赖系统的 `timeout` 命令。
 - `comments.disable` 只允许 `document`、`tracking`、`process`、`generator`；`skips.disable` 只允许 `skip`、`focus`、`expected-failure`，关闭后该类不报告。
 - `comments.extraRules` 接受 `id`、Python 正则 `pattern` 和非空 `message`，命中注释或测试标题时报告 `[id] message`。
 - `skips.extraMarkers` 接受 `id`、`pattern`，可选 `paths`（默认 `["*"]`）和 `category`（默认 `skip`）。只在代码掩码上按行匹配，报告所属类别。
 - 补充项 `id` 必须匹配 `^[a-z][a-z0-9-]*$`，不能与内置 ID 或其他补充项重复。正则必须能由 Python `re` 编译。
 - JSON 无效、未知字段、类型错误、超出范围、无效正则都会报 `配置无效：<字段>`，退出 `2`。
+
+### 格式登记
+
+`formats` 默认 `[]`，按配置顺序串行运行，所有入口都严格校验它：
+
+| 字段 | 约定 |
+| --- | --- |
+| `id` | 必填，`^[a-z][a-z0-9-]*$`，formats 内唯一，与行级规则 ID 独立 |
+| `paths` | 必填，非空 glob 字符串列表，使用全局 include/exclude 的同一规则 |
+| `check` | 必填，非空 argv 数组，每个参数为非空、无 NUL 字符串 |
+| `fix` | 可选，同 check；仅手动 `--fix` 执行 |
+| `cwd` | 默认 `.`，相对检出根的目录，拒绝绝对路径和解析后（含符号链接）越界；运行时不存在或不是目录则未执行，不换目录代跑 |
+| `hook` | 布尔值，默认 true；false 只禁止自动执行 |
+| `timeoutSeconds` | 1–600 整数（不接受 bool），默认 60，同一登记项所有批次共用总预算 |
+
+`{files}` 可省略，存在时必须是独立参数，最多一次，不能放首位；内嵌 `--files={files}` 无效。展开为相对 cwd 的平台路径，空格、中文保留参数边界，前导 `-` 加相对路径前缀防止被当选项。含占位符按完整命令长度分批，不重复或丢文件；不含占位符是整项目命令，有匹配文件时只运行一次。普通非零退出后继续其他批次；超时后停止该项剩余批次，但继续后续项。
+
+命令直接以 argv 启动，不拼 shell、不展开变量或通配符。裸命令走 PATH（Windows 加 PATHEXT），带路径的命令相对 cwd，也接受绝对可执行文件路径。不自动发现、捆绑或安装工具。找不到命令、启动错误和超时分别明确报告未执行/未完成，不算普通格式失败。失败或超时转发合并的 stdout/stderr（UTF-8，坏字节替换）；每项整次最多 40 行、每行 4096 字符，超过显示省略提示，仍持续排空输出避免阻塞。
+
+**check 必须使用工具的只读检查参数。** 它和 fix 都是接入方信任的本地代码，不是沙箱；运行器不主动改写文件，但不能阻止错误登记的 check 写文件。直接调用已安装的本地入口，避免可能联网安装工具的快捷命令。Windows `.cmd`/`.bat`（包括大写后缀）不会被自动 shell 执行，需直接调用解释器和脚本入口；不能假定 Maven 等启动器跨平台都可直接运行。
+
+下面是六份**独立的完整配置**，按项目选一份作为起点，不要求全部启用；合并时保留已有配置。路径及命令须按项目已有工具调整。
+
+Prettier：直接调用项目本地 JS 入口，而不是包管理器的下载入口。
+
+```json
+{"version":1,"formats":[{"id":"prettier","paths":["*.js","*.ts","*.json","*.md"],"check":["node","node_modules/prettier/bin/prettier.cjs","--check","{files}"],"fix":["node","node_modules/prettier/bin/prettier.cjs","--write","{files}"]}]}
+```
+
+gofmt：单独 `gofmt -l` 列出不合格文件却仍可退出 0，不能直接据此判断检查通过。接入方显式保存下面的包装为 `scripts/check-gofmt.py`，非空清单转为退出 1；运行器没有“stdout 非空即失败”的隐含协议。
+
+<!-- gofmt-wrapper -->
+```python
+import subprocess
+import sys
+
+result = subprocess.run(['gofmt', '-l', *sys.argv[1:]], capture_output=True)
+sys.stdout.buffer.write(result.stdout)
+sys.stderr.buffer.write(result.stderr)
+sys.exit(result.returncode or int(bool(result.stdout)))
+```
+
+```json
+{"version":1,"formats":[{"id":"gofmt","paths":["*.go"],"check":["python3","scripts/check-gofmt.py","{files}"],"fix":["gofmt","-w","{files}"]}]}
+```
+
+Windows 可将该 check 开头改为 `"py", "-3", "scripts/check-gofmt.py"`（保留末尾 `{files}`），或直接填写 Python 可执行文件路径。
+
+ruff 与 black 都是格式检查示例，不是任意 lint 任务框架：
+
+```json
+{"version":1,"formats":[{"id":"ruff","paths":["*.py"],"check":["ruff","format","--check","{files}"],"fix":["ruff","format","{files}"]}]}
+```
+
+```json
+{"version":1,"formats":[{"id":"black","paths":["*.py"],"check":["black","--check","{files}"],"fix":["black","{files}"]}]}
+```
+
+Cargo 为整项目命令，不带 `{files}`：
+
+```json
+{"version":1,"formats":[{"id":"cargo","paths":["*.rs","Cargo.toml"],"check":["cargo","fmt","--check"],"fix":["cargo","fmt"]}]}
+```
+
+Maven Spotless 同样为整项目命令，默认仅手动运行（`hook: false`），可能需要项目自行准备插件及离线依赖：
+
+```json
+{"version":1,"formats":[{"id":"spotless","paths":["*.java","pom.xml"],"check":["mvn","spotless:check"],"fix":["mvn","spotless:apply"],"hook":false,"timeoutSeconds":120}]}
+```
+
+这个 Maven 示例适用于 PATH 上可直接执行的启动器；Windows 的 `mvn.cmd` 会被拒绝，需登记项目验证过的直接解释器入口，不能靠运行器隐式启动 shell。
+
+### 文档链接
+
+`links` 默认为 `{"exclude": [], "ignoreTargets": []}`。两项都是非空字符串列表（列表可为空），未知字段无效：
+
+- `exclude` 匹配根相对文档路径，只排除扫描来源。全局 include/exclude 和默认目录排除也只筛选来源，不会让被引用的资源从目标快照里消失。
+- `ignoreTargets` 对解析出的原始目标做 glob 匹配，在移除 query/fragment 和百分号解码之前执行。
+
+扫描 `.md`、`.markdown`、`.mdx`，后缀不区分大小写，UTF-8 可含 BOM。覆盖 Markdown 内联链接和图片、可选引号标题、尖括号目的地（可含空格）及本地尖括号链接、引用定义（即使未使用也在定义处检查一次），以及 HTML 静态 href/src 属性（大小写不敏感，单/双引号或合法无引号值，HTML 实体解码）。支持常用 Markdown 转义及裸目的地成对括号。行号定位链接、定义或属性开始处，只按换行计算；同一行不同目标都会报告。
+
+忽略反引号/波浪线围栏和任意合法长度的反引号内联代码跨度；围栏关闭须同字符且不短于开启。HTML 注释和普通标签名不当成链接。MDX 表达式不求值。不是完整 CommonMark/MDX 解析器：四空格缩进代码、复杂容器中的代码块、动态表达式等不承诺与渲染器等价。
+
+空目标、纯锚点、`//` 开头和任意合法 URI scheme 开头的目标跳过，不访问外网、不检查锚点。先截掉原始 query/fragment，再百分号解码一次（因此 `%23`、`%3F` 是文件名字符，`%2523` 不会二次解码）。以 `/` 开头表示检出根相对，其他目标按文档目录解析，始终使用 `/` 的 POSIX 路径语义；`.`、`..` 规范化后越界则报告，不访问检出外内容。
+
+只检查文件或目录存在，不检查后缀、锚点或默认首页。commit/staged/range 内容和目标使用对应快照，未提交/未暂存资源不能让快照断链通过；索引冲突或 Git 输出无效按未完成处理，不退回工作区猜测。`--all` 允许目标是实际存在的 Git 忽略资源。符号链接和子模块不作为文档来源，也不展开目标：目标恰好是条目本身只检查存在，不验证指向内容；不遍历其内部路径。
 
 ## 卸载
 
@@ -103,7 +214,7 @@ python3 scripts/quality/install-hooks.py --uninstall
 - Java/Kotlin/Groovy 的跳过标记只在测试文件里识别，避免把实体字段的 `@Ignore` 当成跳过测试。
 - 分析某个文件出错时跳过该文件并计入“无法分析的文件”，其余文件照常检查；这类跳过不代表该文件通过检查。
 - 扩展脚本自身所在目录及其子目录不检查，包括扩展自己的测试和数据；UTF-8 BOM 会先去掉再分析。
-- 只检查形式，内容是否准确、简洁仍需审核；不提供单行豁免，不做格式、链接检查或自动修复。
+- 只检查形式，内容是否准确、简洁仍需审核；不提供单行豁免、外链或锚点检查，不在 hook 中修复。手动 `--fix` 只运行接入方登记的命令。
 
 ## 测试
 

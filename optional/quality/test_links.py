@@ -46,6 +46,11 @@ class Links(unittest.TestCase):
         self.assertEqual(self.pairs('<div>\n<br>\n<!-- [x](no) <img src="no"> -->\n<docs/a.md>'), [(4, 'docs/a.md')])
         self.assertEqual(self.pairs('<!-- unclosed\n[x](no)'), [])
 
+    def test_comment_delimiters_inside_code_do_not_mask_following_links(self):
+        self.assertEqual(self.pairs('```html\n<!--\n```\n[x](real.md)'), [(4, 'real.md')])
+        self.assertEqual(self.pairs('`<!--` [x](real.md)'), [(1, 'real.md')])
+        self.assertEqual(self.pairs('<!--\n```\n-->\n[x](real.md)'), [(4, 'real.md')])
+
     def test_schemes_protocol_relative_anchor_and_empty_targets_are_skipped(self):
         for target in ['', '#anchor', '//example.invalid/a', 'https://example.invalid', 'MAILTO:x', 'custom+v1.2:x', 'C:/path']:
             with self.subTest(target=target):

@@ -33,32 +33,34 @@ def _escaped(text, index):
 
 
 def _mask(text):
-    text = re.sub(r'<!--[\s\S]*?(?:-->|\Z)', lambda m: _blank(m[0]), text)
-    # 源行只按换行计算，其他 Unicode 行分隔符仍是普通字符。
-    lines = text.split('\n')
-    fence = None
-    for n, line in enumerate(lines):
-        match = re.match(r' {0,3}(`{3,}|~{3,})(.*)$', line)
-        if fence:
-            lines[n] = _blank(line)
-            if match and match[1][0] == fence[0] and len(match[1]) >= fence[1] and not match[2].strip():
-                fence = None
-        elif match and (match[1][0] != '`' or '`' not in match[2]):
-            fence = match[1][0], len(match[1])
-            lines[n] = _blank(line)
-    text = '\n'.join(lines)
     chars = list(text)
     i = 0
+    opening = re.compile(r' {0,3}(`{3,}|~{3,})([^\n]*)')
     while i < len(text):
+        if not i or text[i - 1] == '\n':
+            match = opening.match(text, i)
+            if match and (match[1][0] != '`' or '`' not in match[2]):
+                closing = re.compile(r'^ {0,3}' + re.escape(match[1][0]) + '{' + str(len(match[1])) + r',}[ \t\r]*$', re.M)
+                close = closing.search(text, match.end())
+                stop = close.end() if close else len(text)
+                chars[i:stop] = _blank(text[i:stop])
+                i = stop
+                continue
+        if text.startswith('<!--', i):
+            end = text.find('-->', i + 4)
+            stop = end + 3 if end >= 0 else len(text)
+            chars[i:stop] = _blank(text[i:stop])
+            i = stop
+            continue
         if text[i] != '`' or _escaped(text, i):
             i += 1
             continue
         end = i
         while end < len(text) and text[end] == '`':
             end += 1
-        close = re.search(r'(?<!`)`{' + str(end - i) + r'}(?!`)', text[end:])
+        close = re.compile(r'(?<!`)`{' + str(end - i) + r'}(?!`)').search(text, end)
         if close:
-            stop = end + close.end()
+            stop = close.end()
             chars[i:stop] = _blank(text[i:stop])
             i = stop
         else:

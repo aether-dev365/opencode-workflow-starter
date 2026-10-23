@@ -82,7 +82,7 @@ def kill_tree(process: subprocess.Popen, *, os_name=None) -> None:
         else:
             os.killpg(process.pid, signal.SIGKILL)
         return
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, AttributeError):
         pass
     try:
         process.kill()
