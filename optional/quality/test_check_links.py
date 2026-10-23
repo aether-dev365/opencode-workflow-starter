@@ -246,6 +246,23 @@ class LinkChecks(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('0 处断链', result.stdout)
 
+    def test_intent_to_add_replacing_a_head_path_is_still_absent(self):
+        for old_content in ('', 'tracked'):
+            with self.subTest(old_content=old_content):
+                repo = TempRepo(); self.addCleanup(repo.close)
+                here = repo.install_scripts()
+                repo.write('target.txt', old_content); repo.commit()
+                repo.git('rm', '--cached', 'target.txt')
+                repo.git('add', '-N', 'target.txt')
+                repo.write('doc.md', '[x](target.txt)'); repo.git('add', 'doc.md')
+                result = repo.run(here / 'check-links.py', '--staged')
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('链接目标不存在：target.txt', result.stdout)
+                tree = repo.git('write-tree').stdout.strip()
+                self.assertNotIn('target.txt', repo.git('ls-tree', '-r', '--name-only', tree).stdout)
+                repo.git('add', 'target.txt')
+                self.assertEqual(repo.run(here / 'check-links.py', '--staged').returncode, 0)
+
     def test_one_unreadable_worktree_document_does_not_hide_other_findings(self):
         self.repo.write('unreadable.md', '[x](missing)')
         self.repo.write('good.md', '[x](missing)')

@@ -155,15 +155,16 @@ def _entries(root, revision=None):
 
 def _staged_entries(root):
     entries = _entries(root)
-    # 两种只读差异的集合差仅为 intent-to-add；真实暂存的空文件在两者中相同。
+    # 新路径的 ITA 是可见性差集；原 HEAD 路径的 ITA 在实际快照中表现为删除。
     names = []
-    for visibility in ('visible', 'invisible'):
+    for visibility, filters in (('visible', []), ('invisible', []), ('invisible', ['--diff-filter=D'])):
         raw = git_bytes(root, 'diff', '--cached', '--name-only', '-z', '--no-ext-diff',
-                        '--no-renames', '--ita-' + visibility + '-in-index', '--')
+                        '--no-renames', '--ita-' + visibility + '-in-index', *filters, '--')
         if raw and not raw.endswith(b'\0'):
             raise Incomplete('git 文件清单无效')
         names.append({p.decode('utf-8', 'surrogateescape') for p in raw.split(b'\0') if p})
-    return {p: entry for p, entry in entries.items() if p not in names[0] - names[1]}
+    omitted = (names[0] - names[1]) | names[2]
+    return {p: entry for p, entry in entries.items() if p not in omitted}
 
 
 def collect_files(root: Path, mode: Mode) -> FileChanges:
