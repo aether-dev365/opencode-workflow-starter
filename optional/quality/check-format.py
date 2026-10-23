@@ -82,11 +82,14 @@ def run_entry(entry: dict, files: list[str], *, root: Path, fix: bool, os_name=N
                 raise Incomplete('超时未完成（总预算用尽）')
             r = run_process(batch, cwd=cwd, timeout=remaining, os_name=os_name, cancelled=cancelled)
             started |= r.started
-            if r.returncode != 0 or r.timed_out or r.cancelled:
+            if r.returncode != 0 or r.timed_out or r.cancelled or r.error:
                 output.add(r.output)
                 output.truncated |= r.truncated
             if r.timed_out or r.cancelled:
-                raise Incomplete('超时未完成' if r.timed_out else '已取消')
+                reason = '超时未完成' if r.timed_out else '已取消'
+                raise Incomplete(reason + ('：' + r.error if r.error else ''))
+            if r.error:
+                raise Incomplete(r.error)
             if not r.started:
                 raise Incomplete(r.error or '启动失败')
             failed |= r.returncode != 0

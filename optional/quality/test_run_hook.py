@@ -127,6 +127,12 @@ class Runner(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, command)
             return run(command, **kwargs)
 
+        def unmanaged_start(command, *, cwd, env, os_name):
+            # 专门保留无 Job 的 taskkill/kill 回退测试；受管启动由原生生命周期测试覆盖。
+            options = {'creationflags': 0x08000000} if os_name == 'nt' else {'start_new_session': True}
+            return subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, **options)
+
         out = io.StringIO()
         try:
             with mock.patch.dict(os.environ, self.repo.env, clear=True), \
@@ -135,6 +141,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(module.os, 'killpg', side_effect=PermissionError(), create=True), \
                     mock.patch.object(module.signal, 'SIGKILL', 9, create=True), \
                     mock.patch.object(module.subprocess, 'Popen', side_effect=launch), \
+                    mock.patch.object(module, 'start_process', side_effect=unmanaged_start), \
                     mock.patch.object(module.subprocess, 'run', side_effect=command_run), \
                     contextlib.redirect_stdout(out):
                 self.assertEqual(module.main(['post-commit'], os_name=os_name), 0)

@@ -153,6 +153,16 @@ class Formatting(unittest.TestCase):
         self.assertIn('格式检查 [fail] 未通过', out); self.assertIn('FAILED', out)
         self.assertIn('格式检查：运行了 2 条命令，1 条未通过。', out)
 
+    def test_lifecycle_error_is_incomplete_even_after_root_exit_zero(self):
+        module = load_script('check-format.py')
+        result = ProcessResult(True, 0, 'partial', False, False, False, '进程树清理失败')
+        with mock.patch.object(module, 'run_process', return_value=result), contextlib.redirect_stdout(io.StringIO()) as out:
+            r = module.run_entry(self.entry(), ['a.txt'], root=self.repo.root, fix=False)
+        self.assertTrue(r.started)
+        self.assertTrue(r.incomplete)
+        self.assertFalse(r.failed)
+        self.assertIn('进程树清理失败', out.getvalue())
+
     def test_output_cap_applies_across_failed_batches(self):
         module = load_script('check-format.py')
         names = [f'{n}-' + 'x' * 30 for n in range(4)]

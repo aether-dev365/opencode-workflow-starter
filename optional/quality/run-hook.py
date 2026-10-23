@@ -8,8 +8,9 @@ from pathlib import Path
 import shlex
 import signal
 import subprocess
+import time
 from quality_lib import git_bytes, load_config, repo_root, utf8_stdio
-from quality_process import kill_tree
+from quality_process import close_process, kill_tree, start_process, tree_active
 
 
 CHECKS = (('注释审核', 'review-comments.py'), ('跳过测试检查', 'check-skips.py'),
@@ -53,16 +54,21 @@ def main(argv: list[str], *, os_name=None) -> int:
             format_check = filename == 'check-format.py'
             flags = ['--hook'] if format_check else []
             rerun = f'{interpreter} {shlex.quote(relative)} --commit {short}' + (' --hook' if format_check else '')
-            options = {'creationflags': 0x08000000} if os_name == 'nt' else {'start_new_session': True}
             try:
-                process = subprocess.Popen([sys.executable, str(script), '--commit', 'HEAD', *flags], cwd=root, env=env,
-                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **options)
+                process = start_process([sys.executable, str(script), '--commit', 'HEAD', *flags],
+                                        cwd=root, env=env, os_name=os_name)
             except (OSError, ValueError) as error:
-                print(f'{name}未执行：{type(error).__name__}，请手动重跑：{rerun}')
+                print(f'{name}未执行：{str(error) or type(error).__name__}，请手动重跑：{rerun}')
                 continue
             timed_out = False
+            cleanup_failed = False
+            deadline = time.monotonic() + timeout
             try:
                 output, _ = process.communicate(timeout=timeout)
+                while tree_active(process):
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(process.args, timeout, output=output)
+                    time.sleep(.01)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 cooperative = False
@@ -73,12 +79,12 @@ def main(argv: list[str], *, os_name=None) -> int:
                     except OSError:
                         pass
                 if not cooperative:
-                    kill_tree(process, os_name=os_name)
+                    cleanup_failed = not kill_tree(process, os_name=os_name)
                 try:
                     output, _ = process.communicate(timeout=5)
                 except subprocess.TimeoutExpired as error:
                     if cooperative:
-                        kill_tree(process, os_name=os_name)
+                        cleanup_failed = not kill_tree(process, os_name=os_name)
                         try:
                             output, _ = process.communicate(timeout=5)
                         except subprocess.TimeoutExpired as final:
@@ -90,7 +96,15 @@ def main(argv: list[str], *, os_name=None) -> int:
                         # Windows 的后台读取线程可能仍持有管道锁，不能在这里等待关闭。
                         if os_name != 'nt' and process.stdout:
                             process.stdout.close()
+            except OSError:
+                output = b''
+                cleanup_failed = True
+                kill_tree(process, os_name=os_name)
+            finally:
+                cleanup_failed |= not close_process(process)
             sys.stdout.write(output.decode('utf-8', 'replace'))
+            if cleanup_failed:
+                print(f'{name}未完成：进程树清理失败，请手动重跑：{rerun}')
             if timed_out:
                 print(f'{name}超时（{timeout} 秒）未完成，请手动重跑：{rerun}')
             elif process.returncode == 2:

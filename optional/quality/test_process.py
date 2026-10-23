@@ -72,6 +72,74 @@ class Processes(unittest.TestCase):
         time.sleep(1.6)
         self.assertFalse((self.root / 'late').exists())
 
+    def test_exited_root_descendant_is_killed_before_delayed_write(self):
+        pidfile = self.root / 'worker.pid'
+        worker = ('import os,time,pathlib; '
+                  f'pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())); '
+                  'print("WORKER_READY",flush=True); time.sleep(1.2); '
+                  'pathlib.Path("late").touch(); time.sleep(30)')
+        source = f'import subprocess,sys; subprocess.Popen([sys.executable,"-c",{worker!r}])'
+        try:
+            start = time.monotonic()
+            r = self.run_tool(source, .3)
+            self.assertTrue(r.timed_out)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn('WORKER_READY', r.output)
+            self.assertLess(time.monotonic() - start, 2)
+            time.sleep(1.3)
+            self.assertFalse((self.root / 'late').exists())
+            if sys.platform.startswith('linux'):
+                state = Path('/proc') / pidfile.read_text() / 'stat'
+                self.assertTrue(not state.exists() or state.read_text().split(') ')[1].startswith('Z'))
+            elif os.name == 'nt':
+                import ctypes
+                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                kernel.OpenProcess.restype = ctypes.c_void_p
+                kernel.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+                kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+                handle = kernel.OpenProcess(0x1000, False, int(pidfile.read_text()))
+                if handle:
+                    try:
+                        code = ctypes.c_ulong()
+                        self.assertTrue(kernel.GetExitCodeProcess(handle, ctypes.byref(code)))
+                        self.assertNotEqual(code.value, 259)
+                    finally:
+                        kernel.CloseHandle(handle)
+        finally:
+            if pidfile.exists():
+                pid = int(pidfile.read_text())
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True, timeout=5)
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+    def test_lifecycle_initialization_failure_never_runs_tool(self):
+        with mock.patch.object(process, '_WindowsJob', side_effect=PermissionError(), create=True):
+            r = self.run_tool('from pathlib import Path; Path("unexpected").touch()', os_name='nt')
+        self.assertFalse(r.started)
+        self.assertIn('生命周期初始化失败', r.error)
+        self.assertFalse((self.root / 'unexpected').exists())
+
+    def test_lifecycle_cleanup_failure_is_incomplete(self):
+        with mock.patch.object(process, 'kill_tree', return_value=False):
+            r = self.run_tool('import time; time.sleep(.3)', .1)
+        self.assertTrue(r.timed_out)
+        self.assertIsNotNone(r.error)
+
+    def test_failed_job_assignment_or_resume_never_executes_tool(self):
+        for method in ('assign', 'resume'):
+            with self.subTest(method=method):
+                job = mock.Mock()
+                getattr(job, method).side_effect = PermissionError()
+                with mock.patch.object(process, '_WindowsJob', return_value=job, create=True):
+                    r = self.run_tool('from pathlib import Path; Path("unexpected").touch()', os_name='nt')
+                self.assertFalse(r.started)
+                self.assertIn('生命周期初始化失败', r.error)
+                self.assertFalse((self.root / 'unexpected').exists())
+
     def test_tree_kill_failure_and_bounded_drain(self):
         for os_name in ('posix', 'nt'):
             for error in (FileNotFoundError(), subprocess.CalledProcessError(1, 'taskkill')):
