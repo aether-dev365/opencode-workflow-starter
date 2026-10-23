@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from quality_lib import git_bytes, repo_root, utf8_stdio
+from quality_lib import Incomplete, git_bytes, repo_root, utf8_stdio
 
 
 MARKER = '# workflow-quality-hook'
@@ -55,6 +55,17 @@ def manual_line(relative_dir: str) -> str:
     return f'{interpreter} "$(git rev-parse --show-toplevel)/{relative_dir}/run-hook.py" post-commit || true'
 
 
+def owned_hook(hook: Path) -> bool:
+    if hook.is_symlink() or not hook.is_file():
+        return False
+    content = hook.read_bytes()
+    lines = content.split(b'\n')
+    if len(lines) < 2 or lines[1] != MARKER.encode('utf-8'):
+        return False
+    runner = re.search(rb'^runner="\$repo_root/([A-Za-z0-9._/-]+)/run-hook.py"$', content, re.M)
+    return runner is not None and content == dispatcher(runner[1].decode('ascii')).encode('utf-8')
+
+
 def main(argv: list[str]) -> int:
     utf8_stdio()
     parser = argparse.ArgumentParser(description='安装或卸载只报告的质量检查 hook')
@@ -72,17 +83,22 @@ def main(argv: list[str]) -> int:
             return 2
         configured = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], cwd=root,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if configured.returncode == 0:
+        if configured.returncode == 0 and not args.uninstall:
             value = configured.stdout.decode('utf-8', 'replace').strip()
             print(f'已配置 core.hooksPath（{value}），未安装。请在该目录的 post-commit 中加入下面这行：')
             print(manual_line(relative))
             return 2
-        if configured.returncode != 1:
+        if configured.returncode not in (0, 1):
             raise RuntimeError()
         hooks = Path(git_bytes(root, 'rev-parse', '--git-path', 'hooks').decode('utf-8', 'surrogateescape').strip())
-        hook = (root / hooks).resolve() / 'post-commit'
+        hooks = root / hooks
+        if not args.uninstall and hooks.is_symlink():
+            print(f'hooks 目录是符号链接（{hooks}），未安装。请在实际使用的 post-commit 中加入下面这行：')
+            print(manual_line(relative))
+            return 2
+        hook = hooks / 'post-commit'
         exists = hook.exists() or hook.is_symlink()
-        owned = exists and not hook.is_symlink() and hook.is_file() and MARKER.encode('utf-8') in hook.read_bytes()
+        owned = owned_hook(hook)
         if args.uninstall:
             if not exists:
                 print('未安装质量检查 hook，无需卸载。')
@@ -103,7 +119,8 @@ def main(argv: list[str]) -> int:
         print(f'已更新质量检查 hook：{hook}' if exists else f'已安装质量检查 hook：{hook}')
         return 0
     except Exception as error:
-        print(f'安装失败：{type(error).__name__}')
+        reason = '不在 git 仓库中' if isinstance(error, Incomplete) and error.args == ('不在 git 仓库中',) else type(error).__name__
+        print(f'安装失败：{reason}')
         return 2
 
 

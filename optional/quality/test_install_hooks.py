@@ -82,6 +82,54 @@ class Installer(unittest.TestCase):
         self.assertIn('post-commit 不是本扩展安装的，未改动。', result.stdout + result.stderr)
         self.assertTrue(self.hook.exists())
 
+    def test_marker_with_foreign_commands_is_never_owned(self):
+        for content in (b'#!/bin/sh\n# workflow-quality-hook\necho mine\n',
+                        b'#!/bin/sh\necho mine\n# workflow-quality-hook\n'):
+            for args in ((), ('--uninstall',)):
+                with self.subTest(content=content, args=args):
+                    self.hook.write_bytes(content)
+                    self.assertEqual(self.install(*args).returncode, 2)
+                    self.assertEqual(self.hook.read_bytes(), content)
+
+    def test_modified_dispatcher_is_preserved(self):
+        self.assertEqual(self.install().returncode, 0)
+        content = self.hook.read_bytes() + b'git lfs post-commit\n'
+        self.hook.write_bytes(content)
+        for args in ((), ('--uninstall',)):
+            with self.subTest(args=args):
+                self.assertEqual(self.install(*args).returncode, 2)
+                self.assertEqual(self.hook.read_bytes(), content)
+
+    @NEEDS_SYMLINK
+    def test_symlinked_hooks_directory_refuses_install(self):
+        target = self.repo.root / '.githooks'
+        target.mkdir()
+        self.repo.write('.githooks/keep', 'tracked\n')
+        self.repo.commit()
+        shutil.rmtree(self.hook.parent)
+        os.symlink(target, self.hook.parent, target_is_directory=True)
+        result = self.install()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('hooks 目录是符号链接', result.stdout)
+        self.assertIn('run-hook.py" post-commit || true', result.stdout)
+        self.assertEqual([p.name for p in target.iterdir()], ['keep'])
+
+    def test_uninstall_with_configured_hooks_path(self):
+        self.assertEqual(self.install().returncode, 0)
+        target = self.repo.root / '.githooks'
+        target.mkdir()
+        shutil.move(self.hook, target / 'post-commit')
+        self.repo.git('config', 'core.hooksPath', '.githooks')
+        before = (self.repo.root / '.git/config').read_bytes()
+        result = self.install('--uninstall')
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '已卸载质量检查 hook。'))
+        self.assertFalse((target / 'post-commit').exists())
+        self.assertEqual((self.repo.root / '.git/config').read_bytes(), before)
+
+    def test_outside_repository_reports_chinese_reason(self):
+        result = self.install(cwd=self.repo.root.parent)
+        self.assertEqual((result.returncode, result.stdout.strip()), (2, '安装失败：不在 git 仓库中'))
+
     def test_scripts_outside_the_checkout_or_with_unsupported_paths_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             outside = Path(directory)
