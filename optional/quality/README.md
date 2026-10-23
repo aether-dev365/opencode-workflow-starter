@@ -23,13 +23,13 @@
 | `focus` | JS/TS：`describe.only`、`it.only`、`test.only`、`test.describe.only`、`fit`、`fdescribe` | 提交后其他测试不会运行，提交前移除 |
 | `expected-failure` | Python：`pytest.mark.xfail`、`pytest.xfail`、`unittest.expectedFailure` | 失败会被当成通过；修好后移除，确需保留时在提交说明里写明原因 |
 
-JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，以及 Ruby、Dart 标记只在测试文件中识别。测试文件名匹配 `*.test.*`、`*.spec.*`、`*_test.*`、`test_*.py`、`*_spec.rb`、`*Test.*`、`*Tests.*`，或路径包含 `test`、`tests`、`__tests__`、`spec`、`e2e`、`cypress` 目录。Ruby/Bats 的短标记只在语句开头识别；Dart 的 `skip: false` 和 `skip: null` 不报；`pytest.importorskip` 不报。
+JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，以及 Java/Kotlin/Groovy、Ruby、Dart 标记只在测试文件中识别。测试文件名匹配 `*.test.*`、`*.spec.*`、`*_test.*`、`test_*.py`、`*_spec.rb`、`*Test.*`、`*Tests.*`，或路径包含 `test`、`tests`、`__tests__`、`spec`、`e2e`、`cypress` 目录。Ruby/Bats 的短标记只在语句开头识别；Dart 的 `skip: false` 和 `skip: null` 不报；`pytest.importorskip` 不报。
 
 默认忽略第三方、构建和生成目录（如 `node_modules`、`vendor`、`third_party`、`dist`、`build`、`out`、`target`、`coverage`、`__pycache__`、`.venv`、`venv`、`.next`、`.nuxt`、`generated`），以及 `.min.js`、`.min.css`、`.bundle.js`。前五行含 `@generated`、`DO NOT EDIT`、`Code generated`、`auto-generated` 的文件不检查。二进制、子模块、符号链接不检查；超过 1 MiB 或非 UTF-8 的文件在汇总中注明跳过数。
 
 ## 启用
 
-1. 把本目录下的所有 `.py` 文件复制到项目的 `scripts/quality/`，包括测试和共用模块。需要调整时，再把 [quality.example.json](quality.example.json) 复制为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录；安装目录相对检出根只能包含英文字母、数字和 `. _ / -`，不支持空格或中文（被检查的源码路径支持）。
+1. 把本目录下的所有 `.py` 文件和 [quality.example.json](quality.example.json) 一起复制到项目的 `scripts/quality/`，包括测试和共用模块；示例保留原名，测试会读取它。需要调整时，再把 `quality.example.json` 另存为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录；安装目录相对检出根只能包含英文字母、数字和 `. _ / -`，不支持空格或中文（被检查的源码路径支持）。
 2. 在检出根运行：
 
    ```bash
@@ -69,7 +69,7 @@ python3 scripts/quality/check-skips.py --range main..HEAD
 python3 scripts/quality/review-comments.py --all
 ```
 
-每处发现只输出 `路径:行号: [ID] 说明`，不回显代码或注释原文。检查脚本退出码：`0` 无发现，`1` 需复核，`2` 未完成。仓库、修订号、Git 或配置出错以及意外异常都属于未完成，不当作通过。hook 永远返回 `0`；超时、缺少脚本或解释器、执行失败时会明确提示未完成或未执行，并尽可能给出针对该提交的手动重跑命令。
+每处发现只输出 `路径:行号: [ID] 说明`，不回显代码或注释原文。检查脚本退出码：`0` 无发现，`1` 需复核，`2` 未完成。仓库、修订号、Git 或配置出错以及影响整次运行的意外异常都属于未完成，不当作通过；单个文件分析异常时跳过该文件，汇总注明“无法分析的文件”，其他文件继续检查。hook 永远返回 `0`；超时、缺少脚本或解释器、执行失败时会明确提示未完成或未执行，并尽可能给出针对该提交的手动重跑命令。
 
 ## 配置
 
@@ -90,7 +90,7 @@ python3 scripts/quality/review-comments.py --all
 python3 scripts/quality/install-hooks.py --uninstall
 ```
 
-只删除带本扩展标记的 hook，不删除脚本或配置，不改动别人的 hook 或符号链接。若由你手动加入现有 hook，需要自行移除那一行命令。
+只有非符号链接、第二行是本扩展标记，且内容与按 `runner=` 目录生成的分发器逐字节一致的 hook 才会被删除；手动增加过命令的 hook 不再属于本扩展，安装和卸载都不改动。卸载不受 `core.hooksPath` 或 hooks 目录符号链接的限制，不删除脚本或配置。若由你手动加入现有 hook，需要自行移除那一行命令。
 
 ## 局限
 
@@ -98,7 +98,10 @@ python3 scripts/quality/install-hooks.py --uninstall
 - rebase 重放期间静默跳过，合并提交不检查；无冲突自动合并也不会触发此 hook。
 - 工作树共享 hook，但使用各自检出中的脚本；旧检出缺少脚本时明确报告未执行。
 - 别处完成的提交需要后续 CI 模板覆盖，本扩展不提供 CI 模板。
-- 词法扫描不是完整语法分析，无法确定时宁可漏报。TOML、Dockerfile、INI、properties 的注释符号仅在行首（可缩进）识别；shell heredoc 是数据；不能解析的 Python 仅检查 `#` 注释。
+- 词法扫描不是完整语法分析，无法确定时宁可漏报。Dockerfile、INI、properties 的注释符号仅在行首（可缩进）识别；TOML 支持行尾注释及单引号、双引号和两种三引号字符串，单引号字符串不转义；shell heredoc 是数据；不能解析的 Python 仅检查 `#` 注释。
+- Java/Kotlin/Groovy 的跳过标记只在测试文件里识别，避免把实体字段的 `@Ignore` 当成跳过测试。
+- 分析某个文件出错时跳过该文件并计入“无法分析的文件”，其余文件照常检查；这类跳过不代表该文件通过检查。
+- 扩展脚本自身所在目录及其子目录不检查，包括扩展自己的测试和数据；UTF-8 BOM 会先去掉再分析。
 - 只检查形式，内容是否准确、简洁仍需审核；不提供单行豁免，不做格式、链接检查或自动修复。
 
 ## 测试

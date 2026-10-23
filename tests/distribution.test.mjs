@@ -142,3 +142,35 @@ test('the comment checklist joins the review catalog as the quality README descr
     for (const text of ['"comments": { "group": "core", "checklist": "comments.md" }', '{ "id": "comments", "areas": ["*"] }', 'install-hooks.py --uninstall']) assert.ok(readme.includes(text), text)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('quality README copy instructions produce a passing standalone test suite', async () => {
+  const { pythonCommand } = await import('../template/.opencode/plugins/workflow/platform.ts')
+  const root = mkdtempSync(join(tmpdir(), 'workflow-quality-copy-'))
+  try {
+    const readme = readFileSync('optional/quality/README.md', 'utf8')
+    const required = readme.match(/^1\. ([\s\S]*?)^2\./m)[1].split('需要调整时')[0]
+    const target = join(root, 'scripts/quality')
+    for (const name of readdirSync('optional/quality')) {
+      if ((name.endsWith('.py') && required.includes('`.py`')) ||
+          (name.endsWith('.json') && required.includes(name))) {
+        cpSync(join('optional/quality', name), join(target, name))
+      }
+    }
+    const command = readme.split('## 测试')[1].match(/```bash\n([^\n]+)\n```/)[1]
+    const [interpreter, ...args] = command.match(/'[^']*'|\S+/g).map(word => word.replace(/^'|'$/g, ''))
+    assert.equal(interpreter, 'python3')
+    const python = pythonCommand()
+    const config = join(root, 'empty-gitconfig')
+    writeFileSync(config, '')
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+    const result = spawnSync(python.command, [...python.args, ...args], {
+      cwd: root, encoding: 'utf8', timeout: 120000,
+      env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: config, PYTHONDONTWRITEBYTECODE: '1', PYTHONIOENCODING: 'utf-8' },
+    })
+    const output = (result.stdout ?? '') + (result.stderr ?? '')
+    assert.equal(result.status, 0, output)
+    assert.match(output, /Ran [1-9]\d* tests/)
+    assert.match(output, /\bOK\b/)
+    assert.doesNotMatch(output, /skipped=[1-9]/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
