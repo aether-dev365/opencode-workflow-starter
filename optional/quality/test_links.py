@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from quality_links import extract_links, resolve_target, OutsideRoot, escape_display
 
@@ -5,6 +9,62 @@ from quality_links import extract_links, resolve_target, OutsideRoot, escape_dis
 class Links(unittest.TestCase):
     def pairs(self, text):
         return [(x.line, x.target) for x in extract_links(text)]
+
+    def test_nested_images_multiline_labels_and_escaped_titles(self):
+        cases = [('[![badge](badge.svg)](page.md)', [(1, 'badge.svg'), (1, 'page.md')]),
+                 ('[wrapped\nlabel](page.md)', [(1, 'page.md')]),
+                 (r'[x](page.md "a \"quote\" title")', [(1, 'page.md')]),
+                 (r"[x](page.md 'a \'quote\' title')", [(1, 'page.md')]),
+                 ('[x]( "title")', [(1, '')]),
+                 (r'[a\]b [nested]](page.md)', [(1, 'page.md')])]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertCountEqual(self.pairs(text), expected)
+
+    def test_email_autolink_is_external_but_other_at_targets_are_local(self):
+        text = '<example@example.invalid> <first.last+tag@example.invalid> [x](local@example.md) ![x](img@example.png) <img src="html@example.png">'
+        self.assertEqual(self.pairs(text), [(1, 'local@example.md'), (1, 'img@example.png'), (1, 'html@example.png')])
+
+    def test_markdown_entities_and_escapes_decode_source_once(self):
+        cases = [('a&amp;b.md', 'a&b.md'), ('a&#38;b.md', 'a&b.md'), ('a&#x26;b.md', 'a&b.md'),
+                 (r'a\&amp;b.md', 'a&amp;b.md'), ('a&amp;amp;b.md', 'a&amp;b.md'),
+                 ('a&bsol;&amp;b.md', 'a\\&b.md'), ('a&#92;&amp;b.md', 'a\\&b.md'),
+                 ('a&bogus;b.md', 'a&bogus;b.md')]
+        for source, expected in cases:
+            for text in (f'[x]({source})', f'[id]: {source}', f'[x](<{source}>)'):
+                with self.subTest(text=text):
+                    self.assertEqual(self.pairs(text), [(1, expected)])
+        target = extract_links('[x](a&amp;b.md?query#part)')[0].target
+        self.assertIsNone(resolve_target('doc.md', target, ['a&b.md?query#part']))
+
+    def test_quoted_html_braces_are_literal_and_expressions_are_dynamic(self):
+        for attribute in ('href', 'src'):
+            for quote in ('"', "'"):
+                text = f'<X {attribute}={quote}a{{b}}&amp;c.md{quote} other={{nested: {{href: "bad"}}}} />'
+                with self.subTest(text=text):
+                    self.assertEqual(self.pairs(text), [(1, 'a{b}&c.md')])
+        self.assertEqual(self.pairs('<X href={"a{b}.md"} src={{value: "bad"}} />'), [])
+
+    def test_malformed_prefix_growth_is_bounded_and_keeps_tail_link(self):
+        source = ('import json,time\nfrom quality_links import extract_links\n'
+                  'results=[]\n'
+                  'for token in ("[", "[x](", "<"):\n'
+                  ' times=[]\n'
+                  ' for size in (65536,262144):\n'
+                  '  text=token*(size//len(token))+"\\n[tail](missing.md)"\n'
+                  '  start=time.monotonic(); links=extract_links(text); times.append(time.monotonic()-start)\n'
+                  '  assert any(x.target=="missing.md" and x.line==2 for x in links), links\n'
+                  ' results.append(times)\n'
+                  'print(json.dumps(results))\n')
+        try:
+            result = subprocess.run([sys.executable, '-c', source], cwd=Path(__file__).parent,
+                                    capture_output=True, text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail('解析 256 KiB 畸形输入超过 5 秒')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for small, large in json.loads(result.stdout):
+            self.assertLess(large, 2)
+            self.assertLess(large, small * 8 + .05)
 
     def test_inline_images_titles_and_reference_definitions(self):
         cases = [('[文档](docs/a.md "标题")\n![图](img/a.png)\n[id]: other.md\n',

@@ -1,6 +1,8 @@
 import contextlib
 import io
 import json
+import subprocess
+import sys
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -25,6 +27,59 @@ class LinkChecks(unittest.TestCase):
     def test_link_defaults_and_invalid_config(self):
         self.configure(links={'unknown': []})
         self.assertIn('配置无效：links.unknown', self.run_links('--all', code=2))
+
+    def test_supported_syntax_reports_missing_and_accepts_existing_targets(self):
+        cases = [('[![badge](badge.svg)](page.md)', ['badge.svg', 'page.md']),
+                 ('[wrapped\nlabel](page.md)', ['page.md']),
+                 (r'[x](page.md "a \"quote\" title")', ['page.md']),
+                 ('[x](a&amp;b.md)\n[id]: a&#38;b.md', ['a&b.md']),
+                 ('<a href="a{b}.md">x</a>', ['a{b}.md'])]
+        for text, targets in cases:
+            with self.subTest(text=text):
+                self.repo.write('doc.md', text); self.repo.commit()
+                output = self.run_links(code=1)
+                for target in targets:
+                    self.assertIn('链接目标不存在：' + target, output)
+                for target in targets:
+                    self.repo.write(target, '')
+                self.repo.commit()
+                self.run_links('--all')
+                for target in targets:
+                    self.repo.git('rm', target)
+                self.repo.commit()
+        for text in ('[x]( "title")', '<example@example.invalid>'):
+            with self.subTest(text=text):
+                self.repo.write('doc.md', text); self.repo.commit()
+                self.run_links()
+        self.repo.write('doc.md', '[x](local@example.md) ![x](img@example.png) <a href="html@example.md">')
+        self.assertIn('3 处断链', self.run_links('--all', code=1))
+
+    def test_malformed_large_documents_finish_and_keep_other_findings(self):
+        self.repo.write('normal.md', '[x](ordinary.md)')
+        for n, token in enumerate(('[', '[x](', '<')):
+            self.repo.write(f'bad{n}.md', token * (262144 // len(token)) + '\n[tail](tail.md)')
+        try:
+            result = subprocess.run([sys.executable, str(self.here / 'check-links.py'), '--all'],
+                                    cwd=self.repo.root, env=self.repo.env, capture_output=True,
+                                    encoding='utf-8', timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail('链接 CLI 处理 256 KiB 畸形文档超过 5 秒')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('normal.md:1: [link]', result.stdout)
+        for n in range(3):
+            self.assertIn(f'bad{n}.md:2: [link] 链接目标不存在：tail.md', result.stdout)
+        self.assertIn('检查了 4 个文档，4 处断链', result.stdout)
+
+    def test_analysis_budget_is_explicit_and_other_documents_continue(self):
+        self.repo.write('budget.md', '<a {' * 4000)
+        self.repo.write('normal.md', '[x](missing.md)')
+        result = subprocess.run([sys.executable, str(self.here / 'check-links.py'), '--all'],
+                                cwd=self.repo.root, env=self.repo.env, capture_output=True,
+                                encoding='utf-8', timeout=5)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('budget.md 未完成：链接分析预算用尽', result.stdout)
+        self.assertIn('normal.md:1: [link] 链接目标不存在：missing.md', result.stdout)
+        self.assertIn('检查了 1 个文档，1 处断链', result.stdout)
 
     def test_changed_document_checks_all_links_and_reports_each_target(self):
         self.repo.write('doc.md', '[old](old.md)\n'); self.repo.commit()

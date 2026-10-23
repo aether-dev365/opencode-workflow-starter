@@ -1,13 +1,14 @@
 """Static local links: deliberately not a complete Markdown/MDX renderer."""
 
 from dataclasses import dataclass
+from bisect import bisect_right
 import html
 import posixpath
 import re
 import string
 import unicodedata
 from urllib.parse import unquote
-from quality_lib import glob_match
+from quality_lib import Incomplete, glob_match
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,11 @@ def _escaped(text, index):
 
 def _mask(text):
     chars = list(text)
+    ticks, following = {}, {}
+    for run in reversed(list(re.finditer(r'`+', text))):
+        size = run.end() - run.start()
+        following[run.start()] = ticks.get(size)
+        ticks[size] = run.end()
     i = 0
     opening = re.compile(r' {0,3}(`{3,}|~{3,})([^\n]*)')
     while i < len(text):
@@ -58,9 +64,8 @@ def _mask(text):
         end = i
         while end < len(text) and text[end] == '`':
             end += 1
-        close = re.compile(r'(?<!`)`{' + str(end - i) + r'}(?!`)').search(text, end)
-        if close:
-            stop = close.end()
+        stop = following.get(i)
+        if stop is not None:
             chars[i:stop] = _blank(text[i:stop])
             i = stop
         else:
@@ -69,50 +74,102 @@ def _mask(text):
 
 
 def _unescape(value):
-    return re.sub(r'\\([' + re.escape(string.punctuation) + r'])', r'\1', value)
+    # 同一个源 token 只解释一次，新产生的反斜线和 & 不再进入解析器。
+    pattern = r'\\[' + re.escape(string.punctuation) + r']|&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]*);'
+    def decode(match):
+        token = match[0]
+        if token.startswith('\\'):
+            return token[1:]
+        if token.startswith('&#') or token[1:] in html.entities.html5:
+            return html.unescape(token)
+        return token
+    return re.sub(pattern, decode, value)
 
 
-def _destination(text, start):
+class _Scan:
+    def __init__(self, text):
+        self.remaining = 32 * len(text) + 1024
+        self.escaped = bytearray(len(text))
+        self.parens = {}
+        stack = []
+        escaped = False
+        for i, ch in enumerate(text):
+            self.escaped[i] = escaped
+            if not escaped:
+                if ch == '(':
+                    stack.append(i)
+                elif ch == ')' and stack:
+                    self.parens[stack.pop()] = i
+            escaped = ch == '\\' and not escaped
+
+    def step(self):
+        self.remaining -= 1
+        if self.remaining < 0:
+            raise Incomplete('链接分析预算用尽')
+
+
+def _destination(text, start, scan):
     i = start
     while i < len(text) and text[i].isspace():
+        scan.step()
         i += 1
     if i < len(text) and text[i] == '<':
         begin = i + 1
         i += 1
         while i < len(text):
-            if text[i] == '>' and not _escaped(text, i):
+            scan.step()
+            if text[i] == '>' and not scan.escaped[i]:
                 return _unescape(text[begin:i]), i + 1
-            if text[i] == '\n':
+            if text[i] == '\n' or (text[i] == '<' and not scan.escaped[i]):
                 return None
             i += 1
         return None
-    begin, depth = i, 0
+    begin = i
     while i < len(text):
+        scan.step()
         ch = text[i]
         if ch == '\\' and i + 1 < len(text) and text[i + 1] in string.punctuation:
             i += 2
             continue
-        if ch.isspace() and depth == 0:
+        if ch.isspace() or ch == ')':
             break
         if ch == '(':
-            depth += 1
-        elif ch == ')':
-            if not depth:
-                break
-            depth -= 1
+            end = scan.parens.get(i)
+            if end is None:
+                return None
+            i = end
         i += 1
-    if depth:
-        return None
     return _unescape(text[begin:i]), i
 
 
-def _tag_end(text, start):
+def _tail(text, start, scan):
+    i = start
+    while i < len(text) and text[i].isspace():
+        scan.step()
+        i += 1
+    if i < len(text) and text[i] in '\"\'(':
+        close = ')' if text[i] == '(' else text[i]
+        i += 1
+        while i < len(text) and (text[i] != close or scan.escaped[i]):
+            scan.step()
+            i += 1
+        if i == len(text):
+            return None
+        i += 1
+        while i < len(text) and text[i].isspace():
+            scan.step()
+            i += 1
+    return i + 1 if i < len(text) and text[i] == ')' else None
+
+
+def _tag_end(text, start, scan):
     quote, depth = None, 0
     i = start
     while i < len(text):
+        scan.step()
         ch = text[i]
         if quote:
-            if ch == quote and (not depth or not _escaped(text, i)):
+            if ch == quote and (not depth or not scan.escaped[i]):
                 quote = None
         elif ch in '\"\'':
             quote = ch
@@ -122,57 +179,130 @@ def _tag_end(text, start):
             depth -= 1
         elif ch == '>' and not depth:
             return i + 1
+        elif ch == '<' and not depth:
+            return None
         i += 1
     return None
 
 
+def _attributes(inner, scan):
+    pattern = re.compile(r'[\w:-]+')
+    i = 0
+    while i < len(inner):
+        scan.step()
+        attr = pattern.match(inner, i)
+        if not attr:
+            i += 1
+            continue
+        i = attr.end()
+        while i < len(inner) and inner[i].isspace():
+            scan.step()
+            i += 1
+        if i == len(inner) or inner[i] != '=':
+            continue
+        i += 1
+        while i < len(inner) and inner[i].isspace():
+            scan.step()
+            i += 1
+        if i == len(inner):
+            break
+        value = None
+        if inner[i] in '\"\'':
+            quote, begin = inner[i], i + 1
+            i = inner.find(quote, begin)
+            if i < 0:
+                break
+            value = inner[begin:i]
+            i += 1
+        elif inner[i] == '{':
+            depth, quote = 1, None
+            i += 1
+            while i < len(inner) and depth:
+                scan.step()
+                ch = inner[i]
+                if quote:
+                    if ch == '\\':
+                        i += 2
+                        continue
+                    if ch == quote:
+                        quote = None
+                elif ch in '\"\'`':
+                    quote = ch
+                elif ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                i += 1
+        else:
+            begin = i
+            while i < len(inner) and not inner[i].isspace() and inner[i] not in '\"\'=<>`{}':
+                scan.step()
+                i += 1
+            value = inner[begin:i] or None
+        if attr[0].lower() in ('href', 'src') and value is not None:
+            yield attr.start(), html.unescape(value)
+
+
 def extract_links(text: str) -> list[Link]:
     masked = _mask(text)
-    links, occupied = [], []
+    scan = _Scan(masked)
+    links = []
+    occupied = bytearray(len(text))
+    newlines = [i for i, ch in enumerate(text) if ch == '\n']
 
     def add(offset, target):
-        links.append(Link(offset, text.count('\n', 0, offset) + 1, target))
+        links.append(Link(offset, bisect_right(newlines, offset) + 1, target))
 
     for match in re.finditer(r'^ {0,3}\[([^\]\n]+)\]:[ \t]*', masked, re.M):
-        dest = _destination(masked, match.end())
+        dest = _destination(masked, match.end(), scan)
         if dest:
             target, end = dest
             add(match.start() + len(match[0]) - len(match[0].lstrip()), target)
-            occupied.append((match.start(), end))
-    # Markdown 目的地逐字符平衡括号；标题属于语法而不是文件名。
-    for match in re.finditer(r'!?\[(?:\\.|[^\]\n])*\]\(', masked):
-        start = match.start()
-        if _escaped(masked, start) or any(a <= start < b for a, b in occupied):
-            continue
-        dest = _destination(masked, match.end())
-        if not dest:
-            continue
-        target, end = dest
-        rest = re.match(r'''\s*(?:"[^"\n]*"|'[^'\n]*'|\([^\n]*?\))?\s*\)''', masked[end:])
-        if rest:
-            add(start, target)
-            occupied.append((start, end + rest.end()))
+            occupied[match.start():end] = b'\1' * (end - match.start())
+    # 标签栈保留外层链接；失败目的地借助括号索引跳过无闭合后缀。
+    labels = []
     i = 0
     while i < len(masked):
-        if masked[i] != '<' or any(a <= i < b for a, b in occupied) or _escaped(masked, i):
+        scan.step()
+        if occupied[i] or scan.escaped[i]:
             i += 1
             continue
-        end = _tag_end(masked, i + 1)
+        ch = masked[i]
+        if ch == '[':
+            labels.append(i - 1 if i and masked[i - 1] == '!' and not scan.escaped[i - 1] else i)
+        elif ch == ']' and labels:
+            start = labels.pop()
+            if i + 1 < len(masked) and masked[i + 1] == '(':
+                begin = i + 2
+                nonspace = begin
+                while nonspace < len(masked) and masked[nonspace].isspace():
+                    scan.step()
+                    nonspace += 1
+                empty_title = nonspace > begin and nonspace < len(masked) and masked[nonspace] in '\"\''
+                dest = ('', begin) if empty_title else _destination(masked, begin, scan)
+                if dest:
+                    target, end = dest
+                    stop = _tail(masked, end, scan)
+                    if stop:
+                        add(start, target)
+                        i = stop
+                        continue
+        if ch != '<':
+            i += 1
+            continue
+        end = _tag_end(masked, i + 1, scan)
         if end is None:
             i += 1
             continue
         inner = masked[i + 1:end - 1]
         tag = re.match(r'/?[A-Za-z][A-Za-z0-9:-]*(?=\s|/?$)', inner)
         if tag:
-            # 屏蔽表达式整个值，不能把表达式内字符串当成静态属性。
-            attrs = re.sub(r'\{(?:[^{}]|\{[^{}]*\})*\}', lambda m: '{' + _blank(m[0][1:-1]) + '}', inner)
-            pattern = r'''([\w:-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`{}]+)))?'''
-            for attr in re.finditer(pattern, attrs, re.I):
-                value = next((v for v in attr.groups()[1:] if v is not None), None)
-                if attr[1].lower() in ('href', 'src') and value is not None:
-                    add(i + 1 + attr.start(), html.unescape(value))
+            for offset, value in _attributes(inner, scan):
+                add(i + 1 + offset, value)
         elif inner and '\n' not in inner:
-            add(i, _unescape(inner))
+            email = re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", inner)
+            if not email:
+                add(i, _unescape(inner))
         i = end
     return sorted(set(links), key=lambda link: (link.offset, link.target))
 
