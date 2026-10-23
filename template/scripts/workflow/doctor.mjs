@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve, dirname, join, posix } from 'node:path'
+import { resolve, dirname, join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -77,8 +77,10 @@ async function diagnose() {
   if (config) await check('rule-size', () => {
     const limit = requirePlugin().SCOPE_TEXT_LIMIT
     if (!Number.isInteger(limit)) return { status: 'unverified', message: '插件没有导出规则上限（插件早于本脚本），未检查规则大小；更新 .opencode/plugins/workflow 后重试。' }
-    const long = [...new Set(config.scopes.map(scope => posix.normalize(scope.instruction.replaceAll('\\', '/'))))]
-      .map(path => [path, readFileSync(join(root, path), 'utf8').length])
+    // 按解析后的路径去重（./AGENTS.md 与 AGENTS.md 是同一份），显示时保留配置里的写法。
+    const files = new Map()
+    for (const { instruction } of config.scopes) if (!files.has(resolve(root, instruction))) files.set(resolve(root, instruction), instruction)
+    const long = [...files].map(([file, path]) => [path, readFileSync(file, 'utf8').length])
       .filter(([, length]) => length > limit / 2)
     if (long.length) return { status: 'warn', message: `规则文件超过 ${limit / 2} 个字符（插件上限 ${limit}；超过上限时，除各目录 AGENTS.md 和工作流配置外，本检出的所有修改都会被拒绝）：\n${long.map(([path, length]) => `${path}：${length} 个字符`).join('\n')}\n规则每次都会注入上下文；删去历史、日期和重复的命令，操作步骤移到手册并写明何时阅读` }
   })

@@ -29,7 +29,7 @@ JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，
 
 ## 启用
 
-1. 把本目录下的所有 `.py` 文件和 [quality.example.json](quality.example.json) 一起复制到项目的 `scripts/quality/`，包括测试和共用模块；示例保留原名，测试会读取它。需要调整时，再把 `quality.example.json` 另存为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录，目录名可以含空格和中文；只有含换行等控制字符的目录会被拒绝。
+1. 把本目录下的所有 `.py` 文件和 [quality.example.json](quality.example.json) 一起复制到项目的 `scripts/quality/`，包括测试和共用模块；示例保留原名，测试会读取它。需要调整时，再把 `quality.example.json` 另存为同目录的 `quality.json`。配置和其他脚本都按脚本自身位置查找，也可以使用其他目录，目录名可以含空格、引号和中文；只有含换行、回车或 NUL 字符的目录会被拒绝。
 2. 在检出根运行：
 
    ```bash

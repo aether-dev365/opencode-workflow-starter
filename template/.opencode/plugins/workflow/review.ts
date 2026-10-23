@@ -94,7 +94,7 @@ async function assertReviewerLoaded(ctx: Plugin.Context, root: string): Promise<
   let system: unknown, cause: unknown
   try { system = (await ctx.agent.get({ agentID: REVIEWER, location: { directory: root } })).data.system } catch (error) { cause = error }
   if (typeof system === 'string' && system.trim()) return
-  const reason = cause === undefined ? '' : `读取代理定义失败：${(cause as Error).message}。`
+  const reason = cause === undefined ? '' : `读取代理定义失败：${cause instanceof Error ? cause.message : String(cause)}。`
   throw new Error('reviewer 没有正确加载：找不到它，或缺少审核说明。' + reason + '.opencode/agents/reviewer.md 缺失或 frontmatter 有错误时，OpenCode 会静默忽略该文件；修复后重新加载 OpenCode，再运行审核。', cause === undefined ? undefined : { cause })
 }
 

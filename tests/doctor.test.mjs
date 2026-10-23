@@ -155,7 +155,7 @@ test('doctor asks for an explicit reviewer model', () => {
     const yaml = originalAgent.replace('mode: subagent', 'mode: subagent\nmodel: openai/gpt-fixture')
     const json = '---\n{\n  "description": "只读审核员",\n  "mode": "subagent",\n  "model": "openai/gpt-fixture"\n}\n---\n只读审核。\n'
     // OpenCode 解析 frontmatter 时去掉 BOM，分隔行带尾随空白也照常识别。
-    const lenient = ['﻿' + yaml, yaml.replace(/^---\n/, '---  \n').replace(/\n---\n/, '\n--- \t\n')]
+    const lenient = ['\uFEFF' + yaml, yaml.replace(/^---\n/, '---  \n').replace(/\n---\n/, '\n--- \t\n')]
     for (const text of [yaml, yaml.replaceAll('\n', '\r\n'), json, ...lenient]) {
       writeFileSync(agent, text)
       assert.equal(reviewer()?.status, 'pass', JSON.stringify(text.slice(0, 60)))
@@ -183,6 +183,14 @@ test('doctor warns about rule files over half the injection limit', () => {
     assert.match(check.message, /插件上限 40000/)
     // 任何一份规则超限都会让插件拒绝整个检出的修改，不只是该规则所在的领域。
     assert.match(check.message, /本检出的所有修改都会被拒绝/)
+    // POSIX 上反斜杠是文件名的一部分，去重不能把它改成目录分隔符。
+    if (process.platform !== 'win32') {
+      writeFileSync(join(root, 'rules\\big.md'), 'x'.repeat(20001))
+      writeFileSync(join(root, '.opencode/workflow/scopes.json'), JSON.stringify([{ paths: ['**'], instruction: 'AGENTS.md' }, { paths: ['docs/**'], instruction: 'rules\\big.md' }]))
+      const named = ruleSize()
+      assert.equal(named?.status, 'warn', named?.message)
+      assert.match(named.message, /rules\\big\.md：20001 个字符/)
+    }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
