@@ -184,6 +184,22 @@ class LinkChecks(unittest.TestCase):
         self.assertIn('检查了 0 个文档', output.getvalue())
 
     def test_merge_bad_revision_and_conflicted_index(self):
+        self.check_merge_bad_revision_and_conflicted_index()
+
+    def test_conflicted_index_with_windows_text_stdin(self):
+        run = subprocess.run
+        def windows_stdin(command, **kwargs):
+            if command == ['git', 'update-index', '--index-info'] and isinstance(kwargs.get('input'), str):
+                with io.TextIOWrapper(io.BytesIO(), encoding='ascii', newline='\r\n') as stdin:
+                    stdin.write(kwargs['input']); stdin.flush()
+                    kwargs['input'] = stdin.buffer.getvalue()
+                kwargs.pop('text', None)
+                kwargs.pop('encoding', None)
+            return run(command, **kwargs)
+        with mock.patch.object(subprocess, 'run', side_effect=windows_stdin):
+            self.check_merge_bad_revision_and_conflicted_index()
+
+    def check_merge_bad_revision_and_conflicted_index(self):
         self.repo.write('a', 'base'); self.repo.commit()
         self.repo.git('checkout', '-b', 'side'); self.repo.write('a', 'side'); self.repo.commit()
         self.repo.git('checkout', 'main'); self.repo.write('main', ''); self.repo.commit()
@@ -191,9 +207,14 @@ class LinkChecks(unittest.TestCase):
         self.assertEqual(self.run_links(), '链接检查：合并提交不检查。\n')
         self.assertIn('修订号无效', self.run_links('--commit', 'missing-rev', code=2))
         oid = self.repo.git('rev-parse', 'HEAD:a').stdout.strip()
-        import subprocess
-        subprocess.run(['git', 'update-index', '--index-info'], input=f'0 {"0" * 40}\ta\n100644 {oid} 1\ta\n',
-                       text=True, cwd=self.repo.root, env=self.repo.env, check=True, capture_output=True)
+        result = subprocess.run(['git', 'update-index', '--index-info'],
+                                input=f'0 {"0" * 40}\ta\n100644 {oid} 1\ta\n'.encode('ascii'),
+                                cwd=self.repo.root, env=self.repo.env, check=True, capture_output=True)
+        self.assertEqual(result.stderr, b'')
+        index = subprocess.run(['git', 'ls-files', '--stage', '-z', '--', 'a'],
+                               cwd=self.repo.root, env=self.repo.env, check=True, capture_output=True)
+        self.assertEqual(index.stderr, b'')
+        self.assertEqual(index.stdout, f'100644 {oid} 1\ta\0'.encode('ascii'))
         self.assertIn('索引存在冲突', self.run_links('--staged', code=2))
 
     def test_counts_deduplicate_affected_and_changed_documents(self):
