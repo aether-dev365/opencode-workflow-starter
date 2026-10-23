@@ -131,6 +131,19 @@ def _entries(root, revision=None):
         raise Incomplete('git 快照输出无效') from None
 
 
+def _staged_entries(root):
+    entries = _entries(root)
+    # 两种只读差异的集合差仅为 intent-to-add；真实暂存的空文件在两者中相同。
+    names = []
+    for visibility in ('visible', 'invisible'):
+        raw = git_bytes(root, 'diff', '--cached', '--name-only', '-z', '--no-ext-diff',
+                        '--no-renames', '--ita-' + visibility + '-in-index', '--')
+        if raw and not raw.endswith(b'\0'):
+            raise Incomplete('git 文件清单无效')
+        names.append({p.decode('utf-8', 'surrogateescape') for p in raw.split(b'\0') if p})
+    return {p: entry for p, entry in entries.items() if p not in names[0] - names[1]}
+
+
 def collect_files(root: Path, mode: Mode) -> FileChanges:
     kind, rev = mode
     empty = Snapshot(root)
@@ -154,7 +167,7 @@ def collect_files(root: Path, mode: Mode) -> FileChanges:
         after = Snapshot(root, _entries(root, sha))
         command = ['diff-tree', '-r', '--root', '--no-commit-id', sha]
     elif kind == 'staged':
-        after = Snapshot(root, _entries(root))
+        after = Snapshot(root, _staged_entries(root))
         # 未出生分支没有 HEAD，其他 Git 故障仍由后续命令报告。
         try:
             before_rev = _revision(root, 'HEAD')

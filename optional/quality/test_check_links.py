@@ -152,6 +152,32 @@ class LinkChecks(unittest.TestCase):
         repo.write('target', ''); repo.commit()
         self.assertEqual(repo.run(here / 'check-links.py').returncode, 0)
 
+    def test_intent_to_add_is_not_a_staged_target_or_directory(self):
+        for has_head in (False, True):
+            with self.subTest(has_head=has_head):
+                repo = TempRepo(); self.addCleanup(repo.close)
+                here = repo.install_scripts()
+                if has_head:
+                    repo.commit('base')
+                repo.write('doc.md', '[file](new/empty.txt) [dir](new/)')
+                repo.git('add', 'doc.md')
+                repo.write('new/empty.txt', '')
+                repo.git('add', '-N', 'new/empty.txt')
+                index = (repo.root / '.git/index').read_bytes()
+                objects = sorted(p.relative_to(repo.root) for p in (repo.root / '.git/objects').rglob('*'))
+                result = repo.run(here / 'check-links.py', '--staged')
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('2 处断链', result.stdout)
+                self.assertEqual((repo.root / '.git/index').read_bytes(), index)
+                self.assertEqual(sorted(p.relative_to(repo.root) for p in (repo.root / '.git/objects').rglob('*')), objects)
+                tree = repo.git('write-tree').stdout.strip()
+                self.assertNotIn('new/empty.txt', repo.git('ls-tree', '-r', '--name-only', tree).stdout)
+                self.assertEqual(repo.run(here / 'check-links.py', '--all').returncode, 0)
+                repo.git('add', 'new/empty.txt')
+                result = repo.run(here / 'check-links.py', '--staged')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('0 处断链', result.stdout)
+
     def test_one_unreadable_worktree_document_does_not_hide_other_findings(self):
         self.repo.write('unreadable.md', '[x](missing)')
         self.repo.write('good.md', '[x](missing)')
