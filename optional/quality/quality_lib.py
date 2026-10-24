@@ -206,14 +206,17 @@ Mode = tuple[str, str | None]
 CheckFn = Callable[[str, str, frozenset[int] | None, dict], list[Finding]]
 
 
-def parse_mode(argv: list[str]) -> Mode:
+def _mode_parser():
     parser = argparse.ArgumentParser(description='检查新增或改动的行')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--commit', metavar='REV')
     modes.add_argument('--staged', action='store_true')
     modes.add_argument('--range', metavar='BASE..HEAD')
     modes.add_argument('--all', action='store_true')
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _mode(args) -> Mode:
     if args.staged:
         return 'staged', None
     if args.all:
@@ -221,6 +224,17 @@ def parse_mode(argv: list[str]) -> Mode:
     if args.range is not None:
         return 'range', args.range
     return 'commit', args.commit if args.commit is not None else 'HEAD'
+
+
+def parse_mode(argv: list[str]) -> Mode:
+    return _mode(_mode_parser().parse_args(argv))
+
+
+def parse_line_options(argv: list[str]) -> tuple[Mode, bool]:
+    parser = _mode_parser()
+    parser.add_argument('--fail-on-incomplete', action='store_true', help='候选文本未能分析时退出 2')
+    args = parser.parse_args(argv)
+    return _mode(args), args.fail_on_incomplete
 
 
 def git_bytes(root: Path, *args: str, reason='git 命令失败', input=None) -> bytes:
@@ -358,7 +372,7 @@ def collect(root: Path, mode: Mode, select=lambda path: True) -> Changes:
 def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd: Path | None = None) -> int:
     utf8_stdio()
     try:
-        mode = parse_mode(argv)
+        mode, strict = parse_line_options(argv)
         root = repo_root(cwd or Path.cwd())
         config = load_config(here, root=root)
         directory = here.resolve()
@@ -402,6 +416,8 @@ def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd:
             counts.append(f'{unanalyzable} 个无法分析的文件')
         suffix = '（跳过 ' + '，'.join(counts) + '）' if counts else ''
         print(f'{name}：检查了 {checked} 个文件，{len(findings)} 处{unit}{suffix}。')
+        if strict and (skipped or unanalyzable):
+            return 2
         return 1 if findings else 0
     except ConfigError as error:
         reason = '配置无效：' + error.args[0]
