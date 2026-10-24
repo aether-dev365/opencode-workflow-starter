@@ -4,6 +4,110 @@ import { readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync } from 
 import { join, delimiter } from 'node:path'
 import { makeRepo, scannerFixture, scope } from './fixtures/ci-fixture.mjs'
 
+const qualityFiles = ['run-quality.py']
+const qualityRepo = t => {
+  const r = makeRepo(t, { ciFiles: qualityFiles })
+  r.write('scripts/quality/quality.json', JSON.stringify({ version: 1, include: ['src/*'] }))
+  r.commit()
+  return r
+}
+const quality = r => r.py('scripts/ci/run-quality.py', ['--all'])
+
+test('quality: genuine findings have layered outcomes and incomplete wins', t => {
+  const r = qualityRepo(t)
+  r.write('src/a.ts', '// Task 3\n')
+  let result = quality(r)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /comments.*提醒/)
+  assert.match(result.stdout, /没有登记格式命令/)
+  r.write('src/example.test.ts', 'test.skip("case", () => {});\n')
+  result = quality(r); assert.equal(result.status, 1, result.stdout + result.stderr)
+  r.write('src/example.test.ts', 'test("case", () => {});\n')
+  r.write('src/README.md', '[broken](missing.md)\n')
+  assert.equal(quality(r).status, 1)
+  r.write('src/bad.ts', Buffer.from([255]))
+  result = quality(r); assert.equal(result.status, 2)
+  assert.match(result.stdout, /links.*未通过/); assert.match(result.stdout, /format.*通过/)
+})
+
+test('quality: hook false formats run checks and never fixes', t => {
+  const r = qualityRepo(t)
+  const checked = join(r.temp, 'checked'), fixed = join(r.temp, 'fixed')
+  const tool = join(r.temp, 'format.py')
+  writeFileSync(tool, `import sys\nfrom pathlib import Path\nPath(sys.argv[1]).touch()\nsys.exit(1)\n`)
+  r.write('scripts/quality/quality.json', JSON.stringify({ version: 1, include: ['src/*'], formats: [{ id: 'example', paths: ['*.txt'], hook: false,
+    check: ['python3', tool, checked, '{files}'], fix: ['python3', tool, fixed] }] }))
+  r.write('src/a.txt', 'bad')
+  assert.equal(quality(r).status, 1)
+  assert.equal(readFileSync(checked, 'utf8'), '')
+  assert.equal(r.run('test', ['-e', fixed]).status, 1)
+})
+
+test('quality: missing scripts and unknown exit codes do not hide later checks', t => {
+  const r = qualityRepo(t)
+  unlinkSync(join(r.root, 'scripts/quality/review-comments.py'))
+  r.write('scripts/quality/check-skips.py', 'raise SystemExit(9)\n')
+  const result = quality(r)
+  assert.equal(result.status, 2)
+  assert.match(result.stdout, /comments.*未完成.*未启动/)
+  assert.match(result.stdout, /skips.*未完成.*已启动/)
+  assert.match(result.stdout, /links.*通过/); assert.match(result.stdout, /format.*通过/)
+})
+
+test('quality: output is bounded UTF-8 and isolated from workflow commands', t => {
+  const r = qualityRepo(t)
+  r.write('scripts/quality/review-comments.py', 'print("中文\\n::warning::example\\r##[warning]example")\nprint("x"*10000)\nprint("line\\n"*100)\n')
+  const result = quality(r)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /中文/); assert.match(result.stdout, /截断/)
+  const match = result.stdout.match(/::stop-commands::([a-f0-9]{64})\n([\s\S]*?)\n::\1::/)
+  assert.ok(match, result.stdout)
+  assert.match(match[2], /::warning::example/); assert.match(match[2], /##\[warning\]/)
+  assert.ok(match[2].split('\n').length <= 42)
+  assert.ok(match[2].split('\n').every(line => line.length < 4200))
+  assert.notEqual(quality(r).stdout.match(/::stop-commands::([a-f0-9]{64})/)[1], match[1])
+  assert.match(result.stdout, /format.*通过/)
+})
+
+test('quality: range requires the checked out head and invalid modes cannot run', t => {
+  const r = qualityRepo(t); const base = r.git('rev-parse', 'HEAD')
+  r.write('src/a.ts', 'const value = 1'); const head = r.commit()
+  const run = args => r.py('scripts/ci/run-quality.py', args)
+  assert.equal(run(['--range', `${base}..${head}`]).status, 0)
+  for (const args of [[], ['--all', '--range', `${base}..${head}`], ['--range', `${head}..${base}`], ['--range', 'main..HEAD'], ['--all', '--fix']]) assert.equal(run(args).status, 2)
+})
+
+test('quality: timeouts continue but cancellation stops launching checks', t => {
+  const r = qualityRepo(t)
+  r.write('scripts/quality/review-comments.py', 'import time\ntime.sleep(30)\n')
+  const result = r.probe('scripts/ci/run-quality.py', "sys.exit(m['run_quality'](Path.cwd(),('all',None),timeout=.2))")
+  assert.equal(result.status, 2, result.stderr)
+  assert.match(result.stdout, /comments.*未完成/); assert.match(result.stdout, /format.*通过/)
+  const stopped = r.probe('scripts/ci/run-quality.py', "sys.exit(m['run_quality'](Path.cwd(),('all',None),cancelled=lambda:True))")
+  assert.equal(stopped.status, 2); assert.doesNotMatch(stopped.stdout, /已启动/)
+})
+
+test('quality: cancellation cleans actual format grandchildren', t => {
+  const r = qualityRepo(t)
+  const ready = join(r.temp, 'ready'), pidFile = join(r.temp, 'pid'), late = join(r.temp, 'late')
+  const worker = `import os,time\nfrom pathlib import Path\nPath(${JSON.stringify(pidFile)}).write_text(str(os.getpid()))\nPath(${JSON.stringify(ready)}).touch()\ntime.sleep(1)\nPath(${JSON.stringify(late)}).touch()\ntime.sleep(30)`
+  const tool = join(r.temp, 'tree.py')
+  writeFileSync(tool, `import subprocess,sys,time\nsubprocess.Popen([sys.executable,'-c',${JSON.stringify(worker)}])\ntime.sleep(30)\n`)
+  r.write('scripts/quality/quality.json', JSON.stringify({ version: 1, include: ['src/*'], formats: [{ id: 'tree', paths: ['*.txt'], check: ['python3', tool], timeoutSeconds: 30 }] }))
+  r.write('src/a.txt', 'text')
+  try {
+    const result = r.probe('scripts/ci/run-quality.py', `import time\ncode=m['run_quality'](Path.cwd(),('all',None),timeout=10,cancelled=lambda:Path(${JSON.stringify(ready)}).exists())\ntime.sleep(1.2)\nsys.exit(code)`)
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.equal(readFileSync(ready, 'utf8'), '')
+    assert.equal(r.run('test', ['-e', late]).status, 1)
+    const pid = readFileSync(pidFile, 'utf8').trim()
+    const state = r.run('ps', ['-p', pid, '-o', 'stat='])
+    assert.ok(state.status !== 0 || state.stdout.trim().startsWith('Z'), state.stdout)
+  } finally {
+    try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL') } catch {}
+  }
+})
+
 const secretFiles = ['resolve-scope.py', 'scan-secrets.py']
 const synthetic = () => ['gh', 'p_', 'aB3dE5fG7hJ9kL1mN3pQ5rS7tV9wX1yZ3bD5'].join('')
 const scan = (r, head, env = {}) => r.py('scripts/ci/scan-secrets.py', ['--head', head], { env })

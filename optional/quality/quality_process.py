@@ -265,7 +265,7 @@ def termination_flag():
 
 
 def run_process(argv: list[str], *, cwd: Path, timeout: float, env=None, os_name=None,
-                cancelled: Callable[[], bool] | None = None) -> ProcessResult:
+                cancelled: Callable[[], bool] | None = None, cooperative: bool = False) -> ProcessResult:
     os_name = os_name or os.name
     if cancelled and cancelled():
         return ProcessResult(False, None, '', False, False, True, '已取消')
@@ -309,6 +309,13 @@ def run_process(argv: list[str], *, cwd: Path, timeout: float, env=None, os_name
         stopped = bool(cancelled and cancelled())
         timed_out = time.monotonic() >= deadline
         if stopped or timed_out or error:
+            # 格式入口拥有独立的工具进程组，先让入口取消并回收它们。
+            if cooperative and os_name != 'nt':
+                try:
+                    os.killpg(child.pid, signal.SIGTERM)
+                    child.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
             if not kill_tree(child, os_name=os_name):
                 error = '进程树清理失败'
             finish = time.monotonic() + 5

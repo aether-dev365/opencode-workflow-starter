@@ -213,6 +213,56 @@ class Processes(unittest.TestCase):
                     except ProcessLookupError:
                         pass
 
+    def test_cooperative_wrapper_cleans_independent_groups_on_cancel_and_timeout(self):
+        for kind in ('cancel', 'timeout'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ready = root / 'ready'
+                worker = ('import os,time; from pathlib import Path; '
+                          'Path("worker.pid").write_text(str(os.getpid())); Path("ready").touch(); '
+                          'time.sleep(1); Path("late").touch(); time.sleep(30)')
+                outer = ('import sys,os; from pathlib import Path; '
+                         f'sys.path.insert(0,{str(Path(process.__file__).parent)!r}); '
+                         'from quality_process import run_process,termination_flag\n'
+                         'Path("outer.pid").write_text(str(os.getpid()))\n'
+                         'with termination_flag() as stopped:\n'
+                         f' result=run_process([sys.executable,"-c",{worker!r}],cwd=Path.cwd(),timeout=30,cancelled=stopped)\n'
+                         'print("CLEANED",flush=True)\n')
+                clock = time.monotonic
+                def deadline_clock():
+                    return clock() + (20 if kind == 'timeout' and ready.exists() else 0)
+                try:
+                    with mock.patch.object(process.time, 'monotonic', side_effect=deadline_clock):
+                        result = process.run_process([sys.executable, '-c', outer], cwd=root, timeout=10,
+                                                     cancelled=lambda: kind == 'cancel' and ready.exists(), cooperative=True)
+                    self.assertTrue(ready.exists(), '启动握手未完成')
+                    self.assertEqual(result.cancelled, kind == 'cancel')
+                    self.assertEqual(result.timed_out, kind == 'timeout')
+                    if os.name != 'nt':
+                        self.assertIn('CLEANED', result.output)
+                    time.sleep(1.1)
+                    self.assertFalse((root / 'late').exists())
+                    for name in ('outer.pid', 'worker.pid'):
+                        pid = int((root / name).read_text())
+                        if sys.platform.startswith('linux'):
+                            status = Path('/proc') / str(pid) / 'stat'
+                            self.assertTrue(not status.exists() or status.read_text().split(') ')[1].startswith('Z'))
+                        elif os.name != 'nt':
+                            probe = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='], capture_output=True, text=True)
+                            self.assertTrue(probe.returncode != 0 or probe.stdout.strip().startswith('Z'))
+                finally:
+                    for name in ('outer.pid', 'worker.pid'):
+                        file = root / name
+                        if file.exists():
+                            pid = int(file.read_text())
+                            if os.name == 'nt':
+                                subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True, timeout=5)
+                            else:
+                                try:
+                                    os.kill(pid, signal.SIGKILL)
+                                except ProcessLookupError:
+                                    pass
+
     def test_command_lookup_windows_pathext_and_paths(self):
         for name in ('tool.EXE', 'launch.CMD', 'direct'):
             file = self.root / name
