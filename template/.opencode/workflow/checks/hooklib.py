@@ -585,6 +585,59 @@ def _lift_substitutions(text, inners):
     return "".join(out), bad or quote is not None
 
 
+def _ansi_c_string(text, start):
+    """解码从 $' 开始的字面量并返回结束位置；NUL 截断值，但不截断引号边界扫描。"""
+    escapes = {'a': '\a', 'b': '\b', 'e': '\x1b', 'E': '\x1b', 'f': '\f',
+               'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', "'": "'", '"': '"'}
+    out, i = [], start + 2
+    while i < len(text):
+        c = text[i]
+        if c == "'":
+            return ''.join(out).split('\0', 1)[0], i + 1
+        if c != '\\':
+            out.append(c)
+            i += 1
+            continue
+        i += 1
+        if i >= len(text):
+            break
+        c = text[i]
+        if c in escapes:
+            out.append(escapes[c])
+        elif c in '01234567':
+            digits = re.match(r'[0-7]{1,3}', text[i:i + 3])[0]
+            out.append(chr(int(digits, 8) & 255))
+            i += len(digits) - 1
+        elif c in 'xuU':
+            width = {'x': 2, 'u': 4, 'U': 8}[c]
+            digits = re.match(r'[0-9a-fA-F]+', text[i + 1:i + 1 + width])
+            if digits:
+                value = int(digits[0], 16)
+                if value > 0x10ffff or 0xd800 <= value <= 0xdfff:
+                    raise ValueError('无法解析 ANSI-C Unicode 字符')
+                out.append(chr(value))
+                i += len(digits[0])
+            else:
+                out.append('\\' + c)
+        elif c == 'c':
+            if i + 1 >= len(text) or text[i + 1] == "'":
+                out.append('\\c')
+            else:
+                i += 1
+                if not text[i].isascii():
+                    raise ValueError('无法解析 ANSI-C 控制字符')
+                out.append(chr(127 if text[i] == '?' else ord(text[i].upper()) & 31))
+                if text[i:i + 2] == '\\\\':
+                    i += 1
+                elif text[i] == '\\' and i + 1 < len(text) and text[i + 1] in "\"'":
+                    out.append(text[i + 1])
+                    i += 1
+        else:
+            out.append('\\' + c)
+        i += 1
+    raise ValueError('ANSI-C 引号未闭合')
+
+
 def _shell_eval_features(text):
     """返回隐藏命令替换与运行时求值特征；引号内的普通文字不充当语法，活动子命令递归检查。"""
     hidden, runtime = False, False
@@ -604,6 +657,11 @@ def _shell_eval_features(text):
             if text[i + 1] != '\n':
                 code.append(shlex.quote(text[i + 1]) if quote is None else text[i:i + 2])
             i += 2
+            continue
+        if quote is None and text.startswith("$'", i):
+            value, i = _ansi_c_string(text, i)
+            hidden = hidden or '`' in value or bool(re.search(r'\$\((?!\()', value))
+            code.append(shlex.quote(value))
             continue
         if c == "'" and quote is None:
             quote = c
@@ -652,6 +710,7 @@ def _shell_eval_features(text):
     if quote is not None:
         raise ValueError('引号未闭合')
     outer = ''.join(code)
+    hidden = hidden or any('`' in word or re.search(r'\$\((?!\()', word) for word in shlex.split(outer))
     visible = _mask_quotes(outer)
     runtime = runtime or bool(re.search(r'\(\(|\b\w+\[', visible))
     for segment in split_segments(outer):

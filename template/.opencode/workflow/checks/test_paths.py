@@ -150,6 +150,57 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'deny')
 
+    def test_ansi_c_encoded_substitutions_with_runtime_evaluation_are_denied(self):
+        payloads = [
+            r'\x24(echo x > .env)',
+            r'\044(echo x > .env)',
+            r'\u' '0024(echo x > .env)',
+            r'\U00000024(echo x > .env)',
+            r'\x24\x28echo x > .env\x29',
+            r'\x60echo x > .env\x60',
+            r'\140echo x > .env\140',
+            r'printf \'%s\' \x24(echo x > .env)',
+        ]
+        for evaluator in ['eval', 'bash -c', 'sh -c']:
+            for payload in payloads:
+                with self.subTest(evaluator=evaluator, payload=payload):
+                    denied = self.result(command=f"{evaluator} $'{payload}'")
+                    self.assertEqual(denied['decision'], 'deny')
+                    self.assertIn('无法静态检查', denied['reason'])
+        for command in [
+            r"x=$'a[\x24(printf marker)]'; y=$((x))",
+            r"$'\x65val' $'\x24(printf marker)'",
+            r"e$'\x76'al $'\x24(printf marker)'",
+            r"eval $'\x24''(printf marker)'",
+            r'''x=$'\x24''(printf marker)'; eval "$x"''',
+            r"eval $'\x24(printf marker)",
+            r"eval $'\Uffffffff'",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'deny')
+
+    def test_ansi_c_text_without_hidden_runtime_evaluation_is_allowed(self):
+        for command in [
+            r"echo $'\x24(echo x > .env)'",
+            r"echo $'\044(printf marker)'",
+            r"echo $'\u" "0024(printf marker)'",
+            r"echo $'\x60printf marker\x60'",
+            r"echo $'it\'s ordinary text'",
+            r"printf '%s' $'一行\n\t另一行\\结尾'",
+            r"printf '%s' $'\a\b\e\E\f\r\v\cA\q'",
+            r"printf '%s' $'\c\a'",
+            r"echo $'\c\n'",
+            r"printf '%s' $'\c'",
+            r"printf '%s' $'\c\''",
+            r'''printf '%s' $'\c\"' ''',
+            r"eval $'printf safe'",
+            r"eval $'printf safe\0\x24(printf marker)'",
+            r'''printf '%s' "$'\x24(marker)' eval"''',
+            r"printf '%s' '\x24(marker)' eval",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'allow')
+
     def test_literal_substitutions_and_ordinary_expansions_are_allowed(self):
         for command in [
             "if [ -f Makefile ]; then sed -i 's/$(CC)/clang/' Makefile; fi",
