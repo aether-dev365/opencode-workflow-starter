@@ -4,6 +4,32 @@ import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync } f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { assertPythonSuiteComplete } from './fixtures/python-suite.mjs'
+
+const suiteProcess = (source, options = {}) => spawnSync(process.execPath, ['-e', source], { encoding: 'utf8', timeout: 5000, ...options })
+
+test('standalone suite process failures report errors signals and partial output', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-suite-process-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const cases = [
+    ['exit', suiteProcess("process.stdout.write('partial stdout\\n'); process.stderr.write('partial stderr\\n'); process.exit(2)"), [/status=2/, /partial stdout/, /partial stderr/]],
+    ['missing', spawnSync(join(root, 'missing-python'), [], { encoding: 'utf8' }), [/ENOENT/]],
+    ['signal', suiteProcess("process.kill(process.pid, 'SIGTERM')"), [/signal=SIGTERM/]],
+    ['timeout', suiteProcess('setInterval(() => {}, 1000)', { timeout: 1000 }), [/ETIMEDOUT/, /signal=SIGTERM/]],
+  ]
+  for (const [name, result, patterns] of cases) await t.test(name, () => {
+    assert.throws(() => assertPythonSuiteComplete(result), error => patterns.every(pattern => pattern.test(error.message)))
+  })
+})
+
+test('standalone suite success requires completed nonempty unskipped tests', () => {
+  for (const output of ['', 'Ran 0 tests\nOK\n', 'Ran 2 tests\n', 'Ran 2 tests\nOK (skipped=1)\n', 'Ran 2 tests\nFAILED (failures=1)\n']) {
+    const result = suiteProcess(`process.stderr.write(${JSON.stringify(output)})`)
+    assert.throws(() => assertPythonSuiteComplete(result), undefined, output)
+  }
+  const passed = suiteProcess("process.stderr.write('Ran 2 tests\\n\\nOK\\n')")
+  assert.doesNotThrow(() => assertPythonSuiteComplete(passed))
+})
 
 test('full verification actually schedules the adopter CI tests', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-ci-stage-'))

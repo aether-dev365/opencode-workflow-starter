@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync, wri
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { assertPythonSuiteComplete } from './fixtures/python-suite.mjs'
 
 const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'AGENTS.md']
 
@@ -164,14 +165,11 @@ test('quality README copy instructions produce a passing standalone test suite',
     writeFileSync(config, '')
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
     const result = spawnSync(python.command, [...python.args, ...args], {
-      cwd: root, encoding: 'utf8', timeout: 120000,
+      // 复制后重跑整个质量测试集，预算不是单项检查器的性能门槛。
+      cwd: root, encoding: 'utf8', timeout: 300000,
       env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: config, PYTHONDONTWRITEBYTECODE: '1', PYTHONIOENCODING: 'utf-8' },
     })
-    const output = (result.stdout ?? '') + (result.stderr ?? '')
-    assert.equal(result.status, 0, output)
-    assert.match(output, /Ran [1-9]\d* tests/)
-    assert.match(output, /\bOK\b/)
-    assert.doesNotMatch(output, /skipped=[1-9]/)
+    assertPythonSuiteComplete(result)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
