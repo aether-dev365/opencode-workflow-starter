@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, delimiter, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { essentialEnv } from './env.mjs'
 import { pythonCommand } from '../../template/.opencode/plugins/workflow/platform.ts'
@@ -33,6 +34,32 @@ export function makeRepo(t, { baseTemplate = false, ciFiles = [] } = {}) {
   git('init', '-q'); git('symbolic-ref', 'HEAD', 'refs/heads/main')
   const commit = (message = 'change') => { git('add', '-A'); git('commit', '-qm', message); return git('rev-parse', 'HEAD') }
   return { root, temp, env, write, git, commit, run, py, probe }
+}
+
+export function scannerFixture(r, fake = false) {
+  cpSync('template/.opencode/secret-scan', join(r.root, '.opencode/secret-scan'), { recursive: true })
+  if (!fake) return
+  const binary = `#!/usr/bin/env python3
+import json,os,sys,time
+from pathlib import Path
+mode=os.environ.get('FAKE_MODE','ok')
+print('raw-private-detail')
+print('::warning::raw-private-detail',file=sys.stderr)
+report=Path(sys.argv[sys.argv.index('--report-path')+1])
+if mode=='hang':
+ if os.environ.get('FAKE_READY'): Path(os.environ['FAKE_READY']).touch()
+ time.sleep(60)
+if mode!='missing': report.write_text(os.environ.get('FAKE_REPORT','[]'),encoding='utf-8')
+sys.exit(int(os.environ.get('FAKE_EXIT','0')))
+`
+  const bin = join(r.temp, 'scanner'); mkdirSync(bin)
+  writeFileSync(join(bin, 'gitleaks'), binary, { mode: 0o755 })
+  const pinFile = join(r.root, '.opencode/secret-scan/pinned.json')
+  const pin = JSON.parse(readFileSync(pinFile, 'utf8'))
+  for (const artifact of Object.values(pin.artifacts)) artifact.binary_sha256 = createHash('sha256').update(binary).digest('hex')
+  writeFileSync(pinFile, JSON.stringify(pin))
+  r.env.PATH = bin + delimiter + r.env.PATH
+  return join(bin, 'gitleaks')
 }
 
 export function scope(r, eventName, event, sha = '', ref = 'refs/heads/main') {

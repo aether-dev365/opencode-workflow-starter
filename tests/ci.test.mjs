@@ -1,8 +1,108 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join, delimiter } from 'node:path'
-import { makeRepo, scope } from './fixtures/ci-fixture.mjs'
+import { makeRepo, scannerFixture, scope } from './fixtures/ci-fixture.mjs'
+
+const secretFiles = ['resolve-scope.py', 'scan-secrets.py']
+const synthetic = () => ['gh', 'p_', 'aB3dE5fG7hJ9kL1mN3pQ5rS7tV9wX1yZ3bD5'].join('')
+const scan = (r, head, env = {}) => r.py('scripts/ci/scan-secrets.py', ['--head', head], { env })
+
+test('secrets: validates report and exit status together', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r, true); const head = r.commit()
+  const finding = { File: 'src/a.py', StartLine: 1, RuleID: 'example', Commit: head, Secret: synthetic(), Match: 'raw-private-detail' }
+  for (const [exit, report, expected] of [[0, [], 0], [23, [finding], 1], [0, [finding], 2], [23, [], 2], [1, [], 2], [7, [], 2]]) {
+    const result = scan(r, head, { FAKE_EXIT: String(exit), FAKE_REPORT: JSON.stringify(report) })
+    assert.equal(result.status, expected, result.stdout + result.stderr)
+    assert.ok(!(result.stdout + result.stderr).includes(synthetic()))
+    assert.doesNotMatch(result.stdout + result.stderr, /raw-private-detail/)
+    if (expected === 1) assert.match(result.stdout, /src\/a.py.*example/)
+  }
+})
+
+test('secrets: rejects missing oversized and malformed reports and bad pins', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); const binary = scannerFixture(r, true); const head = r.commit()
+  for (const value of ['{', '{}', '[null]', JSON.stringify([{ File: 'a', StartLine: true, RuleID: 'rule', Commit: head }]),
+    JSON.stringify([{ File: 'a', StartLine: 0, RuleID: 'rule', Commit: head }]),
+    JSON.stringify([{ File: '', StartLine: 1, RuleID: 'rule', Commit: head }]),
+    JSON.stringify([{ File: 'a', StartLine: 1, RuleID: 'bad\ncommand', Commit: head }]),
+    JSON.stringify([{ File: 'a', StartLine: 1, RuleID: 'rule', Commit: 'bad' }])]) {
+    const result = scan(r, head, { FAKE_EXIT: '23', FAKE_REPORT: value })
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+  }
+  assert.equal(scan(r, head, { FAKE_MODE: 'missing' }).status, 2)
+  const report = join(r.temp, 'report.json'); writeFileSync(report, Buffer.alloc(16 * 1024 * 1024 + 1, 32))
+  const validate = path => r.probe('scripts/ci/scan-secrets.py', `try:\n m['validate_report'](Path(${JSON.stringify(path)}),0)\nexcept ValueError:\n sys.exit(2)`).status
+  assert.equal(validate(report), 2)
+  writeFileSync(report, '[]'); symlinkSync(report, join(r.temp, 'alias.json'))
+  assert.equal(validate(join(r.temp, 'alias.json')), 2)
+  writeFileSync(binary, '\nchanged', { flag: 'a' }); assert.equal(scan(r, head).status, 2)
+})
+
+test('secrets: bounded timeout and stale reports never pass', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r, true); const head = r.commit()
+  const probe = r.probe('scripts/ci/scan-secrets.py', `sys.exit(m['scan'](Path.cwd(),${JSON.stringify(head)},timeout=.2))`, { env: { FAKE_MODE: 'hang' } })
+  assert.equal(probe.status, 2, probe.stderr)
+  r.write('report.json', '[]')
+  assert.equal(scan(r, head, { FAKE_MODE: 'missing' }).status, 2)
+})
+
+test('secrets: cancellation after readiness and missing tool are incomplete', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r, true); const head = r.commit()
+  const ready = join(r.temp, 'ready')
+  const result = r.probe('scripts/ci/scan-secrets.py', `import os,signal,threading,time
+sent=threading.Event()
+def cancel():
+ deadline=time.monotonic()+10
+ while not Path(os.environ['FAKE_READY']).exists() and time.monotonic()<deadline: time.sleep(.01)
+ if Path(os.environ['FAKE_READY']).exists():
+  sent.set()
+  os.kill(os.getpid(),signal.SIGTERM)
+threading.Thread(target=cancel,daemon=True).start()
+code=m['scan'](Path.cwd(),${JSON.stringify(head)},timeout=15)
+print(json.dumps({'code':code,'sent':sent.is_set()}))`, { env: { FAKE_READY: ready, FAKE_MODE: 'hang' } })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { code: 2, sent: true })
+  const missing = r.probe('scripts/ci/scan-secrets.py', `m['shutil'].which=lambda name: None\nsys.exit(m['scan'](Path.cwd(),${JSON.stringify(head)}))`)
+  assert.equal(missing.status, 2)
+})
+
+test('secrets: real scanner covers root and deleted intermediate history with safe output', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r)
+  r.write('config.txt', 'token=' + synthetic() + '\n'); const first = r.commit('private-message-not-for-output')
+  let result = scan(r, first)
+  assert.equal(result.status, 1, result.stderr + result.stdout)
+  assert.match(result.stdout, /config.txt/)
+  assert.ok(!result.stdout.includes(synthetic())); assert.doesNotMatch(result.stdout, /private-message-not-for-output/)
+  r.write('config.txt', 'clean\n'); const head = r.commit()
+  result = scan(r, head); assert.equal(result.status, 1, result.stderr)
+  const fingerprint = `${first}:config.txt:github-pat:1`
+  r.write('.gitleaksignore', fingerprint + '\n')
+  result = scan(r, head)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /gitleaksignore/)
+})
+
+test('secrets: real scanner sees side history and merge-only additions but not unrelated refs', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r); const base = r.commit()
+  r.git('checkout', '-qb', 'unrelated'); r.write('private.txt', synthetic()); r.commit()
+  r.git('checkout', '-q', 'main'); r.write('untracked.txt', synthetic())
+  assert.equal(scan(r, base).status, 0)
+  unlinkSync(join(r.root, 'untracked.txt'))
+  r.git('checkout', '-qb', 'side'); r.write('side.txt', synthetic()); r.commit()
+  r.write('side.txt', 'clean'); r.commit(); r.git('checkout', '-q', 'main')
+  r.git('merge', '--no-ff', '-qm', 'merge', 'side')
+  assert.equal(scan(r, r.git('rev-parse', 'HEAD')).status, 1)
+  r.git('checkout', '-q', base); r.git('checkout', '-qb', 'merge-only')
+  r.write('common.txt', 'one'); const left = r.commit()
+  r.git('checkout', '-q', base); r.git('checkout', '-qb', 'right'); r.write('common.txt', 'two'); r.commit()
+  r.git('checkout', '-q', 'merge-only'); assert.notEqual(r.run('git', ['merge', 'right']).status, 0)
+  r.write('common.txt', synthetic() + ' # gitleaks:allow\n'); const merged = r.commit('resolve')
+  const result = scan(r, merged)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.match(result.stdout, /common.txt/)
+  assert.notEqual(left, merged)
+})
 
 const files = ['resolve-scope.py']
 const pr = (base, head) => ({ pull_request: { base: { sha: base }, head: { sha: head } } })
