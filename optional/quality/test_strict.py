@@ -35,6 +35,32 @@ class StrictMode(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn('非 UTF-8 或过大的文件', result.stdout)
 
+    def test_php_literals_preserve_real_findings_in_strict_cli(self):
+        for opening, closing in [('<<<END', 'END'), ('<<<"END"', 'END'), ("<<<'END'", 'END'), ('`', '`')]:
+            with self.subTest(opening=opening):
+                self.repo.write('ExampleTest.php', '<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                                '$value = ' + opening + '\nmarkTestIncomplete(); // 本次修复\n?>\n' + closing + ';\n'
+                                '$this->markTestSkipped(); // 本次修复\n}\n}\n')
+                for result, rule in zip(self.run_both('--all', '--fail-on-incomplete'), ('process', 'skip')):
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    findings = [line for line in result.stdout.splitlines() if line.startswith('ExampleTest.php:')]
+                    self.assertEqual(len(findings), 1, result.stdout)
+                    self.assertIn('ExampleTest.php:8: [' + rule + ']', findings[0])
+                    self.assertEqual(result.stderr, '')
+
+    def test_unclosed_php_literals_fail_closed_and_keep_other_file_findings(self):
+        self.repo.write('ok.ts', '// 本次修复\ntest.skip("case", fn);\n')
+        for opening in ('<<<END\n', '<<<"END"\n', "<<<'END'\n", '`'):
+            with self.subTest(opening=opening):
+                self.repo.write('ExampleTest.php', '<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                                '$value = ' + opening + '?>\n')
+                for result in self.run_both('--all', '--fail-on-incomplete'):
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn('1 个无法分析的文件', result.stdout)
+                    self.assertIn('ok.ts:', result.stdout)
+                    self.assertNotIn('ExampleTest.php:', result.stdout)
+                    self.assertEqual(result.stderr, '')
+
     def test_callback_error_keeps_other_findings_and_returns_two(self):
         self.repo.write('bad.ts', 'bad\n')
         self.repo.write('ok.ts', 'ok\n')

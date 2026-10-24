@@ -162,14 +162,38 @@ def _yaml_data(text):
 PHP_OPEN = re.compile(r'<\?(?:(?i:php)\b|=|(?=\s))')
 
 
+class _UnclosedPhpLiteral(ValueError):
+    pass
+
+
+PHP_LABEL = r'[A-Za-z_\x80-\U0010ffff][A-Za-z0-9_\x80-\U0010ffff]*'
+
+
+def _php_heredoc_end(text: str, start: int) -> int:
+    header = re.match(r'<<<[ \t]*([\'"]?)(' + PHP_LABEL + r')\1[ \t]*\r?\n', text[start:])
+    if not header:
+        raise ValueError('PHP heredoc 起始标签无效')
+    body = start + header.end()
+    closing = re.search(r'(?m)^[ \t]*' + re.escape(header[2]) + r'(?![A-Za-z0-9_\x80-\U0010ffff])', text[body:])
+    if not closing:
+        raise _UnclosedPhpLiteral('PHP heredoc 未闭合')
+    return body + closing.end()
+
+
 def _php_segment(text: str, start: int, docstrings: bool) -> tuple[int, Scan]:
     """从 start 起按 PHP 代码扫描到第一个代码层面的 ?>；字符串和块注释里的 ?> 不算，候选位置按需后移。"""
     close = text.find('?>', start)
     while True:
         end = len(text) if close < 0 else close + 2
-        part = scan('embedded.php', text[start:end], docstrings=docstrings, php_code=True)
-        if close < 0 or len(part.code) < end - start:
-            return start + len(part.code), part
+        try:
+            part = scan('embedded.php', text[start:end], docstrings=docstrings, php_code=True)
+        except _UnclosedPhpLiteral:
+            # 候选闭标签可能位于字符串内；只有完整输入仍未闭合才是分析失败。
+            if close < 0:
+                raise
+        else:
+            if close < 0 or len(part.code) < end - start:
+                return start + len(part.code), part
         close = text.find('?>', close + 2)
 
 
@@ -292,6 +316,18 @@ def scan(path: str, text: str, *, docstrings: bool = True, php_code: bool = Fals
             i += 1
             continue
 
+        if php_code and text.startswith('<<<', i):
+            stop = _php_heredoc_end(text, i)
+            blank(i, stop)
+            i = stop
+            continue
+        if php_code and text[i] == '`':
+            end, stop = _literal_end(text, i, '`', multiline=True)
+            if end == stop:
+                raise _UnclosedPhpLiteral('PHP 反引号字符串未闭合')
+            blank(i, stop)
+            i = stop
+            continue
         if php_code and text.startswith('?>', i):
             stopped = i
             break

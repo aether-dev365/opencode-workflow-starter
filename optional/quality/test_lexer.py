@@ -94,6 +94,58 @@ class PhpTemplates(unittest.TestCase):
     def test_script_blocks_continue_across_php_tags(self):
         self.assertEqual(comments('page.php', '<script>var x = <?= $x ?>;\n// Task 3\n</script>\n'), [(2, 'Task 3')])
 
+    def test_php_heredocs_and_backticks_mask_data_without_ending_the_segment(self):
+        for opening, closing in [('<<<TEXT', 'TEXT'), ('<<<"TEXT"', 'TEXT'), ("<<<'TEXT'", 'TEXT'), ('`', '`')]:
+            for newline in ('\n', '\r\n'):
+                with self.subTest(opening=opening, newline=newline):
+                    text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                            '$value = ' + opening + '\n'
+                            "markTestIncomplete('data'); // 本次修复\n?>\n" + closing + ';\n'
+                            "$this->markTestSkipped('real'); // real\n}\n}\n?>\n"
+                            '<p>markTestIncomplete() // HTML</p>\n<!-- html -->\n').replace('\n', newline)
+                    result = scan('ExampleTest.php', text)
+                    self.assertEqual([(c.line, c.text) for c in result.comments], [(8, 'real'), (13, 'html')])
+                    self.assertIn('markTestSkipped(', result.code)
+                    self.assertNotIn('markTestIncomplete', result.code)
+                    self.assertEqual(len(result.code), len(text))
+                    self.assertEqual([i for i, ch in enumerate(result.code) if ch in '\r\n'],
+                                     [i for i, ch in enumerate(text) if ch in '\r\n'])
+
+    def test_php_heredoc_closing_labels_allow_indentation_but_not_identifier_prefixes(self):
+        for opening in ('<<<END', '<<<"END"', "<<<'END'"):
+            for indent in ('    ', '\t'):
+                with self.subTest(opening=opening, indent=indent):
+                    text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                            '$value = ' + opening + '\n' + indent + 'END_more ?>\n'
+                            + indent + 'END2 markTestIncomplete(); // 本次修复\n'
+                            + indent + 'END; $this->markTestSkipped(); // real\n}\n}\n')
+                    result = scan('ExampleTest.php', text)
+                    self.assertEqual([(c.line, c.text) for c in result.comments], [(7, 'real')])
+                    self.assertIn('markTestSkipped(', result.code)
+                    self.assertNotIn('markTestIncomplete', result.code)
+
+    def test_php_heredoc_closing_label_can_be_followed_by_an_expression(self):
+        text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                "$value = [<<<'END'\n?>\nEND, 1]; $this->markTestSkipped(); // real\n}\n}\n")
+        result = scan('ExampleTest.php', text)
+        self.assertEqual([(c.line, c.text) for c in result.comments], [(6, 'real')])
+        self.assertIn('markTestSkipped(', result.code)
+
+    def test_php_backtick_escapes_do_not_expose_string_contents(self):
+        text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                '$value = `escaped \\` ?> markTestIncomplete(); // 本次修复\nend`;\n'
+                '$this->markTestSkipped(); // real\n}\n}\n')
+        result = scan('ExampleTest.php', text)
+        self.assertEqual([(c.line, c.text) for c in result.comments], [(6, 'real')])
+        self.assertIn('markTestSkipped(', result.code)
+        self.assertNotIn('markTestIncomplete', result.code)
+
+    def test_unclosed_php_heredocs_and_backticks_are_not_reported_as_complete(self):
+        for body in ('<<<END\n?>\nEND_more\n', '<<<"END"\n?>\n', "<<<'END'\n?>\n", '`escaped \\` ?>\n'):
+            with self.subTest(body=body):
+                with self.assertRaises(ValueError):
+                    scan('ExampleTest.php', '<?php\nclass ExampleTest {\nfunction testExample() {\n$value = ' + body)
+
     def test_many_php_tags_scan_in_linear_time(self):
         start = time.monotonic()
         scan('page.php', '<p>x</p><?= $v ?>\n' * 40000)

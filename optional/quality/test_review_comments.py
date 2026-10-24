@@ -137,6 +137,15 @@ class Rules(unittest.TestCase):
                     self.assertEqual(rules(path, '<p>' + scheme + '://example.invalid/docs/api.md</p>\n'), [])
         self.assertEqual(rules('a.ts', 'x: // Task 3\n'), [(1, 'tracking')])
 
+    def test_php_literal_contents_do_not_hide_later_comments_or_create_findings(self):
+        for opening, closing in [('<<<END', 'END'), ('<<<"END"', 'END'), ("<<<'END'", 'END'), ('`', '`')]:
+            with self.subTest(opening=opening):
+                text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                        '$value = ' + opening + '\n// 本次修复\n?>\n' + closing + ';\n'
+                        '// 本次修复\n}\n}\n?>\n// 本次修复\n')
+                self.assertEqual(rules('ExampleTest.php', text), [(8, 'process')])
+                self.assertEqual(module.review('ExampleTest.php', text, frozenset({5, 12}), default_config()), [])
+
     def test_ordinary_chinese_jian_is_not_a_document_reference(self):
         for text in ('常见设计', '可见文档', '见设计'):
             with self.subTest(text=text):

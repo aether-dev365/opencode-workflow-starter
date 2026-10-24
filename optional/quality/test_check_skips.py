@@ -84,6 +84,16 @@ class Markers(unittest.TestCase):
         text = "<?php\n$x = '<?xml version=\"1.0\"?><a/>';\n$this->markTestSkipped('x');\n"
         self.assertEqual([(f.line, f.rule) for f in module.find_skips('ATest.php', text, None, default_config())], [(3, 'skip')])
 
+    def test_php_literal_contents_do_not_hide_later_skips_or_create_findings(self):
+        for opening, closing in [('<<<END', 'END'), ('<<<"END"', 'END'), ("<<<'END'", 'END'), ('`', '`')]:
+            with self.subTest(opening=opening):
+                text = ('<?php\nclass ExampleTest {\nfunction testExample() {\n'
+                        '$value = ' + opening + '\nmarkTestIncomplete();\n?>\n' + closing + ';\n'
+                        '$this->markTestSkipped();\n}\n}\n?>\nmarkTestIncomplete();\n')
+                findings = module.find_skips('ExampleTest.php', text, None, default_config())
+                self.assertEqual([(f.line, f.rule) for f in findings], [(8, 'skip')])
+                self.assertEqual(module.find_skips('ExampleTest.php', text, frozenset({5, 12}), default_config()), [])
+
     def test_only_added_lines_are_reported(self):
         findings = module.find_skips('a.ts', 'it.skip("a", f)\nit.skip("b", f)\n', frozenset({2}), default_config())
         self.assertEqual([f.line for f in findings], [2])
