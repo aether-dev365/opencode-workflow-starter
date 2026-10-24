@@ -60,6 +60,21 @@ class StrictMode(unittest.TestCase):
         for result in self.run_both('--all', '--fail-on-incomplete'):
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_generated_headers_still_exclude_large_or_non_utf8_files(self):
+        for marker in ('@generated', 'DO NOT EDIT', 'Code generated', 'auto-generated'):
+            for body in (b'x' * (1024 * 1024 + 1), b'\xff'):
+                with self.subTest(marker=marker, large=len(body) > 1):
+                    self.repo.write('generated.ts', b'\n' * 4 + ('// ' + marker + '\n').encode() + body)
+                    for result in self.run_both('--all'):
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn('非 UTF-8 或过大的文件', result.stdout)
+                    for result in self.run_both('--all', '--fail-on-incomplete'):
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertNotIn('非 UTF-8 或过大的文件', result.stdout)
+        self.repo.write('generated.ts', b'\n' * 5 + b'// @generated\n\xff')
+        for result in self.run_both('--all', '--fail-on-incomplete'):
+            self.assertEqual(result.returncode, 2)
+
     def test_option_parsing_preserves_values_and_mode_contract(self):
         self.assertEqual(lib.parse_mode(['--all']), ('all', None))
         self.assertTrue(hasattr(lib, 'parse_line_options'))

@@ -86,7 +86,9 @@ def scan(root: Path, head: str, *, timeout: float = 600) -> int:
                     raise ValueError('扫描执行未完成')
                 locations = validate_report(report, result.returncode)
                 for item in locations[:40]:
-                    print(f'凭据位置：{json.dumps(item["path"], ensure_ascii=True)}:{item["line"]} [{item["rule"]}] {item["commit"]}')
+                    # runner 的旧式命令解析会在整行查找前缀，而不只检查行首。
+                    path = json.dumps(item['path'], ensure_ascii=True).replace('##[', '\\u0023\\u0023[')
+                    print(f'凭据位置：{path}:{item["line"]} [{item["rule"]}] {item["commit"]}')
                 if len(locations) > 40:
                     print(f'凭据扫描：其余 {len(locations) - 40} 条位置已省略。')
                 print(f'凭据扫描：候选历史中发现 {len(locations)} 处疑似凭据。')

@@ -73,7 +73,7 @@ def resolve_scope(root: Path, event_name: str, event: dict, github_sha: str, ref
     head = oid(head, len(actual))
     if head != actual or not commit_exists(root, head):
         raise ValueError('候选提交与检出 HEAD 不一致')
-    if base is None:
+    if event_name == 'workflow_dispatch':
         print('手动执行：全量质量检查。', file=sys.stderr)
         return Scope('all', '', head)
     base = oid(base, len(actual))

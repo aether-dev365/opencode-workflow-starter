@@ -273,6 +273,18 @@ print(json.dumps({'code':code,'sent':sent.is_set()}))`, { env: { FAKE_READY: rea
   assert.equal(missing.status, 2)
 })
 
+test('secrets: real finding paths cannot become legacy workflow commands', t => {
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r)
+  const name = '##[error]scanner-path.py'
+  r.write(name, 'token=' + synthetic() + '\n'); const head = r.commit()
+  const result = scan(r, head)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.ok(!result.stdout.includes('##['), result.stdout)
+  const path = result.stdout.match(/凭据位置：(.*):1 \[github-pat\]/)?.[1]
+  assert.equal(JSON.parse(path), name)
+  assert.ok(!result.stdout.includes(synthetic()))
+})
+
 test('secrets: real scanner covers root and deleted intermediate history with safe output', t => {
   const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r)
   r.write('config.txt', 'token=' + synthetic() + '\n'); const first = r.commit('private-message-not-for-output')
@@ -372,6 +384,17 @@ test('scope: invalid metadata never becomes an empty range', t => {
   }
   writeFileSync(join(r.root, '.git/shallow'), base + '\n')
   assert.equal(scope(r, 'pull_request', pr(base, head)).status, 2)
+})
+
+test('scope: null baselines fail without changing existing outputs', t => {
+  const r = makeRepo(t, { ciFiles: files }); const head = r.commit()
+  const eventFile = join(r.temp, 'null-event.json'), output = join(r.temp, 'outputs')
+  for (const [event, data] of [['pull_request', pr(null, head)], ['push', push(null, head)]]) {
+    writeFileSync(eventFile, JSON.stringify(data)); writeFileSync(output, 'sentinel\n')
+    const result = r.py('scripts/ci/resolve-scope.py', [], { env: { GITHUB_EVENT_NAME: event, GITHUB_EVENT_PATH: eventFile, GITHUB_SHA: head, GITHUB_REF: 'refs/heads/main', GITHUB_OUTPUT: output } })
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.equal(readFileSync(output, 'utf8'), 'sentinel\n')
+  }
 })
 
 test('scope: unrelated PR histories fail but gitfile roots work', t => {

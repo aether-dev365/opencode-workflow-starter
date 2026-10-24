@@ -369,6 +369,19 @@ def collect(root: Path, mode: Mode, select=lambda path: True) -> Changes:
     return Changes(targets)
 
 
+def _generated_header(raw: bytes) -> bool:
+    # 生成内容可超出文本分析上限或不是 UTF-8，头部标记本身是 ASCII。
+    end = 0
+    for _ in range(5):
+        newline = raw.find(b'\n', end)
+        if newline < 0:
+            end = len(raw)
+            break
+        end = newline + 1
+    pattern = re.compile(rb'@generated|DO NOT EDIT|Code generated|auto-generated', re.I)
+    return pattern.search(raw, 0, end) is not None
+
+
 def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd: Path | None = None) -> int:
     utf8_stdio()
     try:
@@ -387,6 +400,8 @@ def main(name: str, unit: str, check: CheckFn, argv: list[str], here: Path, cwd:
                 continue
             raw = target.read()
             if b'\0' in raw[:8000]:
+                continue
+            if strict and _generated_header(raw):
                 continue
             if len(raw) > 1024 * 1024:
                 skipped += 1
