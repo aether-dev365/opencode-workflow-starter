@@ -25,6 +25,8 @@
 - 通用技能可选。先查阅 [技能依赖清单](docs/skills.md)，按任务选择来源并核实实际可用性；未安装的技能不能成为硬性操作入口。在接入报告中记录选用的仓库、版本或 commit SHA、技能 ID 和安装范围。
 - 可选的质量扩展（optional/quality）在提交后依次报告注释、跳过测试、文档本地链接和已登记的格式检查，只报告不拦截；格式工具读取工作区，修复仅手动运行。由用户决定是否启用，按其 README 复制脚本、登记已有本地工具并安装 hook，不自动安装格式器。
 
+- 可选的接入方 CI（[optional/ci](optional/ci/README.md)）依赖基础模板与完整质量扩展，按说明合并工作流和三个辅助脚本，不复制套件自身的开发 CI。确认历史凭据扫描、注释只提醒/其他问题阻断的策略，准备项目已有格式器；不要求安装本地 hook。实际 GitHub 运行与 required check 配置需由用户授权，未执行的 PR/fork 场景在接入报告中列明。
+
 ## 3. 合并模板
 
 空项目可以复制 template 全部内容；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter 或同名代理先确定升级/保留方式，不能重复加载。

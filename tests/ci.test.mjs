@@ -1,8 +1,110 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, cpSync } from 'node:fs'
+import { runtimeBinary } from './fixtures/native-harness.mjs'
 import { join, delimiter } from 'node:path'
 import { makeRepo, scannerFixture, scope } from './fixtures/ci-fixture.mjs'
+
+function workflow() {
+  assert.ok(existsSync('optional/ci/workflow-checks.yml'), '可复制工作流缺失')
+  const text = readFileSync('optional/ci/workflow-checks.yml', 'utf8')
+  const steps = Object.fromEntries(text.split('\n      - ').slice(1).map(chunk => {
+    const id = chunk.match(/\n        id: ([\w-]+)/)?.[1]
+    const body = chunk.match(/        run: \|\n((?:          .*\n?)*)/)?.[1]?.split('\n').map(line => line.slice(10)).join('\n')
+    return [id, { text: chunk, body }]
+  }))
+  return { text, steps }
+}
+const runBlock = (r, step, env = {}) => r.run('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', step.body], { env, timeout: 300000 })
+
+test('workflow: pins least privilege and candidate checkout', () => {
+  const { text, steps } = workflow()
+  assert.match(text, /permissions:\n  contents: read/)
+  assert.match(steps.checkout.text, /persist-credentials: false/)
+  assert.match(steps.checkout.text, /fetch-depth: 0/)
+  assert.match(text, /github\.event\.pull_request\.head\.sha \|\| github\.sha/)
+  const uses = [...text.matchAll(/uses: (\S+)/g)].map(m => m[1])
+  assert.equal(uses.length, 3)
+  for (const action of uses) assert.match(action, /^actions\/[\w-]+@[a-f0-9]{40}$/)
+  assert.match(steps.node.text, /package-manager-cache: false/)
+  assert.doesNotMatch(text, /pull_request_target|\$\{\{\s*secrets[.\[]|upload-artifact|continue-on-error|--fix|--hook|\n\s+cache:/)
+  assert.match(steps.doctor.text, /timeout-minutes: 5/)
+})
+
+test('workflow: gates events and steps by real prerequisites', () => {
+  const { text, steps } = workflow()
+  const condition = "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !github.event.deleted && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))"
+  assert.ok(text.includes('${{ ' + condition + ' }}'))
+  assert.match(text, /branches: \['\*\*'\]/)
+  for (const [id, extra] of Object.entries({ scope: [], 'scanner-install': [], 'plugin-install': [], 'opencode-install': [], secrets: ['scanner-install'], doctor: ['scanner-install', 'plugin-install', 'opencode-install'], quality: ['scope'] })) {
+    const expected = "${{ !cancelled() && " + ['checkout', 'node', 'python', ...extra].map(name => `steps.${name}.outcome == 'success'`).join(' && ') + ' }}'
+    assert.equal(steps[id].text.match(/\n        if: (.*)/)?.[1], expected, id)
+  }
+  assert.ok(!steps.secrets.body.includes('scope'))
+})
+
+test('workflow: run blocks preserve argument boundaries', t => {
+  const r = makeRepo(t, { ciFiles: ['run-quality.py'] }); const head = r.commit()
+  const { steps } = workflow()
+  const sentinel = join(r.temp, 'unexpected')
+  const result = runBlock(r, steps.quality, { QUALITY_MODE: 'range', BASE_SHA: `bad"; touch '${sentinel}'; #`, HEAD_SHA: head })
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.equal(existsSync(sentinel), false)
+  assert.equal(runBlock(r, steps.quality, { QUALITY_MODE: 'unknown' }).status, 2)
+})
+
+test('workflow: CLI version is validated data and install failures propagate', t => {
+  const r = makeRepo(t, { baseTemplate: true }); const { steps } = workflow()
+  const calls = join(r.temp, 'calls'), output = join(r.temp, 'env'), bin = join(r.temp, 'bin'); mkdirSync(bin)
+  writeFileSync(join(bin, 'npm'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.NPM_CALLS,JSON.stringify(process.argv.slice(2)));process.exit(Number(process.env.NPM_EXIT||0))\n`, { mode: 0o755 })
+  const env = { PATH: bin + delimiter + r.env.PATH, RUNNER_TEMP: r.temp, GITHUB_ENV: output, NPM_CALLS: calls }
+  const manifest = '.opencode/plugins/workflow/package.json'
+  const original = JSON.parse(readFileSync(join(r.root, manifest), 'utf8'))
+  const version = original.dependencies['@opencode/plugin']
+  for (const bad of ['', '^' + version, '--example', 'https://example.invalid', version + '\n', version + '\r', '01.0.0', null]) {
+    r.write(manifest, JSON.stringify({ dependencies: { '@opencode/plugin': bad } }))
+    assert.notEqual(runBlock(r, steps['opencode-install'], env).status, 0)
+    assert.equal(existsSync(calls), false)
+  }
+  r.write(manifest, JSON.stringify(original))
+  assert.equal(runBlock(r, steps['opencode-install'], { ...env, NPM_EXIT: '7' }).status, 7)
+  assert.equal(existsSync(output), false)
+  const result = runBlock(r, steps['opencode-install'], env)
+  assert.equal(result.status, 0, result.stderr)
+  const args = JSON.parse(readFileSync(calls, 'utf8'))
+  assert.ok(args.includes('@opencode/cli@' + version)); assert.ok(!args.includes('-g'))
+  assert.ok(readFileSync(output, 'utf8').startsWith('WORKFLOW_OPENCODE_BIN=' + r.temp))
+})
+
+test('adopter: copied files execute actual workflow blocks and preserve layered failures', { timeout: 600000 }, t => {
+  const r = makeRepo(t, { baseTemplate: true })
+  const { steps } = workflow()
+  const readme = readFileSync('optional/ci/README.md', 'utf8')
+  const copies = [...readme.matchAll(/\| \[([^\]]+\.(?:py|yml))\]\([^)]+\) \| `([^`]+)` \|/g)]
+  assert.equal(copies.length, 4)
+  for (const [, source, target] of copies) cpSync(join('optional/ci', source), r.write(target, ''))
+  r.write('scripts/quality/quality.json', JSON.stringify({ version: 1, include: ['src/*'] }))
+  const head = r.commit()
+  const env = { RUNNER_TEMP: r.temp, GITHUB_PATH: join(r.temp, 'path'), WORKFLOW_OPENCODE_BIN: runtimeBinary() }
+  let result = runBlock(r, steps['plugin-install'], env)
+  assert.equal(result.status, 0, result.stderr)
+  result = runBlock(r, steps['scanner-install'], env); assert.equal(result.status, 0, result.stderr)
+  env.PATH = readFileSync(env.GITHUB_PATH, 'utf8').trim() + delimiter + r.env.PATH
+  const eventFile = join(r.temp, 'event.json'); writeFileSync(eventFile, '{}')
+  result = runBlock(r, steps.scope, { ...env, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_SHA: head, GITHUB_EVENT_PATH: eventFile, GITHUB_OUTPUT: join(r.temp, 'scope-output') })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { mode: 'all', base: '', head })
+  result = runBlock(r, steps.secrets, { ...env, CANDIDATE_SHA: head })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  result = runBlock(r, steps.doctor, env)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /unverified native-runtime/)
+  const check = () => runBlock(r, steps.quality, { ...env, QUALITY_MODE: 'all' })
+  assert.equal(check().status, 0)
+  r.write('src/a.ts', '// Task 3\n'); assert.equal(check().status, 0)
+  r.write('src/README.md', '[broken](absent.md)\n'); assert.equal(check().status, 1)
+  r.write('src/bad.ts', Buffer.from([255])); assert.equal(check().status, 2)
+})
 
 const qualityFiles = ['run-quality.py']
 const qualityRepo = t => {

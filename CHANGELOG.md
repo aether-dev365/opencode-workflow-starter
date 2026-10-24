@@ -6,6 +6,9 @@
 
 ### 新增
 
+- 新增可选接入方 CI 模板 optional/ci：在 GitHub Actions 中扫描候选完整历史的凭据、运行 doctor 并汇总四项质量检查；注释发现只提醒，其他质量发现或未完成使 CI 失败。支持 PR、默认分支 push 和手动全量，使用只读权限、固定工具和脱敏报告，不执行自动修复。
+- 行级质量检查增加可选 `--fail-on-incomplete`，供 CI 将非 UTF-8、过大或无法分析的候选视为未完成；本地命令与 post-commit 默认行为不变。共享执行器支持新 CI 格式外层的可选协作终止。
+
 - doctor 新增 `reviewer-model` 检查：reviewer 未在 `opencode.jsonc` 的 `agents.reviewer.model` 或代理文件中指定模型时给出 warn；代理文件的 frontmatter 中 model 为空时也给出 warn，因为 OpenCode 会忽略整个代理文件，包括其中的只读权限。已接入的项目升级后，显式指定前会看到这条提示。
 - doctor 新增 `rule-size` 检查：`scopes.json` 引用的规则文件超过 20000 个字符（插件上限的一半）时给出 warn。
 - 插件强制 reviewer 只读：工具调用前和权限判定时各拦截一次，reviewer 会话只允许 read、glob、grep 和 workflow_review_submit，不依赖 reviewer.md 是否被加载；在 reviewer.md 中额外放开的工具从此不再生效。

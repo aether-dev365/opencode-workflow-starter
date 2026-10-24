@@ -212,7 +212,7 @@ python3 scripts/quality/install-hooks.py --uninstall
 - 只安装 `post-commit`，不安装 `pre-commit`、`pre-push`、`post-merge` 或 `post-rewrite`。
 - rebase 重放期间静默跳过，合并提交不检查；无冲突自动合并也不会触发此 hook。
 - 工作树共享 hook，但使用各自检出中的脚本；旧检出缺少脚本时明确报告未执行。
-- 别处完成的提交需要后续 CI 模板覆盖，本扩展不提供 CI 模板。
+- 别处完成的提交可选用独立的 [接入方 CI 模板](../ci/README.md) 覆盖；CI 使用严格选项和分层失败策略，不改变本地 hook 只报告的行为。
 - 词法扫描不是完整语法分析，无法确定时宁可漏报。Dockerfile、INI、properties 的注释符号仅在行首（可缩进）识别；TOML 支持行尾注释及单引号、双引号和两种三引号字符串，单引号字符串不转义；shell heredoc 是数据；不能解析的 Python 仅检查 `#` 注释。
 - PHP 文件只在开标签（`<?php`，不区分大小写；`<?=`；后接空白的短标签 `<? `）与代码中的 `?>` 之间按代码扫描，标签外按 HTML 处理。字符串和块注释里的 `?>` 不结束代码段；与 PHP 一致，`//`、`#` 注释在 `?>` 处结束。
 - Java/Kotlin/Groovy 的跳过标记只在测试文件里识别，避免把实体字段的 `@Ignore` 当成跳过测试。

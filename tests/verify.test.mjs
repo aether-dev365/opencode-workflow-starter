@@ -5,6 +5,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
+test('full verification actually schedules the adopter CI tests', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-ci-stage-'))
+  try {
+    mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
+    cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
+    for (const name of ['npm', 'python3']) writeFileSync(join(root, 'bin', name), '#!/bin/sh\necho "tests 1"\n', { mode: 0o755 })
+    const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }
+    delete env.WORKFLOW_PYTHON
+    const result = spawnSync(process.execPath, ['scripts/verify.mjs'], { cwd: root, env, encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    const distribution = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')).stages.find(s => s.id === 'distribution')
+    assert.ok(distribution.args.includes('tests/ci.test.mjs'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('verification receipts stay incomplete until all stages finish and empty tests fail', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-receipt-'))
   try {
