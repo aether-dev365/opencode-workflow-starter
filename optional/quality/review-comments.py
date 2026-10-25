@@ -5,8 +5,17 @@ sys.dont_write_bytecode = True
 
 from pathlib import Path
 import re
-from quality_lexer import scan, test_titles
-from quality_lib import Finding, main
+
+# 共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成提醒；这里明确报告未完成。
+try:
+    from quality_lexer import scan, test_titles
+    from quality_lib import Finding, main
+except Exception as error:
+    reconfigure = getattr(sys.stderr, 'reconfigure', None)
+    if reconfigure:
+        reconfigure(encoding='utf-8', errors='backslashreplace', newline='\n')
+    print(f'注释审核未完成：质量扩展文件不完整（{type(error).__name__}）', file=sys.stderr)
+    sys.exit(2)
 
 
 DATE = r'(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{4}年\d{1,2}月(?:\d{1,2}日)?)'

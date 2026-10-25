@@ -16,6 +16,10 @@
 - `/workflow-setup` 为 implementer、reviewer 选择固定模型时，如果该模型提供可选的思考强度（variant），会询问选择；没有选择就使用模型默认，不跟随主会话。选择继承时，说明子代理跟随主会话的模型和思考强度。预览计划新增 `effort`，列出每个角色的思考强度。
 - 验收基线从 OpenCode 2.1.2 升级到 2.1.4（CLI、`@opencode/plugin`、`@opencode/client`）。插件代码不需要改动；已接入的项目更新插件依赖（`npm --prefix .opencode/plugins/workflow ci --ignore-scripts`）后，仍在用 2.1.2 CLI 时 doctor 的 `opencode-version` 由 pass 改报 warn，运行 `npm install -g @opencode/cli@2.1.4` 后恢复 pass。
 
+### 修复
+
+- 质量扩展的注释审核、跳过测试检查、链接检查和格式检查在共用模块缺失或版本不配套时报告“未完成：质量扩展文件不完整”并以 2 退出；此前未捕获的导入错误以 1 退出，CI 汇总把注释审核记为提醒并放行，其余三项误报为有发现。
+
 ## [1.1.0] - 2026-10-25
 
 新增 AI 引导式接入 `/workflow-setup`、可选的质量扩展和接入方 CI 模板，并加固路径保护与提交前凭据扫描。

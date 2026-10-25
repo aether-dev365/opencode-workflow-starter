@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from quality_lib import ConfigError, default_config, glob_match, load_config, selected
 import quality_lib
-from quality_testing import config_from, NEEDS_SYMLINK
+from quality_testing import config_from, NEEDS_SYMLINK, TempRepo
 
 HERE = Path(__file__).resolve().parent
 
@@ -172,3 +172,23 @@ class Selection(unittest.TestCase):
     def test_include_and_exclude(self):
         config = load_text(json.dumps({'version': 1, 'include': ['src/*'], 'exclude': ['src/legacy/*']}))
         self.assertEqual([selected(p, config) for p in ['src/a.ts', 'src/legacy/a.ts', 'lib/a.ts']], [True, False, False])
+
+
+class EntryImports(unittest.TestCase):
+    ENTRIES = {'review-comments.py': '注释审核', 'check-skips.py': '跳过测试检查', 'check-links.py': '链接检查',
+               'check-format.py': '格式检查', 'check-sync.py': '关联检查'}
+
+    def test_missing_or_mismatched_shared_module_is_incomplete(self):
+        # 退出 1 会被 CI 记为提醒或失败，导入失败必须以 2 报告未完成。
+        for content, error in ((None, 'ModuleNotFoundError'), ('', 'ImportError')):
+            repo = TempRepo(); self.addCleanup(repo.close)
+            here = repo.install_scripts()
+            if content is None:
+                (here / 'quality_lib.py').unlink()
+            else:
+                (here / 'quality_lib.py').write_text(content, encoding='utf-8')
+            for entry, name in self.ENTRIES.items():
+                with self.subTest(entry=entry, error=error):
+                    result = repo.run(here / entry, '--all')
+                    self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                     (2, '', f'{name}未完成：质量扩展文件不完整（{error}）\n'))

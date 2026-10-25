@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, cpSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, cpSync } from 'node:fs'
 import { runtimeBinary } from './fixtures/native-harness.mjs'
 import { join, delimiter } from 'node:path'
 import { makeRepo, scannerFixture, scope } from './fixtures/ci-fixture.mjs'
@@ -162,6 +162,16 @@ test('quality: a sync entry without its shared module is incomplete rather than 
   const result = quality(r)
   assert.equal(result.status, 2, result.stdout + result.stderr)
   assert.match(result.stdout, /sync：未完成/)
+})
+
+test('quality: a comments entry with a mismatched shared module is incomplete rather than a reminder', t => {
+  const r = qualityRepo(t)
+  // 共用的 quality_lib 也导入 quality_lexer，只删去注释审核用到的名称，运行器本身仍能启动。
+  appendFileSync(join(r.root, 'scripts/quality/quality_lexer.py'), '\ndel test_titles\n')
+  const result = quality(r)
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.match(result.stdout, /comments：未完成/)
+  assert.match(result.stdout, /skips：通过/)
 })
 
 test('quality: hook false formats run checks and never fixes', t => {
