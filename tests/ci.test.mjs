@@ -156,6 +156,14 @@ test('quality: sync reminders warn while stale registries fail', t => {
   assert.equal(r.py('scripts/ci/run-quality.py', ['--all']).status, 2)
 })
 
+test('quality: a sync entry without its shared module is incomplete rather than a reminder', t => {
+  const r = qualityRepo(t)
+  unlinkSync(join(r.root, 'scripts/quality/quality_sync.py'))
+  const result = quality(r)
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.match(result.stdout, /sync：未完成/)
+})
+
 test('quality: hook false formats run checks and never fixes', t => {
   const r = qualityRepo(t)
   const checked = join(r.temp, 'checked'), fixed = join(r.temp, 'fixed')

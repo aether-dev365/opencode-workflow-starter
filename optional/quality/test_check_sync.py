@@ -138,6 +138,10 @@ class SyncChecks(unittest.TestCase):
         self.configure(API)
         self.assertEqual(self.run_sync('--commit', 'nope', code=2)[1], '关联检查未完成：修订号无效\n')
 
+    def test_missing_shared_module_is_incomplete(self):
+        (self.here / 'quality_sync.py').unlink()
+        self.assertEqual(self.run_sync(code=2)[1], '关联检查未完成：质量扩展文件不完整（ModuleNotFoundError）\n')
+
     def test_subdirectory_and_unicode_paths(self):
         self.configure({'id': 'zh', 'paths': ['接口 目录/*'], 'related': ['说明 文档.md'], 'message': '接口变化要同步说明'})
         self.repo.write('说明 文档.md', 'x\n'); self.repo.write('接口 目录/甲.py', 'x\n'); self.repo.commit('setup')
