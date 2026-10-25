@@ -2,7 +2,7 @@
   "version": 1,
   "sync": [
     { "id": "changelog", "paths": ["template/*", "optional/*"],
-      "exclude": ["template/.opencode/plugins/workflow/test/*", "template/.opencode/workflow/checks/test_*.py", "template/.opencode/workflow/checks/fixtures/*", "optional/quality/test_*.py"],
+      "exclude": ["template/.opencode/plugins/workflow/test/*", "template/.opencode/workflow/checks/test_*.py", "template/.opencode/workflow/checks/fixtures/*", "optional/quality/test_*.py", "optional/quality/quality_testing.py"],
       "related": ["CHANGELOG.md"], "message": "面向用户的变化写进 CHANGELOG「未发布」；只改内部实现时在提交说明里写明不记录的原因" },
     { "id": "opencode-baseline", "paths": ["template/.opencode/plugins/workflow/package.json"],
       "related": ["scripts/fetch-opencode.mjs", "template/.opencode/plugins/workflow/package-lock.json"],

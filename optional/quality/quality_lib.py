@@ -235,8 +235,8 @@ Mode = tuple[str, str | None]
 CheckFn = Callable[[str, str, frozenset[int] | None, dict], list[Finding]]
 
 
-def _mode_parser():
-    parser = argparse.ArgumentParser(description='检查新增或改动的行')
+def _mode_parser(description='检查新增或改动的行'):
+    parser = argparse.ArgumentParser(description=description)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--commit', metavar='REV')
     modes.add_argument('--staged', action='store_true')
@@ -259,9 +259,10 @@ def parse_mode(argv: list[str]) -> Mode:
     return _mode(_mode_parser().parse_args(argv))
 
 
-def parse_line_options(argv: list[str]) -> tuple[Mode, bool]:
-    parser = _mode_parser()
-    parser.add_argument('--fail-on-incomplete', action='store_true', help='候选文本未能分析时退出 2')
+def parse_line_options(argv: list[str], *, description='检查新增或改动的行',
+                       incomplete_help='候选文本未能分析时退出 2') -> tuple[Mode, bool]:
+    parser = _mode_parser(description)
+    parser.add_argument('--fail-on-incomplete', action='store_true', help=incomplete_help)
     args = parser.parse_args(argv)
     return _mode(args), args.fail_on_incomplete
 

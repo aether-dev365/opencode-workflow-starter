@@ -18,7 +18,7 @@ def git_status(root: Path, *args: str) -> tuple[int, str]:
 
 
 def upstream(root: Path) -> str | None:
-    # 当前分支的上游优先；分离 HEAD、没有配置上游或上游分支已删除时回退到 origin/main，CI 的浅检出两者都可能没有。
+    # 当前分支的上游优先；分离 HEAD、没有配置上游或上游分支已删除时回退到 origin/main。CI 的 PR 检出两者都没有，push 检出的上游就是 HEAD。
     # 只有引用确实不存在才回退：引用存在却解析不到提交、Git 查询出错都报告未完成，不能当成没有上游。
     names = []
     code, branch = git_status(root, 'symbolic-ref', '--quiet', 'HEAD')

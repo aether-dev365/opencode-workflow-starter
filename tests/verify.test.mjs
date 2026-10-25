@@ -90,6 +90,7 @@ test('the sync stage only reports but requires a validated registry', () => {
       const { result, report } = runStages(root, [], { SYNC_STUB: mode })
       assert.equal(result.status, status, mode + '\n' + result.stdout + result.stderr)
       assert.deepEqual([report.stages.at(-1).id, report.stages.at(-1).ok], ['sync', ok])
+      if (mode === 'empty') assert.match(result.stderr, /^Verification failed: sync \(no registry validated\)$/m)
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

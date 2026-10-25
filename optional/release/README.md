@@ -17,7 +17,7 @@
 - reviewer 读取逐单元差异及证据后提交；主代理收齐结论并 close。只有当前候选最新 release 全 pass 才能 check 通过。
 - workflow_release entry=配置的入口 ID。工具确认权限后再次核对候选、配置、证据与产物，再运行固定 argv。
 
-证据清单必须关联全部审核任务，可按检查单 ID 或具体任务 ID 指定。test/build 条目 exit 必须为 0，实际测试是否执行由 reviewer 核原件。二进制附可读 companion；每个配置的产物必须在 inputs 中有唯一 `sha256:<相对路径>`，且与实际字节一致。sync 也需要证据：可用 check-sync 对发布范围的输出（kind 为 manual，exit 填实际退出码，示例中的 null 只是占位）；没启用质量扩展时附人工核对记录，exit 为 null。
+证据清单必须关联全部审核任务，可按检查单 ID 或具体任务 ID 指定。test/build 条目 exit 必须为 0，实际测试是否执行由 reviewer 核原件。二进制附可读 companion；每个配置的产物必须在 inputs 中有唯一 `sha256:<相对路径>`，且与实际字节一致。sync 也需要证据：可用 check-sync 对发布范围的输出（kind 为 manual，exit 填实际退出码，示例中的 null 只是占位；示例命令用 `python3`，Windows 上改为 `py -3`）；没启用质量扩展时附人工核对记录，exit 为 null。
 
 首版每轮重新审核，不自动沿用旧结论。摘要证明审核时的字节没有变化，不证明构建环境可信。ask 使用原生权限语义，操作者若选择 always 可能保存入口批准；审核核查仍在每次执行前进行，这不是生产 SQL 逐输入一次性审批。
 

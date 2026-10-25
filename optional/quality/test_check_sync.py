@@ -177,6 +177,12 @@ class SyncChecks(unittest.TestCase):
         self.configure(API)
         self.assertEqual(self.run_sync('--commit', 'nope', code=2)[1], '关联检查未完成：修订号无效\n')
 
+    def test_help_describes_the_sync_check(self):
+        out = self.run_sync('--help')[0]
+        self.assertIn('报告登记的关联是否一起改动', out)
+        self.assertIn('登记失效时退出 2', out)
+        self.assertNotIn('检查新增或改动的行', out)
+
     def test_missing_shared_module_is_incomplete(self):
         (self.here / 'quality_sync.py').unlink()
         self.assertEqual(self.run_sync(code=2)[1], '关联检查未完成：质量扩展文件不完整（ModuleNotFoundError）\n')

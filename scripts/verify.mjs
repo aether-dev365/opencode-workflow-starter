@@ -51,6 +51,6 @@ for (const [id, command, args] of stages) {
   const complete = report.length === stages.length
   writeFileSync(resolve(directory, 'report.json'), JSON.stringify({ updatedAt: new Date().toISOString(), mode, complete, ok: complete && report.every(r => r.ok), stages: report }, null, 2))
   console.log(output.trim().split('\n').slice(-12).join('\n'))
-  if (!ok) { console.error(`Verification failed: ${id}${empty ? (id === 'sync' ? '（未校验到登记）' : ' (empty test run)') : ''}`); process.exit(1) }
+  if (!ok) { console.error(`Verification failed: ${id}${empty ? (id === 'sync' ? ' (no registry validated)' : ' (empty test run)') : ''}`); process.exit(1) }
 }
 console.log(subset ? 'Windows 子集全部通过；原生 OpenCode 验收与分发测试需在 Linux 上运行。' : 'All verification stages passed.')

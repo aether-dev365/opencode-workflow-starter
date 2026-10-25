@@ -42,7 +42,7 @@ def main(argv: list[str], *, here: Path, cwd: Path | None = None) -> int:
     utf8_stdio()
     try:
         here = here.resolve()
-        mode, strict = parse_line_options(argv)
+        mode, strict = parse_line_options(argv, description='报告登记的关联是否一起改动', incomplete_help='登记失效时退出 2')
         root = repo_root(cwd or Path.cwd())
         rules = load_config(here, root=root)['sync']
         changes = collect_files(root, mode)
