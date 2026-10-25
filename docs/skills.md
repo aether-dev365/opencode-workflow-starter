@@ -66,7 +66,7 @@ OpenCode、Node.js、Python、Git、Gitleaks 及 npm 依赖属于运行环境或
 }
 ```
 
-向导固定到 `v7.0.1` 对应的完整 commit SHA，并核对插件入口和关键技能正文摘要。上游说明 OpenCode V2 插件支持要求为 OpenCode 2.0.4+、Superpowers v6.4.1+；本模板自身的验收基线仍为 OpenCode 2.1.2。已有其他版本不会静默覆盖；未在向导核验范围的版本保持未验证，需明确选择兼容验收或固定版本，不自动降级。
+向导固定到 `v7.0.1` 对应的完整 commit SHA，并核对插件入口和关键技能正文摘要。上游说明 OpenCode V2 插件支持要求为 OpenCode 2.0.4+、Superpowers v6.4.1+；本模板自身的验收基线仍为 OpenCode 2.1.4。已有其他版本不会静默覆盖；未在向导核验范围的版本保持未验证，需明确选择兼容验收或固定版本，不自动降级。
 
 重新加载配置后，确认实际 Superpowers 插件 active 且来源正确，再通过原生 skill 工具读取对应技能。`workflow_setup` 核对当前 Location 的真实正文和本会话成功读取结果；仅列出技能、配置写入、其他会话读取或模型声明都不能替代。`workflow.starter` 已通过模板目录自动发现，无需因安装 Superpowers 而重复登记。
 

@@ -44,13 +44,13 @@ flowchart LR
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
-| Linux x64 | 已验收 | CI 全量验收，含 OpenCode 2.1.2 原生运行测试 |
+| Linux x64 | 已验收 | CI 全量验收，含 OpenCode 2.1.4 原生运行测试 |
 | Windows + WSL2 | 已验收（同 Linux） | 推荐的 Windows 路线；所有命令在 WSL 终端里执行 |
 | Windows 原生（Git Bash） | 部分验证 | 插件测试、守卫、doctor、接入脚本已在 Windows 实机通过，CI 运行 Windows 子集；OpenCode 原生加载插件尚未验收 |
-| macOS（Apple Silicon） | 已验收 | CI 全量验收，含 OpenCode 2.1.2 原生运行测试；系统自带的 python3 是 3.9，需另装 3.10+ |
+| macOS（Apple Silicon） | 已验收 | CI 全量验收，含 OpenCode 2.1.4 原生运行测试；系统自带的 python3 是 3.9，需另装 3.10+ |
 | macOS（Intel） | 未验收 | 扫描器已固定 x64 校验值，按同样步骤操作；接入后自行做原生冒烟 |
 
-运行要求：Node.js 24+、Python 3.10+、Git（Windows 需完整的 Git for Windows，含 Git Bash）、OpenCode V2 CLI。OpenCode 与插件的验收基线均为 **2.1.2**。
+运行要求：Node.js 24+、Python 3.10+、Git（Windows 需完整的 Git for Windows，含 Git Bash）、OpenCode V2 CLI。OpenCode 与插件的验收基线均为 **2.1.4**。
 
 ## 快速开始
 
@@ -104,7 +104,7 @@ node scripts\workflow\setup.mjs
 手动安装时依次运行（Windows 把 `python3` 换成 `py -3`）：
 
 ```bash
-npm install -g @opencode/cli@2.1.2
+npm install -g @opencode/cli@2.1.4
 npm --prefix .opencode/plugins/workflow ci --ignore-scripts
 python3 .opencode/secret-scan/install.py
 node scripts/workflow/doctor.mjs --root .
@@ -116,7 +116,7 @@ node scripts/workflow/doctor.mjs --root .
 2. 运行 `/workflow-setup` 选择模式、子代理模型和可选组件。AI 协助补充根 `AGENTS.md` 的项目概要、真实验证命令、领域规则、`scopes.json`、保护策略与审核路由；先解释并预览，再确认应用。
 3. 按 [安装指南](template/docs/workflow/opencode-install.md) 第 5 节做原生冒烟。doctor 的 `native-runtime: unverified` 是静态检查的边界，不代表插件已在原生环境通过。
 
-doctor 对 2.1.2 报 pass，对其他 2.1.x 报 warn（需在该版本做原生冒烟并记录），其余版本报 fail。可用 `WORKFLOW_OPENCODE_BIN` 指定独立安装的 CLI，不必替换系统默认命令。
+doctor 对 2.1.4 报 pass，对其他 2.1.x 报 warn（需在该版本做原生冒烟并记录），其余版本报 fail。可用 `WORKFLOW_OPENCODE_BIN` 指定独立安装的 CLI，不必替换系统默认命令。
 
 ## 默认行为
 
@@ -189,4 +189,4 @@ git archive --format=tar.gz --prefix=opencode-workflow-starter-$version/ --outpu
 
 ## English summary
 
-OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts. `/workflow-setup` guides adoption step by step, and optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.2 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites in CI and on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.
+OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts. `/workflow-setup` guides adoption step by step, and optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.4 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites in CI and on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.

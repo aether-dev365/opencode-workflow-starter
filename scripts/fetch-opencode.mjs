@@ -9,7 +9,7 @@ const directory = join(root, '.verification/runtime')
 const binary = join(directory, 'package/bin/opencode')
 // 版本跟随插件依赖的 @opencode/plugin；每个版本的官方 linux-x64 发布包 SHA-256 单独固定。
 const version = JSON.parse(readFileSync(join(root, 'template/.opencode/plugins/workflow/package.json'), 'utf8')).dependencies['@opencode/plugin']
-const pins = { '2.1.2': '2e1c665f5e82e531732329f2a3106672873477506e378b17d30eeabd31d139b3' }
+const pins = { '2.1.4': 'ce05abe2dce1041391c8ec8cdb8da066f640fd471e72ac846dcb089c441e11e1' }
 const archive = join(directory, `opencode-cli-linux-x64-${version}.tgz`)
 const versionMatches = () => execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 10000 }).trim().match(/\bv?(\d+\.\d+\.\d+)$/)?.[1] === version
 

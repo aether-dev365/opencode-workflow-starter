@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 变更
+
+- 验收基线从 OpenCode 2.1.2 升级到 2.1.4（CLI、`@opencode/plugin`、`@opencode/client`）。插件代码不需要改动；已接入的项目更新插件依赖（`npm --prefix .opencode/plugins/workflow ci --ignore-scripts`）后，仍在用 2.1.2 CLI 时 doctor 的 `opencode-version` 由 pass 改报 warn，运行 `npm install -g @opencode/cli@2.1.4` 后恢复 pass。
+
 ## [1.1.0] - 2026-10-25
 
 新增 AI 引导式接入 `/workflow-setup`、可选的质量扩展和接入方 CI 模板，并加固路径保护与提交前凭据扫描。
