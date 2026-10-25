@@ -224,7 +224,8 @@ test('quality: range requires the checked out head and invalid modes cannot run'
 test('quality: timeouts continue but cancellation stops launching checks', t => {
   const r = qualityRepo(t)
   r.write('scripts/quality/review-comments.py', 'import time\ntime.sleep(30)\n')
-  const result = r.probe('scripts/ci/run-quality.py', "sys.exit(m['run_quality'](Path.cwd(),('all',None),timeout=.2))")
+  // 预算远大于正常检查的耗时，负载高的 runner 上也只有睡眠的注释审核会超时。
+  const result = r.probe('scripts/ci/run-quality.py', "sys.exit(m['run_quality'](Path.cwd(),('all',None),timeout=5))")
   assert.equal(result.status, 2, result.stderr)
   assert.match(result.stdout, /comments.*未完成/); assert.match(result.stdout, /format.*通过/)
   const stopped = r.probe('scripts/ci/run-quality.py', "sys.exit(m['run_quality'](Path.cwd(),('all',None),cancelled=lambda:True))")
