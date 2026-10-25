@@ -1,9 +1,10 @@
 import os
 import subprocess
+import sys
 import unittest
 from unittest import mock
 from quality_lib import Incomplete, collect
-from quality_testing import TempRepo, needs_symlink
+from quality_testing import HERE, TempRepo, needs_symlink
 
 
 class SymlinkPermission(unittest.TestCase):
@@ -47,3 +48,13 @@ class PortableGit(unittest.TestCase):
                 for revision in ['--help', '--all', '-n1']:
                     with self.subTest(revision=revision), self.assertRaises(Incomplete):
                         collect(r.root, ('commit', revision))
+
+
+class InheritedGitEnvironment(unittest.TestCase):
+    def test_in_process_git_ignores_a_caller_repository(self):
+        # 从 Git hook 等环境运行测试时会继承 GIT_DIR、GIT_WORK_TREE；进程内直接调用 Git 的用例不能因此指向别的仓库。
+        other = TempRepo(); self.addCleanup(other.close)
+        env = {**os.environ, 'GIT_DIR': str(other.root / '.git'), 'GIT_WORK_TREE': str(other.root)}
+        result = subprocess.run([sys.executable, '-m', 'unittest', 'test_snapshot.Snapshots.test_change_events_compare_snapshot_entries'],
+                                cwd=HERE, env=env, encoding='utf-8', errors='replace', capture_output=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

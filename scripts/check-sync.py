@@ -44,7 +44,12 @@ def upstream(root: Path) -> str | None:
 def run() -> int:
     utf8_stdio()
     try:
-        root = repo_root(Path.cwd())
+        cwd = Path.cwd()
+    except OSError as error:
+        print(f'关联检查未完成：无法读取当前目录（{type(error).__name__}）', file=sys.stderr)
+        return 2
+    try:
+        root = repo_root(cwd)
         here = root / 'scripts/quality'
         if check(['--all', '--fail-on-incomplete'], here=here, cwd=root) == 2:
             return 2
@@ -52,7 +57,8 @@ def run() -> int:
     except Incomplete as error:
         print('关联检查未完成：' + error.args[0], file=sys.stderr)
         return 2
-    except OSError as error:
+    # ValueError 来自参数无法传给 git，例如 Windows 上含非法字节的分支名。
+    except (OSError, ValueError) as error:
         print(f'关联检查未完成：无法运行 git（{type(error).__name__}）', file=sys.stderr)
         return 2
     if base is None:

@@ -50,9 +50,31 @@ test('an upstream that resolves to no commit is incomplete rather than a missing
 test('a missing git is incomplete without a traceback', t => {
   const r = setup(t)
   const python = r.py('-c', ['import sys; print(sys.executable)']).stdout.trim()
+  assert.ok(python, '取不到解释器路径')
   const result = r.run(python, [entry], { env: { PATH: join(r.temp, 'empty') } })
   assert.equal(result.status, 2, result.stdout + result.stderr)
   assert.equal(result.stderr, '关联检查未完成：无法运行 git（FileNotFoundError）\n')
+})
+
+// 在同一进程里替换标准库函数后运行入口，模拟难以在所有平台上真实制造的故障。
+const patched = (r, code) => r.py('-c', [`import runpy, sys\n${code}\nsys.argv = [${JSON.stringify(entry)}]\nrunpy.run_path(sys.argv[0], run_name='__main__')`])
+
+test('an unreadable working directory is reported as such', t => {
+  const result = patched(setup(t), "import pathlib\ndef gone(cls):\n    raise FileNotFoundError(2, 'gone')\npathlib.Path.cwd = classmethod(gone)")
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.equal(result.stderr, '关联检查未完成：无法读取当前目录（FileNotFoundError）\n')
+})
+
+test('a branch name git cannot receive is incomplete without a traceback', t => {
+  const result = patched(setup(t), [
+    'import subprocess', 'real = subprocess.run',
+    'def run(args, *rest, **options):',
+    "    if 'for-each-ref' in args:",
+    "        raise UnicodeEncodeError('utf-16', 'x', 0, 1, 'surrogates not allowed')",
+    '    return real(args, *rest, **options)',
+    'subprocess.run = run'].join('\n'))
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.equal(result.stderr, '关联检查未完成：无法运行 git（UnicodeEncodeError）\n')
 })
 
 test('a stale registry fails the suite entry', t => {

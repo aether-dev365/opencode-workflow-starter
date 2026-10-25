@@ -14,6 +14,9 @@ import unittest
 from quality_lib import load_config
 
 HERE = Path(__file__).resolve().parent
+# 进程内直接调用 Git 的用例沿用本进程环境；从 Git hook 等环境运行测试时继承的 GIT_DIR、GIT_WORK_TREE 会把调用指向别的仓库。
+for name in [name for name in os.environ if name.startswith('GIT_')]:
+    del os.environ[name]
 SCRIPTS = ('quality_lexer.py', 'quality_lib.py', 'quality_snapshot.py', 'quality_process.py', 'quality_links.py', 'check-format.py', 'check-links.py', 'review-comments.py', 'check-skips.py', 'run-hook.py', 'install-hooks.py', 'quality_sync.py', 'check-sync.py')
 
 
