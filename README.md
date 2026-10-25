@@ -20,6 +20,7 @@
 | 发布绕过审核 | 可选扩展：只有当前候选的审核全部通过，才运行登记好的固定发布命令 |
 | 接入步骤多，模式和模型不好选 | `/workflow-setup` 逐项询问模式、子代理模型和可选组件，预览改动并经确认后才应用 |
 | 注释写成开发日志、测试被悄悄跳过、文档链接断开 | 可选质量扩展：提交后报告注释、跳过测试、本地链接和已登记的格式检查，只报告、不拦截 |
+| 功能改了文档没更新、一处约束改了关联处没跟着改 | `/review` 默认包含文档与约束同步审核；可选质量扩展按登记的关联在提交后和 CI 中提醒 |
 | OpenCode 之外的提交和 PR 不经过守卫 | 可选接入方 CI 模板：在 GitHub Actions 中扫描候选完整历史的凭据，运行 doctor 和分层质量检查 |
 
 ## 工作原理
@@ -143,7 +144,7 @@ doctor 对 2.1.4 报 pass，对其他 2.1.x 报 warn（需在该版本做原生�
 | [optional/protection/](optional/protection/) | 私钥、SSH 密钥、云凭据等扩展保护规则 |
 | [optional/production/](optional/production/) | 默认禁用的只读 MCP 配置示例 |
 | [optional/stacks/](optional/stacks/) | 按技术栈核实命令的接入指引 |
-| [optional/quality/](optional/quality/) | 只报告的注释审核、跳过测试、文档本地链接与登记式格式检查，接入 post-commit |
+| [optional/quality/](optional/quality/) | 只报告的注释审核、跳过测试、文档本地链接、登记式格式检查与关联同步检查，接入 post-commit |
 | [optional/ci/](optional/ci/) | 接入方 GitHub Actions 模板：候选历史凭据扫描、doctor 和分层质量检查 |
 | [scripts/](scripts/)、[tests/](tests/) | 套件自身的验证入口与测试，不复制到业务项目 |
 | [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md) | 官方安装来源、V1 迁移、Windows 两条路线和版本检查 |
@@ -189,4 +190,4 @@ git archive --format=tar.gz --prefix=opencode-workflow-starter-$version/ --outpu
 
 ## English summary
 
-OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts. `/workflow-setup` guides adoption step by step, and optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.4 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites in CI and on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.
+OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts, including a documentation and constraint sync review. `/workflow-setup` guides adoption step by step, and optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.4 runs; native Windows (via Git Bash) passes the plugin, guard and adoption suites in CI and on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.

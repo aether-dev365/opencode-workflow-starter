@@ -34,7 +34,7 @@
 - 所有路径配置统一使用原生 `*`/`?` 语义：`*` 含 `/` 和点开头目录，`?` 匹配一个字符，其余按字面；花括号模式须拆成多条。
 - core、tests 与 sync（文档与约束同步）始终覆盖全部变更，按风险新增专项检查单；不需要同步审核时删除 catalog 与 routing 中的 sync 条目。未知路径保守进入 common。
 - 外部技能按模式选择。基础模式不依赖 Superpowers；完整模式将已核对来源的 Superpowers 作为设计和计划的前置，先安装、等待重载并核实实际技能正文和本会话读取证据。先查阅 [技能依赖清单](docs/skills.md)，不静默替换既有版本或修改全局范围。其他任务型技能按需选择；记录仓库、固定版本/commit SHA、技能 ID、范围和真实加载结果。
-- 可选的质量扩展（optional/quality）在提交后依次报告注释、跳过测试、文档本地链接和已登记的格式检查，只报告不拦截；格式工具读取工作区，修复仅手动运行。由用户决定是否启用，按其 README 复制脚本、登记已有本地工具并安装 hook，不自动安装格式器。
+- 可选的质量扩展（optional/quality）在提交后依次报告注释、跳过测试、文档本地链接、已登记的格式检查和已登记的关联同步，只报告不拦截；格式工具读取工作区，修复仅手动运行。由用户决定是否启用，按其 README 复制脚本、登记已有本地工具和文件关联并安装 hook，不自动安装格式器。
 
 - 可选的接入方 CI（[optional/ci](optional/ci/README.md)）依赖基础模板与完整质量扩展，按说明合并工作流和三个辅助脚本，不复制套件自身的开发 CI。确认历史凭据扫描、注释只提醒/其他问题阻断的策略，准备项目已有格式器；不要求安装本地 hook。实际 GitHub 运行与 required check 配置需由用户授权，未执行的 PR/fork 场景在接入报告中列明。
 
@@ -44,7 +44,7 @@
 
 可执行插件放 `.opencode/plugins/workflow/`，依赖锁文件一起复制。其他目录内容不是活动配置，不自动复制可选扩展到启用位置。
 
-维护 `.opencode/workflow/scopes.json`、`watchdog.json`、`review/catalog.json` 和 `review/routing.json`。`.opencode/workflow/protection.json` 由守卫和插件内置为代理只读，修复模式也不例外，没有询问放行入口；其创建、修改、升级合并及修复需交给用户在 OpenCode 之外完成，代理只提供拟议规则与差异。此限制不锁定插件或守卫代码，仍可按既有流程升级它们；守卫不是系统沙盒。填写真实验证命令及所需资源，不把示例命令报告为已验证命令。
+维护 `.opencode/workflow/scopes.json`、`watchdog.json`、`review/catalog.json` 和 `review/routing.json`。启用质量扩展时，同时维护 `scripts/quality/quality.json` 的 sync 关联登记。`.opencode/workflow/protection.json` 由守卫和插件内置为代理只读，修复模式也不例外，没有询问放行入口；其创建、修改、升级合并及修复需交给用户在 OpenCode 之外完成，代理只提供拟议规则与差异。此限制不锁定插件或守卫代码，仍可按既有流程升级它们；守卫不是系统沙盒。填写真实验证命令及所需资源，不把示例命令报告为已验证命令。
 
 ## 4. 安装和检查
 
