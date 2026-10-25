@@ -110,6 +110,13 @@ test('documented OpenCode versions match the plugin baseline', () => {
   }
 })
 
+test('a hung plugin test fails by name instead of holding the run until the stage timeout', () => {
+  // 只有单测超时时，残留的子进程句柄仍让测试文件不退出；强制退出后超时的用例才会作为失败报告。
+  const script = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8')).scripts.test
+  assert.match(script, /--test-timeout=[1-9]\d* /)
+  assert.match(script, /--test-force-exit /)
+})
+
 test('the suite version agrees across the changelog, README and plugin manifests', () => {
   // 发布时这几处要一起改；模板版本以插件 package.json 为准。
   const version = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8')).version

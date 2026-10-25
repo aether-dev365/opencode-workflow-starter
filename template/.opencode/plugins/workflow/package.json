@@ -7,7 +7,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test --test-timeout=120000 --test-force-exit test/*.test.ts"
   },
   "dependencies": { "@opencode/plugin": "2.1.4", "jsonc-parser": "3.3.1" },
   "devDependencies": { "@opencode/client": "2.1.4", "@types/node": "24.3.0", "typescript": "5.9.3" }
