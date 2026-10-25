@@ -279,6 +279,26 @@ test('tool responses whitelist model summaries and never expose agent prompts, r
   } finally { await f.close() }
 })
 
+test('plan previews each role reasoning effort: chosen variant, model default without following the session, or inherited', async () => {
+  const f = await setup('basic')
+  try {
+    f.models[0].variants = [{ id: 'low' }, { id: 'high' }]
+    const fixed = choices()
+    fixed.models.implementer = { mode: 'fixed', model: 'fake/fixture' }
+    fixed.models.reviewer = { mode: 'fixed', model: 'fake/fixture#high' }
+    const planned = await f.invoke({ action: 'plan', choices: fixed })
+    assert.ok(planned.id, JSON.stringify(planned))
+    assert.match(planned.effort.implementer, /未选择思考强度.*模型默认.*不跟随主会话.*low、high/)
+    assert.match(planned.effort.reviewer, /思考强度 high/)
+    f.models[0].variants = []
+    const inherited = choices()
+    inherited.models.reviewer = { mode: 'fixed', model: 'fake/fixture' }
+    const plain = await f.invoke({ action: 'plan', choices: inherited })
+    assert.match(plain.effort.implementer, /跟随发起会话的模型和思考强度/)
+    assert.match(plain.effort.reviewer, /没有可选思考强度/)
+  } finally { await f.close() }
+})
+
 test('a context invalidation during the last status storage await cannot return ready even in basic mode', async () => {
   const f = await setup('basic')
   try {

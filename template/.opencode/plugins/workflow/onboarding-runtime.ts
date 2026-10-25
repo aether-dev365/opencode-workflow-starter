@@ -96,6 +96,18 @@ export function checkModels(choices: SetupChoices, models: ModelInfo[], agents: 
   return { issues }
 }
 
+// 宿主按 显式 model → 代理 model → 父会话 model 解析子代理模型：继承时 variant 随父会话，固定且不写 variant 时用模型默认。
+export function describeEffort(choices: SetupChoices, models: ModelInfo[]): Record<'implementer' | 'reviewer', string> {
+  const describe = (choice: SetupChoices['models']['implementer']) => {
+    if (choice.mode === 'inherit') return '继承：跟随发起会话的模型和思考强度'
+    const [name, variant] = choice.model.split('#'), slash = name.indexOf('/')
+    if (variant) return `固定 ${name}，思考强度 ${variant}`
+    const options = models.find(model => model.providerID === name.slice(0, slash) && model.id === name.slice(slash + 1))?.variants.map(value => value.id) ?? []
+    return options.length ? `固定 ${name}，未选择思考强度：使用模型默认，不跟随主会话（可选：${options.join('、')}）` : `固定 ${name}，该模型没有可选思考强度`
+  }
+  return { implementer: describe(choices.models.implementer), reviewer: describe(choices.models.reviewer) }
+}
+
 async function boundedText(file: string, anchor: string): Promise<string> {
   if (!isAbsolute(file) || !(samePath(anchor, file) || containedRelative(anchor, file))) throw new Error('运行时核验路径越界')
   const actual = await realpath(file)

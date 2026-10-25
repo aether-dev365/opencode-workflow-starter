@@ -6,7 +6,7 @@
 
 主代理统一需求、契约、拆分、集成、验证和提交。独立实现任务使用 `subagent` 的 `agent: implementer`，默认最多两个并行；共享文件指定唯一写入者。调查可用 explore，正式审核由 `/review` 派 reviewer。不要把通用技能中的实现角色机械映射成 general，否则不会使用已经选择的 implementer 模型。子代理拥有新上下文，父会话读过的规则和结论不能视为已传递。
 
-模型在 `opencode.jsonc` 配置：根 `model` 是默认值，`agents.<名称>.model` 为单个代理指定，内置的 build、plan、explore、general 用同名 ID 覆盖，格式为 `provider/model` 或 `provider/model#variant`。通过 `/workflow-setup` 为 implementer/reviewer 明确选择动态继承或固定模型：继承会跟随发起会话的模型，固定当前 ID 则不会随主会话切换。模型只在原生配置中生效，不在代理文件里重复；onboarding.json 记录选择意图，宿主核对最终生效结果。reviewer 可选择不同模型获取不同视角，但只有一个可用模型时可以明确继承，不必制造重复配置。额度、认证或上级配置不符合选择时，解释冲突后重新选择，不自动换模型。
+模型在 `opencode.jsonc` 配置：根 `model` 是默认值，`agents.<名称>.model` 为单个代理指定，内置的 build、plan、explore、general 用同名 ID 覆盖，格式为 `provider/model` 或 `provider/model#variant`。通过 `/workflow-setup` 为 implementer/reviewer 明确选择动态继承或固定模型：继承会跟随发起会话的模型和思考强度，固定当前 ID 则不会随主会话切换；固定时不写 `#variant` 就使用模型默认的思考强度。模型只在原生配置中生效，不在代理文件里重复；onboarding.json 记录选择意图，宿主核对最终生效结果。reviewer 可选择不同模型获取不同视角，但只有一个可用模型时可以明确继承，不必制造重复配置。额度、认证或上级配置不符合选择时，解释冲突后重新选择，不自动换模型。
 
 任务卡包含：目标和验收、绝对 Location/基线、写入范围、契约/依赖、验证命令和资源、交付格式。实现者不提交、不发布、不访问生产、不继续派发。
 

@@ -6,6 +6,7 @@
 
 ### 变更
 
+- `/workflow-setup` 为 implementer、reviewer 选择固定模型时，如果该模型提供可选的思考强度（variant），会询问选择；没有选择就使用模型默认，不跟随主会话。选择继承时，说明子代理跟随主会话的模型和思考强度。预览计划新增 `effort`，列出每个角色的思考强度。
 - 验收基线从 OpenCode 2.1.2 升级到 2.1.4（CLI、`@opencode/plugin`、`@opencode/client`）。插件代码不需要改动；已接入的项目更新插件依赖（`npm --prefix .opencode/plugins/workflow ci --ignore-scripts`）后，仍在用 2.1.2 CLI 时 doctor 的 `opencode-version` 由 pass 改报 warn，运行 `npm install -g @opencode/cli@2.1.4` 后恢复 pass。
 
 ## [1.1.0] - 2026-10-25

@@ -3,7 +3,7 @@ import type { ModelRef } from '@opencode/client'
 import { isAbsolute } from 'node:path'
 import { validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
 import { planSetup, readSetupPlan, pendingSetupPlan, setupWritePaths, applySetup, inspectSetup, type SetupPlan } from './onboarding-files.ts'
-import { checkModels, probeSetupRuntime, runSetupDoctor, SkillEvidence, type DoctorReport } from './onboarding-runtime.ts'
+import { checkModels, describeEffort, probeSetupRuntime, runSetupDoctor, SkillEvidence, type DoctorReport } from './onboarding-runtime.ts'
 import { normalizeCall, type WorkflowEvent } from './protocol.ts'
 import { REVIEWER } from './review.ts'
 import { sessionQueue } from './serial.ts'
@@ -134,7 +134,8 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
             const issues = gates(plan.request.choices, runtime, context.sessionID, false, checkpoint)
             if (issues.length) return respond({ ready: false, issues, unverified: external })
           }
-          return respond({ ...plan, ready: false, issues: [], unverified: ['计划尚未应用；请向用户说明目标摘要、范围与冲突后，使用此 id 作为 planID 申请权限', ...planningNotes(plan)] })
+          const effort = plan.request.kind === 'configure' ? { effort: describeEffort(plan.request.choices, runtime.models) } : {}
+          return respond({ ...plan, ...effort, ready: false, issues: [], unverified: ['计划尚未应用；请向用户说明目标摘要、范围与冲突后，使用此 id 作为 planID 申请权限', ...planningNotes(plan)] })
         }
         if (action === 'apply') {
           if (typeof input.planID !== 'string') throw new Error('apply 必须指定已预览的具体 planID，不能默认应用上次计划')
