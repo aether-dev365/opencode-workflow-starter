@@ -1,5 +1,8 @@
+import ast
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -192,3 +195,16 @@ class EntryImports(unittest.TestCase):
                     result = repo.run(here / entry, '--all')
                     self.assertEqual((result.returncode, result.stdout, result.stderr),
                                      (2, '', f'{name}未完成：质量扩展文件不完整（{error}）\n'))
+
+    def test_old_python_is_told_the_required_version(self):
+        # 共用模块用到 3.10 的写法，旧版本导入时的报错会被误读成文件不完整；入口须能在 3.9 语法下解析到版本检查。
+        repo = TempRepo(); self.addCleanup(repo.close)
+        here = repo.install_scripts()
+        for entry, name in self.ENTRIES.items():
+            with self.subTest(entry=entry):
+                ast.parse((here / entry).read_text(encoding='utf-8'), feature_version=(3, 9))
+                code = ('import runpy, sys\nsys.version_info = (3, 9, 18, "final", 0)\n'
+                        f'sys.argv = [{str(here / entry)!r}, "--all"]\nrunpy.run_path(sys.argv[0], run_name="__main__")\n')
+                result = subprocess.run([sys.executable, '-c', code], cwd=repo.root, env=repo.env,
+                                        encoding='utf-8', errors='replace', capture_output=True, timeout=60)
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (2, '', f'{name}未完成：需要 Python 3.10 或更高版本\n'))

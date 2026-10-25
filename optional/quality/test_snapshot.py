@@ -117,6 +117,11 @@ class Snapshots(unittest.TestCase):
             snapshot.collect_files(clone, ('range', 'origin/main..origin/side'))
         self.assertIn('浅克隆', caught.exception.args[0])
 
+    def test_worktree_paths_ignore_regular_files_outside_the_snapshot(self):
+        self.repo.write('a.txt', 'a\n'); self.repo.commit()
+        c = self.collect('all', None)
+        self.assertEqual(c.after.paths(c.changed + ('outside.txt',)), ('a.txt',))
+
     def test_initial_staged_and_merge_commit(self):
         self.repo.write('a.txt', 'initial'); self.repo.git('add', '.')
         c = self.collect('staged', None)

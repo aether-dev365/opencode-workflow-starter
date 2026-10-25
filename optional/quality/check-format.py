@@ -10,8 +10,10 @@ import subprocess
 import time
 from typing import Callable
 
-# 共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
+# 共用模块需要 Python 3.10+；版本过低、共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
 try:
+    if sys.version_info < (3, 10):
+        raise ImportError
     from quality_lib import ConfigError, Incomplete, glob_match, load_config, parse_mode, path_selected, repo_root, utf8_stdio
     from quality_process import OutputBuffer, resolve_executable, run_process, termination_flag
     from quality_snapshot import collect_files
@@ -19,7 +21,8 @@ except Exception as error:
     reconfigure = getattr(sys.stderr, 'reconfigure', None)
     if reconfigure:
         reconfigure(encoding='utf-8', errors='backslashreplace', newline='\n')
-    print(f'格式检查未完成：质量扩展文件不完整（{type(error).__name__}）', file=sys.stderr)
+    reason = '需要 Python 3.10 或更高版本' if sys.version_info < (3, 10) else f'质量扩展文件不完整（{type(error).__name__}）'
+    print(f'格式检查未完成：{reason}', file=sys.stderr)
     sys.exit(2)
 
 
@@ -122,7 +125,8 @@ def main(argv: list[str], *, here: Path | None = None, cwd: Path | None = None, 
         hook, fix = '--hook' in argv, '--fix' in argv
         if hook and fix:
             raise Incomplete('--hook 与 --fix 不能一起使用')
-        mode = parse_mode([arg for arg in argv if arg not in ('--hook', '--fix')])
+        mode = parse_mode([arg for arg in argv if arg not in ('--hook', '--fix')],
+                          description='对改动的文件运行登记的格式命令；--fix 改为运行登记的修复命令，--hook 只运行 hook 为 true 的项')
         root = repo_root(cwd or Path.cwd())
         here = (here or Path(__file__).parent).resolve()
         config = load_config(here, root=root)

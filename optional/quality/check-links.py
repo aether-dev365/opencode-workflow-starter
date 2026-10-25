@@ -5,8 +5,10 @@ sys.dont_write_bytecode = True
 
 from pathlib import Path, PurePosixPath
 
-# 共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
+# 共用模块需要 Python 3.10+；版本过低、共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
 try:
+    if sys.version_info < (3, 10):
+        raise ImportError
     from quality_lib import ConfigError, Incomplete, glob_match, load_config, parse_mode, path_selected, repo_root, utf8_stdio
     from quality_links import OutsideRoot, escape_display, extract_links, resolve_target
     from quality_snapshot import collect_files
@@ -14,14 +16,15 @@ except Exception as error:
     reconfigure = getattr(sys.stderr, 'reconfigure', None)
     if reconfigure:
         reconfigure(encoding='utf-8', errors='backslashreplace', newline='\n')
-    print(f'链接检查未完成：质量扩展文件不完整（{type(error).__name__}）', file=sys.stderr)
+    reason = '需要 Python 3.10 或更高版本' if sys.version_info < (3, 10) else f'质量扩展文件不完整（{type(error).__name__}）'
+    print(f'链接检查未完成：{reason}', file=sys.stderr)
     sys.exit(2)
 
 
 def main(argv: list[str], *, here: Path | None = None, cwd: Path | None = None) -> int:
     utf8_stdio()
     try:
-        mode = parse_mode(argv)
+        mode = parse_mode(argv, description='检查改动的文档中本地链接的目标是否存在')
         root = repo_root(cwd or Path.cwd())
         here = (here or Path(__file__).parent).resolve()
         config = load_config(here, root=root)

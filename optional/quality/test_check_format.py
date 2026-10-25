@@ -39,6 +39,12 @@ class Formatting(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.log.read_text(encoding='utf-8').splitlines()] if self.log.exists() else []
 
+    def test_help_describes_the_format_check(self):
+        out = self.run_format('--help')
+        self.assertIn('对改动的文件运行登记的格式命令', out)
+        self.assertIn('--fix', out); self.assertIn('--hook', out)
+        self.assertNotIn('检查新增或改动的行', out)
+
     def test_default_and_empty_selection_are_successful(self):
         self.assertEqual(self.run_format(), '格式检查：没有登记格式命令。\n')
         self.configure([self.entry()])

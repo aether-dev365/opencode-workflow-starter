@@ -255,8 +255,8 @@ def _mode(args) -> Mode:
     return 'commit', args.commit if args.commit is not None else 'HEAD'
 
 
-def parse_mode(argv: list[str]) -> Mode:
-    return _mode(_mode_parser().parse_args(argv))
+def parse_mode(argv: list[str], *, description='检查新增或改动的行') -> Mode:
+    return _mode(_mode_parser(description).parse_args(argv))
 
 
 def parse_line_options(argv: list[str], *, description='检查新增或改动的行',

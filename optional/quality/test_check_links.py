@@ -24,6 +24,11 @@ class LinkChecks(unittest.TestCase):
     def configure(self, **values):
         (self.here / 'quality.json').write_text(json.dumps({'version': 1, **values}), encoding='utf-8')
 
+    def test_help_describes_the_link_check(self):
+        out = self.run_links('--help')
+        self.assertIn('检查改动的文档中本地链接的目标是否存在', out)
+        self.assertNotIn('检查新增或改动的行', out)
+
     def test_link_defaults_and_invalid_config(self):
         self.configure(links={'unknown': []})
         self.assertIn('配置无效：links.unknown', self.run_links('--all', code=2))
