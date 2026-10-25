@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   linux:
-    # 全量验收：插件、守卫、分发、接入，以及固定版本 OpenCode CLI 的原生测试。
+    # 全量验收：插件、守卫、质量扩展、分发、接入、固定版本 OpenCode CLI 的原生测试和关联检查。
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -88,7 +88,7 @@ jobs:
           include-hidden-files: true
 
   windows:
-    # Windows 子集：typecheck、插件测试、守卫（依赖 bash 的 3 个用例跳过）、接入；在 PowerShell 中执行，与文档给 Windows 用户的命令一致。
+    # Windows 子集：typecheck、插件测试、守卫（依赖 bash 的 3 个用例跳过）、质量扩展、接入和关联检查；在 PowerShell 中执行，与文档给 Windows 用户的命令一致。
     runs-on: windows-2025
     timeout-minutes: 30
     defaults:
