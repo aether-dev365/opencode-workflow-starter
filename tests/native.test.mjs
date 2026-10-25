@@ -237,7 +237,7 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
       git(h, ['commit', '-qm', 'candidate'])
       const tree = git(h, ['rev-parse', 'HEAD^{tree}'])
       put(join(h.directory, '.opencode/workflow/.state/verify.log'), 'native fixture verification\n')
-      put(join(h.directory, '.opencode/workflow/.state/evidence.json'), JSON.stringify({ version: 1, base: h.base, tree, entries: [{ id: 'native', units: ['core', 'tests'], kind: 'test', command: 'native fixture', cwd: '.', exit: 0, inputs: {}, files: ['.opencode/workflow/.state/verify.log'] }] }))
+      put(join(h.directory, '.opencode/workflow/.state/evidence.json'), JSON.stringify({ version: 1, base: h.base, tree, entries: [{ id: 'native', units: ['core', 'tests', 'sync'], kind: 'test', command: 'native fixture', cwd: '.', exit: 0, inputs: {}, files: ['.opencode/workflow/.state/verify.log'] }] }))
       const denied = await runCase(h, [[{ name: 'workflow_release', input: { entry: 'demo' } }]])
       assert.match(denied.toolResults, /release/)
       assert.equal(existsSync(join(h.directory, '.opencode/workflow/.state/deployed')), false)

@@ -179,6 +179,21 @@ test('post-commit and CI run the same quality check entries', () => {
   assert.ok(entries('optional/ci/run-quality.py').includes('check-sync.py'))
 })
 
+test('the template review routes the sync unit over every changed path', async () => {
+  const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
+  const { planTasks } = await import('../template/.opencode/plugins/workflow/review-batches.ts')
+  const root = mkdtempSync(join(tmpdir(), 'workflow-sync-review-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    const config = await loadProjectConfig(root)
+    assert.deepEqual(config.catalog.sync, { group: 'core', checklist: 'sync.md' })
+    const paths = ['src/a.ts', 'docs/workflow/onboarding.md', '.opencode/skills/workflow-onboarding/SKILL.md']
+    assert.deepEqual(planTasks(paths, config.routing).find(task => task.id === 'sync'), { id: 'sync', unitId: 'sync', paths })
+    const checklist = readFileSync('template/.opencode/workflow/review/checklists/sync.md', 'utf8')
+    for (const text of ['quality.json', 'sync 登记', '不阻断']) assert.ok(checklist.includes(text), text)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('the comment checklist joins the review catalog as the quality README describes', async () => {
   const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
   const root = mkdtempSync(join(tmpdir(), 'workflow-quality-'))

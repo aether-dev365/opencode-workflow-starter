@@ -4,6 +4,7 @@
   "units": [
     { "id": "core", "areas": ["*"] },
     { "id": "tests", "areas": ["*"] },
-    { "id": "workflow", "areas": ["workflow"] }
+    { "id": "workflow", "areas": ["workflow"] },
+    { "id": "sync", "areas": ["*"] }
   ]
 }
