@@ -105,7 +105,17 @@ class Snapshots(unittest.TestCase):
         self.repo.git('checkout', '-q', '--orphan', 'other'); self.repo.write('b.txt', 'b\n'); right = self.repo.commit()
         with self.assertRaises(Incomplete) as caught:
             self.collect('range', f'{left}..{right}')
-        self.assertEqual(caught.exception.args, ('范围两端没有共同历史',))
+        self.assertEqual(caught.exception.args, ('范围两端找不到共同历史（浅克隆需先补全历史）',))
+
+    def test_shallow_range_points_to_missing_history(self):
+        self.repo.write('a.txt', 'a\n'); self.repo.commit()
+        self.repo.git('checkout', '-q', '-b', 'side'); self.repo.write('b.txt', 'b\n'); self.repo.commit()
+        self.repo.git('checkout', '-q', 'main'); self.repo.write('c.txt', 'c\n'); self.repo.commit()
+        clone = self.repo.root.parent / 'clone'
+        self.repo.git('clone', '-q', '--depth', '1', '--no-single-branch', self.repo.root.as_uri(), str(clone))
+        with self.assertRaises(Incomplete) as caught:
+            snapshot.collect_files(clone, ('range', 'origin/main..origin/side'))
+        self.assertIn('浅克隆', caught.exception.args[0])
 
     def test_initial_staged_and_merge_commit(self):
         self.repo.write('a.txt', 'initial'); self.repo.git('add', '.')

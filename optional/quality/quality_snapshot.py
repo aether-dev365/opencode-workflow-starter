@@ -224,7 +224,7 @@ def collect_files(root: Path, mode: Mode) -> FileChanges:
         if len(parts) != 2 or not all(parts) or '...' in rev:
             raise Incomplete('修订号无效')
         left, right = (_revision(root, p) for p in parts)
-        before_rev = git_bytes(root, 'merge-base', left, right, reason='范围两端没有共同历史').decode('ascii').strip()
+        before_rev = git_bytes(root, 'merge-base', left, right, reason='范围两端找不到共同历史（浅克隆需先补全历史）').decode('ascii').strip()
         if not OID.fullmatch(before_rev):
             raise Incomplete('git 合并基点无效')
         after = Snapshot(root, _entries(root, right))
