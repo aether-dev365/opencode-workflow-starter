@@ -24,10 +24,10 @@ type Built = { plan: SetupPlan; observations: Observation[]; writes: Write[]; ho
 type Saved = { version: 1; root: string; global: Area; plan: SetupPlan; observations: Observation[]; hookState?: string }
 const STATE = '.opencode/workflow/.state/onboarding'
 const CONFIGS = ['opencode.json', 'opencode.jsonc']
-const QUALITY = [
-  'check-format.py', 'check-links.py', 'check-skips.py', 'install-hooks.py', 'quality_lexer.py', 'quality_lib.py', 'quality_links.py',
-  'quality_process.py', 'quality_snapshot.py', 'quality_testing.py', 'review-comments.py', 'run-hook.py',
-  'test_changes.py', 'test_check_format.py', 'test_check_links.py', 'test_check_skips.py', 'test_git_compat.py', 'test_install_hooks.py',
+export const QUALITY = [
+  'check-format.py', 'check-links.py', 'check-skips.py', 'check-sync.py', 'install-hooks.py', 'quality_lexer.py', 'quality_lib.py', 'quality_links.py',
+  'quality_process.py', 'quality_snapshot.py', 'quality_sync.py', 'quality_testing.py', 'review-comments.py', 'run-hook.py',
+  'test_changes.py', 'test_check_format.py', 'test_check_links.py', 'test_check_skips.py', 'test_check_sync.py', 'test_git_compat.py', 'test_install_hooks.py',
   'test_lexer.py', 'test_lib.py', 'test_links.py', 'test_paths.py', 'test_process.py', 'test_process_hook.py', 'test_review_comments.py',
   'test_run_hook.py', 'test_snapshot.py', 'test_stdio.py', 'test_strict.py', 'test_testing.py', 'quality.example.json',
 ]

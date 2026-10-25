@@ -158,6 +158,11 @@ test('同名不同内容完整预检，质量或 CI 冲突不得先写 profile',
   await absent(join(f.root, config.SETUP_PROFILE)); await absent(join(f.root, 'scripts/quality/run-hook.py'))
 })
 
+test('就绪白名单与套件质量扩展的实际文件一致', async () => {
+  const actual = (await readdir(join(suite, 'optional/quality'))).filter(name => name.endsWith('.py') || name === 'quality.example.json').sort()
+  assert.deepEqual([...files.QUALITY].sort(), actual)
+})
+
 test('质量复制全部常规 py 与 example，CI 只复制四个白名单文件', async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   await writeFile(join(source, 'optional/quality/extra.py'), '# additional module\n')
