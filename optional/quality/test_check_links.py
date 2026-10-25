@@ -26,7 +26,7 @@ class LinkChecks(unittest.TestCase):
 
     def test_help_describes_the_link_check(self):
         out = self.run_links('--help')
-        self.assertIn('检查改动的文档中本地链接的目标是否存在', out)
+        self.assertIn('检查所选范围内文档中本地链接的目标是否存在', out)
         self.assertNotIn('检查新增或改动的行', out)
 
     def test_link_defaults_and_invalid_config(self):

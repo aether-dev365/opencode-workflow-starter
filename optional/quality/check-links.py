@@ -3,8 +3,6 @@
 import sys
 sys.dont_write_bytecode = True
 
-from pathlib import Path, PurePosixPath
-
 # 共用模块需要 Python 3.10+；版本过低、共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
 try:
     if sys.version_info < (3, 10):
@@ -20,11 +18,13 @@ except Exception as error:
     print(f'链接检查未完成：{reason}', file=sys.stderr)
     sys.exit(2)
 
+from pathlib import Path, PurePosixPath
+
 
 def main(argv: list[str], *, here: Path | None = None, cwd: Path | None = None) -> int:
     utf8_stdio()
     try:
-        mode = parse_mode(argv, description='检查改动的文档中本地链接的目标是否存在')
+        mode = parse_mode(argv, description='检查所选范围内文档中本地链接的目标是否存在')
         root = repo_root(cwd or Path.cwd())
         here = (here or Path(__file__).parent).resolve()
         config = load_config(here, root=root)

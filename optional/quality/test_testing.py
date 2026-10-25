@@ -58,3 +58,12 @@ class InheritedGitEnvironment(unittest.TestCase):
         result = subprocess.run([sys.executable, '-m', 'unittest', 'test_snapshot.Snapshots.test_change_events_compare_snapshot_entries'],
                                 cwd=HERE, env=env, encoding='utf-8', errors='replace', capture_output=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_in_process_git_ignores_the_callers_global_config(self):
+        home = TempRepo(); self.addCleanup(home.close)
+        excludes = home.write('ignore', '*.md\n*.txt\n')
+        home.write('.gitconfig', f'[core]\n\texcludesFile = {excludes.as_posix()}\n')
+        env = {**os.environ, 'HOME': str(home.root), 'USERPROFILE': str(home.root)}
+        result = subprocess.run([sys.executable, '-m', 'unittest', 'test_snapshot.Snapshots.test_all_source_list_and_target_namespace'],
+                                cwd=HERE, env=env, encoding='utf-8', errors='replace', capture_output=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

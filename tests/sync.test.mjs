@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { makeRepo } from './fixtures/ci-fixture.mjs'
 
@@ -65,16 +66,24 @@ test('an unreadable working directory is reported as such', t => {
   assert.equal(result.stderr, '关联检查未完成：无法读取当前目录（FileNotFoundError）\n')
 })
 
-test('a branch name git cannot receive is incomplete without a traceback', t => {
-  const result = patched(setup(t), [
-    'import subprocess', 'real = subprocess.run',
+test('branch names read from git are never passed back to it', t => {
+  // Windows 上不是合法 UTF-8 的引用名回传给 git 时可能被改写，查到别的分支却不报错；上游只用 @{upstream} 解析。
+  const r = setup(t); advance(r)
+  r.git('checkout', '-q', '-b', 'feature/中文')
+  r.git('config', 'remote.origin.url', r.temp); r.git('config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
+  r.git('config', 'branch.feature/中文.remote', 'origin'); r.git('config', 'branch.feature/中文.merge', 'refs/heads/main')
+  const log = join(r.temp, 'git-args.json')
+  const result = patched(r, [
+    'import json, subprocess', 'real, seen = subprocess.run, []',
     'def run(args, *rest, **options):',
-    "    if 'for-each-ref' in args:",
-    "        raise UnicodeEncodeError('utf-16', 'x', 0, 1, 'surrogates not allowed')",
+    '    seen.append([str(arg) for arg in args])',
+    `    open(${JSON.stringify(log)}, 'w', encoding='utf-8').write(json.dumps(seen))`,
     '    return real(args, *rest, **options)',
     'subprocess.run = run'].join('\n'))
-  assert.equal(result.status, 2, result.stdout + result.stderr)
-  assert.equal(result.stderr, '关联检查未完成：无法运行 git（UnicodeEncodeError）\n')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /1 条需要确认同步/)
+  const args = JSON.parse(readFileSync(log, 'utf8')).flat()
+  assert.ok(args.length && !args.some(arg => arg.includes('中文')), args.join(' '))
 })
 
 test('a stale registry fails the suite entry', t => {

@@ -203,8 +203,12 @@ class EntryImports(unittest.TestCase):
         for entry, name in self.ENTRIES.items():
             with self.subTest(entry=entry):
                 ast.parse((here / entry).read_text(encoding='utf-8'), feature_version=(3, 9))
-                code = ('import runpy, sys\nsys.version_info = (3, 9, 18, "final", 0)\n'
-                        f'sys.argv = [{str(here / entry)!r}, "--all"]\nrunpy.run_path(sys.argv[0], run_name="__main__")\n')
+                # 旧版本可能缺少新的标准库模块：拦截入口自己的全部新导入，版本检查必须先于它们执行。
+                code = ('import sys\nsys.version_info = (3, 9, 18, "final", 0)\n'
+                        f'path = {str(here / entry)!r}\nsource = open(path, encoding="utf-8").read()\n'
+                        'class Block:\n    def find_spec(self, name, *args):\n        raise ImportError(name)\n'
+                        'sys.argv = [path, "--all"]\nsys.meta_path.insert(0, Block())\n'
+                        'exec(compile(source, path, "exec"), {"__name__": "__main__", "__file__": path})\n')
                 result = subprocess.run([sys.executable, '-c', code], cwd=repo.root, env=repo.env,
                                         encoding='utf-8', errors='replace', capture_output=True, timeout=60)
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (2, '', f'{name}未完成：需要 Python 3.10 或更高版本\n'))

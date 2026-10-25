@@ -41,7 +41,7 @@ class Formatting(unittest.TestCase):
 
     def test_help_describes_the_format_check(self):
         out = self.run_format('--help')
-        self.assertIn('对改动的文件运行登记的格式命令', out)
+        self.assertIn('对所选范围内的文件运行登记的格式命令', out); self.assertIn('不能同时使用', out)
         self.assertIn('--fix', out); self.assertIn('--hook', out)
         self.assertNotIn('检查新增或改动的行', out)
 

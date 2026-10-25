@@ -19,17 +19,9 @@ def git_status(root: Path, *args: str) -> tuple[int, str]:
 
 def upstream(root: Path) -> str | None:
     # 当前分支的上游优先；分离 HEAD、没有配置上游或上游分支已删除时回退到 origin/main。CI 的 PR 检出两者都没有，push 检出的上游就是 HEAD。
-    # 只有引用确实不存在才回退：引用存在却解析不到提交、Git 查询出错都报告未完成，不能当成没有上游。
-    names = []
-    code, branch = git_status(root, 'symbolic-ref', '--quiet', 'HEAD')
-    if code == 0:
-        code, name = git_status(root, 'for-each-ref', '--format=%(upstream)', branch)
-        if code:
-            raise Incomplete('读取上游配置失败')
-        names += [name] if name else []
-    elif code != 1:
-        raise Incomplete('读取当前分支失败')
-    for name in names + ['refs/remotes/origin/main']:
+    # 只有引用确实不存在（rev-parse --verify --quiet 退出 1）才回退：引用存在却解析不到提交、Git 查询出错都报告未完成，不能当成没有上游。
+    # 上游用 @{upstream} 直接解析，不把读出的分支名传回 git：Windows 上不是合法 UTF-8 的引用名回传时可能被改写。
+    for name in ('@{upstream}', 'refs/remotes/origin/main'):
         code, _ = git_status(root, 'rev-parse', '--verify', '--quiet', name)
         if code == 1:
             continue
@@ -57,8 +49,7 @@ def run() -> int:
     except Incomplete as error:
         print('关联检查未完成：' + error.args[0], file=sys.stderr)
         return 2
-    # ValueError 来自参数无法传给 git，例如 Windows 上含非法字节的分支名。
-    except (OSError, ValueError) as error:
+    except OSError as error:
         print(f'关联检查未完成：无法运行 git（{type(error).__name__}）', file=sys.stderr)
         return 2
     if base is None:

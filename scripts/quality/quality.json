@@ -9,10 +9,12 @@
       "message": "升级 OpenCode 基线时同步 CLI 发布包校验值和锁文件；只改套件版本号时校验值不用改" },
     { "id": "doctor-report", "paths": ["template/scripts/workflow/doctor.mjs"], "related": ["ADOPT.md"],
       "message": "doctor 新增或调整检查项时，同步 ADOPT.md 中接入报告对 warn 和 unverified 的处理要求" },
-    { "id": "verify-stages", "paths": ["scripts/verify.mjs", "scripts/check-sync.py"], "related": ["CONTRIBUTING.md", ".github/workflows/ci.yml"],
-      "message": "verify 阶段变化要同步 CONTRIBUTING 的本地验证和 Windows 子集说明，以及 CI 配置中列出阶段的注释" },
-    { "id": "suite-ci", "paths": [".github/workflows/ci.yml"], "related": ["CONTRIBUTING.md"],
-      "message": "CI 的触发事件、检出方式、平台或 Python 版本变化时，同步 CONTRIBUTING 的 CI 说明与关联检查的上游说明" },
+    { "id": "verify-stages", "paths": ["scripts/verify.mjs"], "related": ["CONTRIBUTING.md", ".github/workflows/ci.yml", "README.md"],
+      "message": "verify 阶段变化要同步 CONTRIBUTING 的本地验证和 Windows 子集说明、CI 配置中列出阶段的注释，以及 README 的平台验证说明" },
+    { "id": "suite-sync-entry", "paths": ["scripts/check-sync.py"], "related": ["CONTRIBUTING.md"],
+      "message": "套件关联检查入口的行为变化要同步 CONTRIBUTING 的关联检查说明" },
+    { "id": "suite-ci", "paths": [".github/workflows/ci.yml"], "related": ["CONTRIBUTING.md", "README.md"],
+      "message": "CI 的触发事件、检出方式、平台或 Python 版本变化时，同步 CONTRIBUTING 的 CI 与关联检查上游说明，以及 README 的平台验证说明" },
     { "id": "contributing-summary", "paths": ["CONTRIBUTING.md"], "related": ["AGENTS.md"],
       "message": "AGENTS.md 摘录了最容易做错的贡献规则；CONTRIBUTING 的规则变化时核对摘录" },
     { "id": "onboarding", "paths": ["template/.opencode/plugins/workflow/onboarding*.ts"],
@@ -32,6 +34,6 @@
     { "id": "ci-template", "paths": ["optional/ci/*"], "exclude": ["optional/ci/README.md"], "related": ["optional/ci/README.md"],
       "message": "接入方 CI 的行为变化要同步 CI README" },
     { "id": "release-extension", "paths": ["template/.opencode/plugins/workflow/release.ts", "template/.opencode/plugins/workflow/evidence.ts", "optional/release/*.example.json"],
-      "related": ["optional/release/README.md"], "message": "发布核查与证据规则变化要同步发布扩展 README" }
+      "related": ["optional/release/README.md"], "message": "发布核查、证据规则或证据示例变化要同步发布扩展 README" }
   ]
 }

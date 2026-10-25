@@ -3,9 +3,6 @@
 import sys
 sys.dont_write_bytecode = True
 
-from pathlib import Path, PurePosixPath
-import re
-
 # 共用模块需要 Python 3.10+；版本过低、共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
 try:
     if sys.version_info < (3, 10):
@@ -19,6 +16,9 @@ except Exception as error:
     reason = '需要 Python 3.10 或更高版本' if sys.version_info < (3, 10) else f'质量扩展文件不完整（{type(error).__name__}）'
     print(f'跳过测试检查未完成：{reason}', file=sys.stderr)
     sys.exit(2)
+
+from pathlib import Path, PurePosixPath
+import re
 
 
 MESSAGES = {

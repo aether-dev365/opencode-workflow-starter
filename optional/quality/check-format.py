@@ -3,13 +3,6 @@
 import sys
 sys.dont_write_bytecode = True
 
-from dataclasses import dataclass
-import os
-from pathlib import Path
-import subprocess
-import time
-from typing import Callable
-
 # 共用模块需要 Python 3.10+；版本过低、共用模块缺失或版本不配套时，未捕获的导入错误会以 1 退出，被 CI 当成有发现；这里明确报告未完成。
 try:
     if sys.version_info < (3, 10):
@@ -24,6 +17,13 @@ except Exception as error:
     reason = '需要 Python 3.10 或更高版本' if sys.version_info < (3, 10) else f'质量扩展文件不完整（{type(error).__name__}）'
     print(f'格式检查未完成：{reason}', file=sys.stderr)
     sys.exit(2)
+
+from dataclasses import dataclass
+import os
+from pathlib import Path
+import subprocess
+import time
+from typing import Callable
 
 
 def command_batches(argv: list[str], files: list[str], *, os_name=None, max_length=12000) -> list[list[str]]:
@@ -126,7 +126,7 @@ def main(argv: list[str], *, here: Path | None = None, cwd: Path | None = None, 
         if hook and fix:
             raise Incomplete('--hook 与 --fix 不能一起使用')
         mode = parse_mode([arg for arg in argv if arg not in ('--hook', '--fix')],
-                          description='对改动的文件运行登记的格式命令；--fix 改为运行登记的修复命令，--hook 只运行 hook 为 true 的项')
+                          description='对所选范围内的文件运行登记的格式命令；--fix 改为运行登记的修复命令，--hook 只运行 hook 为 true 的项，两者不能同时使用')
         root = repo_root(cwd or Path.cwd())
         here = (here or Path(__file__).parent).resolve()
         config = load_config(here, root=root)
