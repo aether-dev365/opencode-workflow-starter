@@ -2,6 +2,7 @@
 
 import json
 import argparse
+import functools
 import os
 import ntpath
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from quality_lexer import family
 
 COMMENT_RULE_IDS = ('document', 'tracking', 'process', 'generator')
 SKIP_CATEGORIES = ('skip', 'focus', 'expected-failure')
+SYNC_EVENTS = ('add', 'modify', 'delete')
 EXCLUDED = set(('node_modules vendor third_party dist build out target coverage __pycache__ '
                 '.venv venv .next .nuxt generated').split())
 
@@ -26,7 +28,7 @@ class ConfigError(Exception):
 def default_config() -> dict:
     return {'version': 1, 'include': ['*'], 'exclude': [], 'timeoutSeconds': 30,
             'comments': {'disable': [], 'extraRules': []}, 'skips': {'disable': [], 'extraMarkers': []},
-            'formats': [], 'links': {'exclude': [], 'ignoreTargets': []}}
+            'formats': [], 'links': {'exclude': [], 'ignoreTargets': []}, 'sync': []}
 
 
 def _object(value, allowed, field):
@@ -115,6 +117,29 @@ def load_config(directory: Path, *, root: Path | None = None) -> dict:
         if type(timeout) is not int or not 1 <= timeout <= 600:
             raise ConfigError(field + '.timeoutSeconds')
         config['formats'].append({**result, 'cwd': cwd, 'hook': hook, 'timeoutSeconds': timeout})
+    sync = data.get('sync', [])
+    if not isinstance(sync, list):
+        raise ConfigError('sync')
+    sync_ids = set()
+    for n, entry in enumerate(sync):
+        field = f'sync[{n}]'
+        _object(entry, ('id', 'paths', 'exclude', 'related', 'message', 'on'), field)
+        ident = entry.get('id')
+        if not isinstance(ident, str) or not re.fullmatch('[a-z][a-z0-9-]*', ident) or ident in sync_ids:
+            raise ConfigError(field + '.id')
+        sync_ids.add(ident)
+        result = {'id': ident}
+        for key in ('paths', 'exclude', 'related'):
+            result[key] = _strings(entry.get(key, [] if key == 'exclude' else None), f'{field}.{key}')
+            if key != 'exclude' and not result[key]:
+                raise ConfigError(f'{field}.{key}')
+        if not isinstance(entry.get('message'), str) or not entry['message']:
+            raise ConfigError(field + '.message')
+        result['message'] = entry['message']
+        result['on'] = _strings(entry.get('on', list(SYNC_EVENTS)), field + '.on', SYNC_EVENTS)
+        if not result['on']:
+            raise ConfigError(field + '.on')
+        config['sync'].append(result)
     used = set(COMMENT_RULE_IDS + SKIP_CATEGORIES)
     for section, extra, ids in [('comments', 'extraRules', COMMENT_RULE_IDS), ('skips', 'extraMarkers', SKIP_CATEGORIES)]:
         if section not in data:
@@ -152,9 +177,13 @@ def load_config(directory: Path, *, root: Path | None = None) -> dict:
     return config
 
 
+@functools.lru_cache(maxsize=None)
+def glob_regex(pattern: str) -> re.Pattern[str]:
+    return re.compile(''.join('.*' if ch == '*' else '.' if ch == '?' else re.escape(ch) for ch in pattern), re.DOTALL)
+
+
 def glob_match(pattern: str, path: str) -> bool:
-    regex = ''.join('.*' if ch == '*' else '.' if ch == '?' else re.escape(ch) for ch in pattern)
-    return re.fullmatch(regex, path, re.DOTALL) is not None
+    return glob_regex(pattern).fullmatch(path) is not None
 
 
 def path_selected(path: str, config: dict) -> bool:

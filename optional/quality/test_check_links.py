@@ -28,6 +28,10 @@ class LinkChecks(unittest.TestCase):
         self.configure(links={'unknown': []})
         self.assertIn('配置无效：links.unknown', self.run_links('--all', code=2))
 
+    def test_invalid_sync_config_is_reported_by_other_checks(self):
+        self.configure(sync=[{'id': 'a', 'paths': [], 'related': ['b'], 'message': 'm'}])
+        self.assertIn('配置无效：sync[0].paths', self.run_links('--all', code=2))
+
     def test_supported_syntax_reports_missing_and_accepts_existing_targets(self):
         cases = [('[![badge](badge.svg)](page.md)', ['badge.svg', 'page.md']),
                  ('[wrapped\nlabel](page.md)', ['page.md']),

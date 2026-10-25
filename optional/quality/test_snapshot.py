@@ -15,6 +15,46 @@ class Snapshots(unittest.TestCase):
     def collect(self, kind='commit', rev='HEAD'):
         return snapshot.collect_files(self.repo.root, (kind, rev))
 
+    def test_change_events_compare_snapshot_entries(self):
+        for name in ('a.txt', 'b.txt', 'gone.txt'):
+            self.repo.write(name, name + '\n')
+        self.repo.commit()
+        self.repo.write('a.txt', 'changed\n')
+        self.repo.git('mv', 'b.txt', 'c.txt'); self.repo.write('c.txt', 'rewritten entirely\n')
+        self.repo.write('d.txt', 'new\n'); self.repo.git('rm', '-q', 'gone.txt')
+        self.repo.write('copy.txt', 'changed\n')
+        self.repo.commit()
+        self.assertEqual(snapshot.change_events(self.collect()),
+                         (('a.txt', 'modify'), ('b.txt', 'delete'), ('c.txt', 'add'), ('copy.txt', 'add'), ('d.txt', 'add'), ('gone.txt', 'delete')))
+
+    @NEEDS_SYMLINK
+    def test_change_events_include_links_gitlinks_and_type_changes(self):
+        self.repo.write('x', 'file\n'); first = self.repo.commit()
+        (self.repo.root / 'x').unlink(); os.symlink('target', self.repo.root / 'x')
+        self.repo.git('add', 'x')
+        self.repo.git('update-index', '--add', '--cacheinfo', f'160000,{first},sub')
+        self.repo.commit(add=False)
+        changes = self.collect()
+        self.assertEqual(snapshot.change_events(changes), (('sub', 'add'), ('x', 'modify')))
+        self.assertEqual(changes.after.paths(), ('sub', 'x'))
+
+    def test_staged_events_follow_the_index(self):
+        self.repo.write('a.txt', 'one\n'); self.repo.git('add', 'a.txt')
+        self.assertEqual(snapshot.change_events(self.collect('staged', None)), (('a.txt', 'add'),))
+        self.repo.commit()
+        self.repo.write('a.txt', 'two\n'); self.repo.git('add', 'a.txt')
+        self.repo.write('n.txt', 'later\n'); self.repo.git('add', '-N', 'n.txt')
+        self.assertEqual(snapshot.change_events(self.collect('staged', None)), (('a.txt', 'modify'),))
+
+    def test_worktree_paths_list_existing_entries_without_events(self):
+        self.repo.write('.gitignore', 'ignored.txt\n'); self.repo.write('kept.txt', ''); self.repo.write('lost.txt', '')
+        self.repo.commit()
+        (self.repo.root / 'lost.txt').unlink()
+        self.repo.write('ignored.txt', ''); self.repo.write('new.txt', '')
+        changes = self.collect('all', None)
+        self.assertEqual(changes.after.paths(), ('.gitignore', 'kept.txt', 'new.txt'))
+        self.assertEqual(snapshot.change_events(changes), ())
+
     def test_file_changes_keep_deletions_empty_files_and_renames(self):
         self.repo.write('a.txt', 'one\ntwo\n')
         self.repo.write('old.md', 'unique document\n')

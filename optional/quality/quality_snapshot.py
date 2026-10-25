@@ -72,6 +72,11 @@ class Snapshot:
                     pass
         return tuple(sorted(set(result)))
 
+    def paths(self) -> tuple[str, ...]:
+        if not self._worktree:
+            return tuple(sorted(self._entries))
+        return tuple(sorted(p for p in set(self._sources) if self.exists(p)))
+
     def exists(self, path: str) -> bool:
         if not self._worktree:
             return path in self._entries or path in self._directories
@@ -129,6 +134,17 @@ class FileChanges:
     changed: tuple[str, ...]
     removed: tuple[str, ...]
     merge: bool = False
+
+
+def change_events(changes: FileChanges) -> tuple[tuple[str, str], ...]:
+    """按两侧快照条目（mode、oid）之差给出新增、修改、删除；工作区快照没有改动前一侧，返回空。"""
+    if changes.after._worktree:
+        return ()
+    before, after = changes.before._entries, changes.after._entries
+    events = [(path, 'delete') for path in before.keys() - after.keys()]
+    events += [(path, 'add') for path in after.keys() - before.keys()]
+    events += [(path, 'modify') for path in before.keys() & after.keys() if before[path] != after[path]]
+    return tuple(sorted(events))
 
 
 def _entries(root, revision=None, *, staged=False):

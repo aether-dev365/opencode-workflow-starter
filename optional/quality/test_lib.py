@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from quality_lib import ConfigError, default_config, glob_match, load_config, selected
+import quality_lib
 from quality_testing import config_from, NEEDS_SYMLINK
 
 HERE = Path(__file__).resolve().parent
@@ -30,6 +31,16 @@ class Config(unittest.TestCase):
         self.assertEqual((rule['id'], config['timeoutSeconds']), ('jira', 30))
         self.assertTrue(rule['regex'].search('ABC-123'))
         self.assertEqual(config['skips']['extraMarkers'][0]['category'], 'skip')
+        self.assertEqual(config['sync'], [])
+
+    def test_sync_entries_get_defaults(self):
+        self.assertEqual(default_config()['sync'], [])
+        entry = {'id': 'api', 'paths': ['src/*'], 'related': ['docs/api.md'], 'message': '接口变化要同步文档'}
+        self.assertEqual(config_from({'version': 1, 'sync': [entry]})['sync'],
+                         [{**entry, 'exclude': [], 'on': ['add', 'modify', 'delete']}])
+
+    def test_glob_patterns_compile_once(self):
+        self.assertIs(quality_lib.glob_regex('src/*'), quality_lib.glob_regex('src/*'))
 
     INVALID = [
         ('{', 'quality.json'), ('[]', 'quality.json'), ('{"version": 2}', 'version'), ('{"include": ["*"]}', 'version'),
@@ -49,6 +60,17 @@ class Config(unittest.TestCase):
         ('{"version": 1, "skips": {"extraMarkers": [{"id": "a", "pattern": "x", "category": "slow"}]}}', 'skips.extraMarkers[0].category'),
         ('{"version": 1, "skips": {"extraMarkers": [{"id": "a", "pattern": "x", "paths": "*"}]}}', 'skips.extraMarkers[0].paths'),
         ('{"version": 1, "skips": {"extraMarkers": [{"id": "skip", "pattern": "x"}]}}', 'skips.extraMarkers[0].id'),
+        ('{"version": 1, "sync": {}}', 'sync'),
+        ('{"version": 1, "sync": [{"id": "Bad", "paths": ["a"], "related": ["b"], "message": "m"}]}', 'sync[0].id'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": ["b"], "message": "m"}, {"id": "a", "paths": ["a"], "related": ["b"], "message": "m"}]}', 'sync[1].id'),
+        ('{"version": 1, "sync": [{"id": "a", "related": ["b"], "message": "m"}]}', 'sync[0].paths'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": [], "related": ["b"], "message": "m"}]}', 'sync[0].paths'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": [], "message": "m"}]}', 'sync[0].related'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "exclude": [""], "related": ["b"], "message": "m"}]}', 'sync[0].exclude[0]'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": ["b"], "message": ""}]}', 'sync[0].message'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": ["b"], "message": "m", "on": ["rename"]}]}', 'sync[0].on[0]'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": ["b"], "message": "m", "on": []}]}', 'sync[0].on'),
+        ('{"version": 1, "sync": [{"id": "a", "paths": ["a"], "related": ["b"], "message": "m", "extra": 1}]}', 'sync[0].extra'),
     ]
 
     def test_invalid_configs_name_the_field(self):
