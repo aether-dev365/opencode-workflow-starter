@@ -190,7 +190,9 @@ test('the template review routes the sync unit over every changed path', async (
     const paths = ['src/a.ts', 'docs/workflow/onboarding.md', '.opencode/skills/workflow-onboarding/SKILL.md']
     assert.deepEqual(planTasks(paths, config.routing).find(task => task.id === 'sync'), { id: 'sync', unitId: 'sync', paths })
     const checklist = readFileSync('template/.opencode/workflow/review/checklists/sync.md', 'utf8')
-    for (const text of ['quality.json', 'sync 登记', '不阻断']) assert.ok(checklist.includes(text), text)
+    for (const text of ['quality.json', 'sync 登记', '`blocking: false`', '结论仍为 pass']) assert.ok(checklist.includes(text), text)
+    // reviewer 说明与检查单对不阻断发现的提交方式一致：pass 可以附带它们，findings 只用于有阻断。
+    assert.ok(readFileSync('template/.opencode/agents/reviewer.md', 'utf8').includes('`blocking: false`'))
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
