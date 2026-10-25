@@ -31,28 +31,63 @@ test('standalone suite success requires completed nonempty unskipped tests', () 
   assert.doesNotThrow(() => assertPythonSuiteComplete(passed))
 })
 
+// 各阶段都换成会通过的桩：npm 与 python3 输出测试计数，关联检查按 SYNC_STUB 输出，tests/ 下放最小的 node 测试。
+const pythonStub = `#!/bin/sh
+case "$*" in
+  *check-sync.py*)
+    case "$SYNC_STUB" in
+      empty) echo "关联检查：没有登记关联。"; exit 0 ;;
+      stale) echo "关联检查：校验了 1 条登记，1 处登记失效。"; exit 2 ;;
+      *) echo "[sync] docs：示例"; echo "关联检查：校验了 1 条登记，0 处登记失效。"; exit 0 ;;
+    esac ;;
+esac
+echo "Ran 1 test"
+echo "OK"
+`
+function stageRoot() {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-stages-'))
+  for (const directory of ['scripts', 'bin', 'tests']) mkdirSync(join(root, directory))
+  cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
+  writeFileSync(join(root, 'bin', 'npm'), '#!/bin/sh\necho "Ran 1 test"\necho "OK"\n', { mode: 0o755 })
+  writeFileSync(join(root, 'bin', 'python3'), pythonStub, { mode: 0o755 })
+  for (const name of ['doctor', 'distribution', 'verify', 'fetch', 'ci', 'adoption', 'setup', 'native', 'onboarding', 'superpowers-fetch', 'onboarding-native', 'sync']) {
+    writeFileSync(join(root, 'tests', name + '.test.mjs'), "import {test} from 'node:test'; test('fixture', () => {})\n")
+  }
+  return root
+}
+function runStages(root, args = [], extra = {}) {
+  const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH, ...extra }
+  delete env.WORKFLOW_PYTHON
+  delete env.NODE_TEST_CONTEXT
+  const result = spawnSync(process.execPath, ['scripts/verify.mjs', ...args], { cwd: root, env, encoding: 'utf8' })
+  return { result, report: JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8')) }
+}
+
 test('verification schedules onboarding acceptance and fixed-source checks on the intended platforms', () => {
-  const root = mkdtempSync(join(tmpdir(), 'workflow-onboarding-stages-'))
+  const root = stageRoot()
   try {
-    for (const directory of ['scripts', 'bin', 'tests']) mkdirSync(join(root, directory))
-    cpSync('scripts/verify.mjs', join(root, 'scripts/verify.mjs'))
-    for (const name of ['npm', 'python3']) writeFileSync(join(root, 'bin', name), '#!/bin/sh\necho "Ran 1 test"\necho "OK"\n', { mode: 0o755 })
-    for (const name of ['doctor', 'distribution', 'verify', 'fetch', 'ci', 'adoption', 'setup', 'native', 'onboarding', 'superpowers-fetch', 'onboarding-native']) {
-      writeFileSync(join(root, 'tests', name + '.test.mjs'), "import {test} from 'node:test'; test('fixture', () => {})\n")
-    }
     for (const args of [[], ['--windows']]) {
-      const env = { ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH }
-      delete env.WORKFLOW_PYTHON
-      delete env.NODE_TEST_CONTEXT
-      const result = spawnSync(process.execPath, ['scripts/verify.mjs', ...args], { cwd: root, env, encoding: 'utf8' })
+      const { result, report } = runStages(root, args)
       assert.equal(result.status, 0, result.stdout + result.stderr)
-      const report = JSON.parse(readFileSync(join(root, '.verification/report.json'), 'utf8'))
       const stage = id => report.stages.find(entry => entry.id === id)
       assert.ok(stage('adoption').args.includes('tests/onboarding.test.mjs'))
+      assert.equal(report.stages.at(-1).id, 'sync')
       if (!args.length) {
         assert.ok(stage('distribution').args.includes('tests/superpowers-fetch.test.mjs'))
+        assert.ok(stage('distribution').args.includes('tests/sync.test.mjs'))
         assert.ok(stage('native').args.includes('tests/onboarding-native.test.mjs'))
       }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('the sync stage only reports but requires a validated registry', () => {
+  const root = stageRoot()
+  try {
+    for (const [mode, status, ok] of [['ok', 0, true], ['empty', 1, false], ['stale', 1, false]]) {
+      const { result, report } = runStages(root, [], { SYNC_STUB: mode })
+      assert.equal(result.status, status, mode + '\n' + result.stdout + result.stderr)
+      assert.deepEqual([report.stages.at(-1).id, report.stages.at(-1).ok], ['sync', ok])
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

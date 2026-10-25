@@ -15,6 +15,7 @@
 - 面向用户的文字用简体中文，标识符用英文；注释的密度和写法跟随周围代码。
 - 平台差异集中在插件的 `platform.ts` 与守卫的 `hooklib.py`、`protocol.py`。Windows 行为可注入 `platform: 'win32'` 或 `os_name='nt'` 在 Linux 上测试；子进程输出按 UTF-8 解码。
 - OpenCode 基线以 `template/.opencode/plugins/workflow/package.json` 中 `@opencode/plugin` 的版本为准，文档中的版本号由分发测试核对。
+- 文件之间的关联登记在 `scripts/quality/quality.json`；verify 末尾的关联提醒逐条核对，确认不需要同步时在提交说明里写明原因。
 
 ## 凭据与隐私
 

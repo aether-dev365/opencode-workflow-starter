@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "sync": [
+    { "id": "changelog", "paths": ["template/*", "optional/*"],
+      "exclude": ["template/.opencode/plugins/workflow/test/*", "template/.opencode/workflow/checks/test_*.py", "template/.opencode/workflow/checks/fixtures/*", "optional/quality/test_*.py"],
+      "related": ["CHANGELOG.md"], "message": "面向用户的变化写进 CHANGELOG「未发布」；只改内部实现时在提交说明里写明不记录的原因" },
+    { "id": "opencode-baseline", "paths": ["template/.opencode/plugins/workflow/package.json"],
+      "related": ["scripts/fetch-opencode.mjs", "template/.opencode/plugins/workflow/package-lock.json"],
+      "message": "升级 OpenCode 基线时同步 CLI 发布包校验值和锁文件；只改套件版本号时校验值不用改" },
+    { "id": "doctor-report", "paths": ["template/scripts/workflow/doctor.mjs"], "related": ["ADOPT.md"],
+      "message": "doctor 新增或调整检查项时，同步 ADOPT.md 中接入报告对 warn 和 unverified 的处理要求" },
+    { "id": "verify-stages", "paths": ["scripts/verify.mjs"], "related": ["CONTRIBUTING.md"],
+      "message": "verify 阶段变化要同步 CONTRIBUTING 的本地验证和 Windows 子集说明" },
+    { "id": "contributing-summary", "paths": ["CONTRIBUTING.md"], "related": ["AGENTS.md"],
+      "message": "AGENTS.md 摘录了最容易做错的贡献规则；CONTRIBUTING 的规则变化时核对摘录" },
+    { "id": "onboarding", "paths": ["template/.opencode/plugins/workflow/onboarding*.ts"],
+      "related": ["template/docs/workflow/onboarding.md", "template/.opencode/skills/workflow-onboarding/SKILL.md"],
+      "message": "接入向导行为变化要同步接入文档和向导技能" },
+    { "id": "guards", "paths": ["template/.opencode/workflow/checks/*.py"],
+      "exclude": ["template/.opencode/workflow/checks/test_*.py", "template/.opencode/workflow/checks/fixtures/*"],
+      "related": ["template/.opencode/workflow/checks/README.md"], "message": "守卫行为变化要同步守卫说明中支持的写法与拒绝规则" },
+    { "id": "quality-checks", "paths": ["optional/quality/check-*.py", "optional/quality/review-comments.py"], "on": ["add", "delete"],
+      "related": ["optional/quality/run-hook.py", "optional/ci/run-quality.py", "optional/quality/README.md", "optional/ci/README.md"],
+      "message": "增删质量检查入口要同步 post-commit 和 CI 的检查列表及两份 README" },
+    { "id": "sync-semantics", "paths": ["optional/quality/quality_sync.py"], "related": ["optional/quality/README.md"],
+      "message": "关联检查的语义变化要同步质量扩展 README 的关联登记一节" },
+    { "id": "ci-template", "paths": ["optional/ci/*"], "exclude": ["optional/ci/README.md"], "related": ["optional/ci/README.md"],
+      "message": "接入方 CI 的行为变化要同步 CI README" },
+    { "id": "release-extension", "paths": ["template/.opencode/plugins/workflow/release.ts", "template/.opencode/plugins/workflow/evidence.ts"],
+      "related": ["optional/release/README.md"], "message": "发布核查与证据规则变化要同步发布扩展 README" }
+  ]
+}

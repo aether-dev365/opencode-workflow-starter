@@ -21,11 +21,12 @@ const all = [
   ['plugin', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'test']],
   ['guards', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', checks, '-t', checks, '-p', 'test_*.py']],
   ['quality', python, [...pythonArgs, '-m', 'unittest', 'discover', '-v', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py']],
-  ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs', 'tests/superpowers-fetch.test.mjs', 'tests/ci.test.mjs']],
+  ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs', 'tests/superpowers-fetch.test.mjs', 'tests/ci.test.mjs', 'tests/sync.test.mjs']],
   ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs', 'tests/onboarding.test.mjs']],
   ['native', process.execPath, ['--test', 'tests/native.test.mjs', 'tests/onboarding-native.test.mjs']],
+  ['sync', python, [...pythonArgs, 'scripts/check-sync.py']],
 ]
-const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'quality', 'adoption'].includes(id)) : all
+const stages = subset ? all.filter(([id]) => ['typecheck', 'plugin', 'guards', 'quality', 'adoption', 'sync'].includes(id)) : all
 const mode = subset ? 'windows' : 'full'
 // 质量扩展在 Windows 子集中只允许因缺少符号链接权限而跳过：-v 输出的每条跳过原因都要是它，条数与汇总一致。
 // 该阶段以 UTF-8 输出；否则非 UTF-8 代码页下中文原因会变成转义序列或乱码。
@@ -39,16 +40,17 @@ for (const [id, command, args] of stages) {
   console.log(`Running ${id}: ${command} ${args.join(' ')}`)
   // Windows 上 npm 是 .cmd 启动器，只能经 shell 启动；这里的参数都是固定字面量，无需转义。
   const shell = windows && command === 'npm'
-  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: id === 'quality' ? { ...process.env, PYTHONIOENCODING: 'utf-8' } : process.env, encoding: 'utf8', timeout: 900000, maxBuffer: 16 * 1024 * 1024, shell })
+  const result = spawnSync(shell ? [command, ...args].join(' ') : command, shell ? [] : args, { cwd: root, env: ['quality', 'sync'].includes(id) ? { ...process.env, PYTHONIOENCODING: 'utf-8' } : process.env, encoding: 'utf8', timeout: 900000, maxBuffer: 16 * 1024 * 1024, shell })
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? '\n' + result.error.message : '')
   writeFileSync(resolve(directory, id + '.log'), output)
-  const empty = id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)
+  // 关联检查不跑测试：以校验过的登记条数判断它真正执行过，登记被清空同样算空跑。
+  const empty = id === 'sync' ? !/关联检查：校验了 [1-9]\d* 条登记/.test(output) : id !== 'typecheck' && !/(?:tests\s+[1-9]\d*|Ran [1-9]\d* tests?)/.test(output)
   const skipped = /(?:skipped\s+[1-9]|skipped=[1-9])/.test(output) && !(subset && (id === 'guards' || (id === 'quality' && symlinkSkipsOnly(output))))
   const ok = result.status === 0 && !empty && !skipped
   report.push({ id, command, args, cwd: root, exit: result.status, ok, log: `.verification/${id}.log` })
   const complete = report.length === stages.length
   writeFileSync(resolve(directory, 'report.json'), JSON.stringify({ updatedAt: new Date().toISOString(), mode, complete, ok: complete && report.every(r => r.ok), stages: report }, null, 2))
   console.log(output.trim().split('\n').slice(-12).join('\n'))
-  if (!ok) { console.error(`Verification failed: ${id}${empty ? ' (empty test run)' : ''}`); process.exit(1) }
+  if (!ok) { console.error(`Verification failed: ${id}${empty ? (id === 'sync' ? '（未校验到登记）' : ' (empty test run)') : ''}`); process.exit(1) }
 }
 console.log(subset ? 'Windows 子集全部通过；原生 OpenCode 验收与分发测试需在 Linux 上运行。' : 'All verification stages passed.')
