@@ -14,7 +14,7 @@ from quality_process import close_process, kill_tree, start_process, tree_active
 
 
 CHECKS = (('注释审核', 'review-comments.py'), ('跳过测试检查', 'check-skips.py'),
-          ('链接检查', 'check-links.py'), ('格式检查', 'check-format.py'))
+          ('链接检查', 'check-links.py'), ('格式检查', 'check-format.py'), ('关联检查', 'check-sync.py'))
 FAILURE = '质量检查执行失败；提交已完成，请手动重跑。'
 
 

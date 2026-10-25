@@ -1,6 +1,6 @@
 # 可选质量扩展
 
-提交后依次报告**注释审核、跳过测试检查、链接检查、格式检查**，只报告，不拦截提交，不自动修复、暂存或提交。默认未启用，不依赖 OpenCode；人手动提交和代理通过 shell 提交都会在工具输出中看到报告。只用 Python 标准库，需要 Python 3.10+ 和 Git；支持 Linux、macOS、WSL，Windows 需要完整的 Git for Windows（由其 sh 执行 hook）。格式器由接入方自行安装并显式登记；不登记就不启动外部工具，不猜测技术栈、不下载格式器。
+提交后依次报告**注释审核、跳过测试检查、链接检查、格式检查、关联检查**，只报告，不拦截提交，不自动修复、暂存或提交。默认未启用，不依赖 OpenCode；人手动提交和代理通过 shell 提交都会在工具输出中看到报告。只用 Python 标准库，需要 Python 3.10+ 和 Git；支持 Linux、macOS、WSL，Windows 需要完整的 Git for Windows（由其 sh 执行 hook）。格式器由接入方自行安装并显式登记；不登记就不启动外部工具，不猜测技术栈、不下载格式器。
 
 ## 检查什么
 
@@ -41,7 +41,7 @@ JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，
    Windows PowerShell 中使用 `py -3 scripts/quality/install-hooks.py`。安装器不修改 Git 配置，遇到任何范围的 `core.hooksPath`、外来的 `post-commit` 或符号链接时拒绝安装，并打印可手动加入现有 hook 的命令。自己的 hook 可以重复安装更新。分发器先试 `WORKFLOW_PYTHON` 指定的解释器，Windows 再试 `py -3`，然后试 `python3`、`python`，逐一确认不低于 Python 3.10。`WORKFLOW_PYTHON` 应是一个解释器路径，不带参数。
 3. 在项目根 AGENTS.md 的规则里加入：
 
-   > 源码注释和测试标题直接写规则、原因和预期；文档路径、任务/评审/缺陷编号、日期和修改过程写进提交说明，不写进注释。提交后复核 post-commit 的四项报告：注释、跳过测试、文档本地链接、已登记的格式检查。未执行、超时或配置无效不算通过；修正问题，或在提交说明里写明保留原因。格式检查读取当前工作区，修复只能手动运行，不自动暂存或提交。
+   > 源码注释和测试标题直接写规则、原因和预期；文档路径、任务/评审/缺陷编号、日期和修改过程写进提交说明，不写进注释。提交后复核 post-commit 的五项报告：注释、跳过测试、文档本地链接、已登记的格式检查、已登记的关联同步。关联提醒列出的文件逐个核对是否需要同步，确认不需要时在提交说明里写明原因。未执行、超时或配置无效不算通过；修正问题，或在提交说明里写明保留原因。格式检查读取当前工作区，修复只能手动运行，不自动暂存或提交。
 
 4. 可选：把 [comments-checklist.md](comments-checklist.md) 复制为 `.opencode/workflow/review/checklists/comments.md`。在 `catalog.json` 中加入 `"comments": { "group": "core", "checklist": "comments.md" }`，在 `routing.json` 的 `units` 中加入 `{ "id": "comments", "areas": ["*"] }`，然后重新加载 OpenCode。保留已有项目的目录和路由条目；doctor 不校验检查单，插件加载配置时校验。
 
@@ -107,7 +107,7 @@ hook 始终返回 `0`；某一项失败、缺失、启动异常或超时不会�
 
 - `version` 必须是整数 `1`。其他字段可省略。
 - `include` 默认为 `["*"]`，`exclude` 默认为 `[]`。匹配相对检出根的 POSIX 路径，整串匹配；`*` 包含 `/`，`?` 匹配一个字符，其余按字面。`exclude` 优先。
-- `timeoutSeconds` 是 1–600 的整数，默认 30，只限制 hook 中前三项的执行时间。格式入口外层预算为全部 `hook: true` 项的预算之和加 10 秒，不因没有匹配而缩短；没有自动项时为 10 秒。配置读不出来时各项保底 30 秒，并自行报告配置无效。不依赖系统的 `timeout` 命令。
+- `timeoutSeconds` 是 1–600 的整数，默认 30，只限制 hook 中前三项和关联检查的执行时间。格式入口外层预算为全部 `hook: true` 项的预算之和加 10 秒，不因没有匹配而缩短；没有自动项时为 10 秒。配置读不出来时各项保底 30 秒，并自行报告配置无效。不依赖系统的 `timeout` 命令。
 - `comments.disable` 只允许 `document`、`tracking`、`process`、`generator`；`skips.disable` 只允许 `skip`、`focus`、`expected-failure`，关闭后该类不报告。
 - `comments.extraRules` 接受 `id`、Python 正则 `pattern` 和非空 `message`，命中注释或测试标题时报告 `[id] message`。
 - `skips.extraMarkers` 接受 `id`、`pattern`，可选 `paths`（默认 `["*"]`）和 `category`（默认 `skip`）。只在代码掩码上按行匹配，报告所属类别。

@@ -35,7 +35,7 @@ class Runner(unittest.TestCase):
     def test_clean_commit_prints_header_and_summaries(self):
         self.repo.write('src/a.ts', 'export const a = 1\n'); self.repo.commit()
         self.assertEqual(self.run_hook(), [HEADER, '注释审核：检查了 1 个文件，0 处需复核。', '跳过测试检查：检查了 1 个文件，0 处新增标记。',
-                                          '链接检查：检查了 0 个文档，0 处断链。', '格式检查：没有登记格式命令。'])
+                                          '链接检查：检查了 0 个文档，0 处断链。', '格式检查：没有登记格式命令。', '关联检查：没有登记关联。'])
 
     def test_findings_from_both_checks_are_forwarded(self):
         self.repo.write('tests/a.test.ts', '// Task 3: later\nit.skip("x", () => {})\n'); self.repo.commit()
@@ -46,7 +46,7 @@ class Runner(unittest.TestCase):
     def test_runner_and_format_forward_crlf_and_real_blank_lines(self):
         payload = '中文输出\r\n\r\n末行\n'.encode('utf-8')
         source = f'import sys; sys.stdout.buffer.write({payload!r}); sys.exit(1)'
-        for name in ('review-comments.py', 'check-skips.py', 'check-links.py'):
+        for name in ('review-comments.py', 'check-skips.py', 'check-links.py', 'check-sync.py'):
             self.replace(name, '')
         self.configure([{'id': 'probe', 'paths': ['*.txt'], 'check': [sys.executable, '-c', source]}])
         self.repo.write('a.txt', ''); self.repo.commit()
@@ -78,6 +78,10 @@ class Runner(unittest.TestCase):
         self.assertTrue(any(line.startswith('跳过测试检查执行失败（退出码 3），请手动重跑：') for line in self.run_hook()))
         (self.here / 'review-comments.py').unlink()
         self.assertIn('注释审核未执行：缺少 scripts/quality/review-comments.py。', self.run_hook())
+        self.replace('check-sync.py', 'import sys\nsys.exit(2)\n')
+        self.assertIn(f'关联检查未完成，请手动重跑：{INTERPRETER} scripts/quality/check-sync.py --commit {short}', self.run_hook())
+        (self.here / 'check-sync.py').unlink()
+        self.assertIn('关联检查未执行：缺少 scripts/quality/check-sync.py。', self.run_hook())
 
     def test_timeout_kills_the_whole_process_tree(self):
         (self.here / 'quality.json').write_text(json.dumps({'version': 1, 'timeoutSeconds': 1}), encoding='utf-8')
@@ -101,7 +105,7 @@ class Runner(unittest.TestCase):
                 self.assertEqual(self.run_hook(), [])
                 state.rmdir()
 
-    def test_invalid_config_reports_four_incomplete_checks(self):
+    def test_invalid_config_reports_five_incomplete_checks(self):
         (self.here / 'quality.json').write_text('{"version": 1, "timeoutSeconds": 0}', encoding='utf-8')
         self.repo.write('a.ts', 'x\n'); self.repo.commit()
         out = self.run_hook()
@@ -109,6 +113,7 @@ class Runner(unittest.TestCase):
         self.assertIn('跳过测试检查未完成：配置无效：timeoutSeconds', out)
         self.assertIn('链接检查未完成：配置无效：timeoutSeconds', out)
         self.assertIn('格式检查未完成：配置无效：timeoutSeconds', out)
+        self.assertIn('关联检查未完成：配置无效：timeoutSeconds', out)
 
     def test_runner_does_not_write_files_even_with_bytecode_enabled(self):
         self.repo.env.pop('PYTHONDONTWRITEBYTECODE')
@@ -171,7 +176,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(module.subprocess, 'run', side_effect=command_run), \
                     contextlib.redirect_stdout(out):
                 self.assertEqual(module.main(['post-commit'], os_name=os_name), 0)
-            self.assertEqual(len(processes), 4)
+            self.assertEqual(len(processes), 5)
             self.assertIsNotNone(processes[0].poll())
             self.assertIn('注释审核超时（1 秒）未完成，请手动重跑：', out.getvalue())
             self.assertIn('第二项已运行', out.getvalue())
@@ -221,8 +226,11 @@ class Runner(unittest.TestCase):
         self.assertEqual(module.timeout_for('check-format.py', None), 30)
         self.assertEqual(module.timeout_for('check-links.py', {'timeoutSeconds': 7}), 7)
 
-    def test_four_checks_run_in_order_and_commit_succeeds(self):
-        self.configure([{'id': 'probe', 'paths': ['tests/*'], 'check': [sys.executable, '-c', 'print("FORMAT_PROBE"); exit(1)']}])
+    def test_five_checks_run_in_order_and_commit_succeeds(self):
+        (self.here / 'quality.json').write_text(json.dumps({'version': 1,
+            'formats': [{'id': 'probe', 'paths': ['tests/*'], 'check': [sys.executable, '-c', 'print("FORMAT_PROBE"); exit(1)']}],
+            'sync': [{'id': 'docs', 'paths': ['tests/*'], 'related': ['docs/index.md'], 'message': '测试变化要同步测试说明'}]}), encoding='utf-8')
+        self.repo.write('docs/index.md', '# 测试说明\n')
         self.repo.commit('config')
         self.repo.run(self.here / 'install-hooks.py')
         head = self.repo.git('rev-parse', 'HEAD').stdout
@@ -231,7 +239,7 @@ class Runner(unittest.TestCase):
         self.repo.git('add', '-A')
         r = self.repo.git('commit', '-m', 'probe')
         out = r.stdout + r.stderr
-        positions = [out.index(text) for text in ('[tracking]', '[skip]', '[link]', '格式检查 [probe] 未通过')]
+        positions = [out.index(text) for text in ('[tracking]', '[skip]', '[link]', '格式检查 [probe] 未通过', '[sync] docs')]
         self.assertEqual(positions, sorted(positions)); self.assertIn('FORMAT_PROBE', out)
         self.assertNotEqual(head, self.repo.git('rev-parse', 'HEAD').stdout)
         self.assertEqual(self.repo.git('status', '--porcelain').stdout, '')
@@ -259,7 +267,7 @@ class Runner(unittest.TestCase):
             return popen(command, **kwargs)
         with mock.patch.object(module.subprocess, 'Popen', side_effect=launch):
             out = self.invoke()
-        self.assertEqual(started, ['review-comments.py', 'check-skips.py', 'check-links.py', 'check-format.py'])
+        self.assertEqual(started, ['review-comments.py', 'check-skips.py', 'check-links.py', 'check-format.py', 'check-sync.py'])
         self.assertIn('注释审核未执行', out); self.assertIn('格式检查：没有登记格式命令', out)
 
     def test_format_rerun_keeps_hook_and_fixed_sha(self):
