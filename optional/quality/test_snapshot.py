@@ -100,6 +100,13 @@ class Snapshots(unittest.TestCase):
         self.assertEqual(c.after.read_many(['doc.md'])['doc.md'], b'right')
         self.assertEqual(c.before.read_many(['doc.md'])['doc.md'], b'base')
 
+    def test_range_without_common_history_names_the_reason(self):
+        self.repo.write('a.txt', 'a\n'); left = self.repo.commit()
+        self.repo.git('checkout', '-q', '--orphan', 'other'); self.repo.write('b.txt', 'b\n'); right = self.repo.commit()
+        with self.assertRaises(Incomplete) as caught:
+            self.collect('range', f'{left}..{right}')
+        self.assertEqual(caught.exception.args, ('范围两端没有共同历史',))
+
     def test_initial_staged_and_merge_commit(self):
         self.repo.write('a.txt', 'initial'); self.repo.git('add', '.')
         c = self.collect('staged', None)

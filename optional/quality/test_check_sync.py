@@ -35,6 +35,8 @@ class SyncChecks(unittest.TestCase):
     def test_without_rules_reports_nothing_to_check(self):
         self.configure()
         self.assertEqual(self.run_sync()[0], '关联检查：没有登记关联。\n')
+        # 没有登记也先读取改动，Git 错误不能被当作“没有登记”放过。
+        self.assertEqual(self.run_sync('--commit', 'nope', code=2)[1], '关联检查未完成：修订号无效\n')
 
     def test_reminder_names_changed_and_unchanged_targets(self):
         self.change('src/api/a.py')

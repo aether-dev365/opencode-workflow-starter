@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { makeRepo } from './fixtures/ci-fixture.mjs'
 
 const entry = resolve('scripts/check-sync.py')
@@ -36,6 +36,23 @@ test('the configured upstream wins and a gone upstream falls back to origin/main
   r.git('update-ref', '-d', 'refs/remotes/origin/feature')
   const result = r.py(entry)
   assert.equal(result.status, 0, result.stdout + result.stderr); assert.match(result.stdout, /1 条需要确认同步/)
+})
+
+test('an upstream that resolves to no commit is incomplete rather than a missing upstream', t => {
+  const r = setup(t)
+  r.git('update-ref', 'refs/remotes/origin/main', 'HEAD^{tree}')
+  const result = r.py(entry)
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.doesNotMatch(result.stdout, /没有上游分支/)
+  assert.equal(result.stderr, '关联检查未完成：上游引用无效：refs/remotes/origin/main\n')
+})
+
+test('a missing git is incomplete without a traceback', t => {
+  const r = setup(t)
+  const python = r.py('-c', ['import sys; print(sys.executable)']).stdout.trim()
+  const result = r.run(python, [entry], { env: { PATH: join(r.temp, 'empty') } })
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.equal(result.stderr, '关联检查未完成：无法运行 git（FileNotFoundError）\n')
 })
 
 test('a stale registry fails the suite entry', t => {

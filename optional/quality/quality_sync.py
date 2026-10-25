@@ -45,12 +45,12 @@ def main(argv: list[str], *, here: Path, cwd: Path | None = None) -> int:
         mode, strict = parse_line_options(argv)
         root = repo_root(cwd or Path.cwd())
         rules = load_config(here, root=root)['sync']
-        if not rules:
-            print('关联检查：没有登记关联。')
-            return 0
         changes = collect_files(root, mode)
         if changes.merge:
             print('关联检查：合并提交不检查。')
+            return 0
+        if not rules:
+            print('关联检查：没有登记关联。')
             return 0
         after = changes.after.paths()
         if mode[0] == 'all':
