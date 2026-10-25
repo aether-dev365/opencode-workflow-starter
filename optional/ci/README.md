@@ -4,7 +4,7 @@
 
 ## 复制接入
 
-先按 [ADOPT.md](../../ADOPT.md) 接入基础模板，并将质量扩展的全部 `.py` 和 `quality.example.json` 复制到 `scripts/quality/`。使用本 CI 需要同时更新质量扩展：两个行级入口须支持 `--fail-on-incomplete`，`quality_process.py` 须支持可选协作终止。
+先按 [ADOPT.md](../../ADOPT.md) 接入基础模板，并将质量扩展的全部 `.py` 和 `quality.example.json` 复制到 `scripts/quality/`。使用本 CI 需要同时更新质量扩展：注释、跳过测试和关联检查三个入口须支持 `--fail-on-incomplete`，须包含 `check-sync.py` 及配套的 `quality_sync.py`、新版 `quality_lib.py` 与 `quality_snapshot.py`，`quality_process.py` 须支持可选协作终止。
 
 | 本目录文件 | 接入方位置 |
 | --- | --- |

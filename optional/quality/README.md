@@ -25,7 +25,7 @@
 
 JS 短标记 `xdescribe`、`xit`、`xtest`、`xcontext`、`fdescribe`、`fit`，以及 Java/Kotlin/Groovy、Ruby、Dart 标记只在测试文件中识别。测试文件名匹配 `*.test.*`、`*.spec.*`、`*_test.*`、`test_*.py`、`*_spec.rb`、`*Test.*`、`*Tests.*`，或路径包含 `test`、`tests`、`__tests__`、`spec`、`e2e`、`cypress` 目录。Ruby/Bats 的短标记只在语句开头识别；Dart 的 `skip: false` 和 `skip: null` 不报；`pytest.importorskip` 不报。
 
-所有检查默认忽略第三方、构建和生成目录（如 `node_modules`、`vendor`、`third_party`、`dist`、`build`、`out`、`target`、`coverage`、`__pycache__`、`.venv`、`venv`、`.next`、`.nuxt`、`generated`），以及 `.min.js`、`.min.css`、`.bundle.js` 和扩展自身目录。
+前四项检查默认忽略第三方、构建和生成目录（如 `node_modules`、`vendor`、`third_party`、`dist`、`build`、`out`、`target`、`coverage`、`__pycache__`、`.venv`、`venv`、`.next`、`.nuxt`、`generated`），以及 `.min.js`、`.min.css`、`.bundle.js` 和扩展自身目录；关联检查只按登记匹配，见「关联登记」。
 
 以下仍是原有两项行级检查的规则：前五行含 `@generated`、`DO NOT EDIT`、`Code generated`、`auto-generated` 的文件不检查。二进制、子模块、符号链接不检查；超过 1 MiB 或非 UTF-8 的文件在汇总中注明跳过数。格式检查不读取文本做筛选，没有语言族、编码、生成标记或大小限制；链接检查扫描普通 Markdown 文档，不按生成标记跳过。
 
