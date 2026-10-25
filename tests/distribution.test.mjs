@@ -110,6 +110,22 @@ test('documented OpenCode versions match the plugin baseline', () => {
   }
 })
 
+test('the suite version agrees across the changelog, README and plugin manifests', () => {
+  // 发布时这几处要一起改；模板版本以插件 package.json 为准。
+  const version = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8')).version
+  const lock = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package-lock.json', 'utf8'))
+  assert.deepEqual([lock.version, lock.packages[''].version], [version, version])
+  const changelog = readFileSync('CHANGELOG.md', 'utf8')
+  assert.equal(changelog.match(/^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/m)?.[1], version)
+  const links = Object.fromEntries([...changelog.matchAll(/^\[([^\]]+)\]: (\S+)$/gm)].map(([, name, url]) => [name, url]))
+  const tag = 'v' + version.replaceAll('.', '\\.')
+  assert.match(links['未发布'] ?? '', new RegExp(`/compare/${tag}\\.\\.\\.HEAD$`))
+  assert.match(links[version] ?? '', new RegExp(`/releases/tag/${tag}$`))
+  const mentions = [...readFileSync('README.md', 'utf8').matchAll(/--branch v(\d+\.\d+\.\d+)|^version=(\d+\.\d+\.\d+)$/gm)].map(match => match[1] ?? match[2])
+  assert.equal(mentions.length, 2)
+  for (const mention of mentions) assert.equal(mention, version)
+})
+
 // 只看仓库自己的规则：屏蔽贡献者机器上的全局 excludes（例如 ~/.config/git/ignore）。
 const ignoredBy = (cwd, paths) => spawnSync('git', ['-c', 'core.excludesFile=/dev/null', 'check-ignore', '--no-index', '--stdin'], { cwd, input: paths.join('\n'), encoding: 'utf8' }).stdout.split('\n').filter(Boolean)
 

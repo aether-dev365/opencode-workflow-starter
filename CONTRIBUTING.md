@@ -62,4 +62,4 @@ node scripts/verify.mjs --windows
 ## 提交与发布
 
 - 一个提交只做一件事，提交说明用中文概括改动。
-- 发布前把 `CHANGELOG.md` 的「未发布」整理为新版本并注明日期，同步插件 `package.json` 和 `package-lock.json` 中的 `version`，创建 annotated tag，再按 README「发布与分发」一节生成分发包和 SHA-256，随 GitHub Release 发布。
+- 发布前把 `CHANGELOG.md` 的「未发布」整理为新版本并注明日期，文末「未发布」的链接改为 `compare/v<新版本>...HEAD`，并新增指向 `releases/tag/v<新版本>` 的链接；同步插件 `package.json` 和 `package-lock.json` 中的 `version`，以及 README 中的版本号，这几处由分发测试核对。然后创建 annotated tag，再按 README「发布与分发」一节生成分发包和 SHA-256，随 GitHub Release 发布。
