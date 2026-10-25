@@ -1,10 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync, mkdtempSync, cpSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { assertPythonSuiteComplete } from './fixtures/python-suite.mjs'
+import { forbiddenPatterns, leaks } from './fixtures/privacy.mjs'
 
 const entrypoints = ['README.md', 'ADOPT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CODE_OF_CONDUCT.md', 'CHANGELOG.md', 'AGENTS.md']
 
@@ -26,25 +27,56 @@ test('public entrypoints and relative documentation links resolve within the del
   }
 })
 
-test('tracked text files contain no local home paths or public IPv4 addresses', () => {
-  // 测试和文档中的合成路径统一使用占位用户名 example。
-  const homes = [/\/home\/(?!example\/)[a-z_][\w.-]*\//, /\/Users\/(?!example\/)[A-Za-z][\w.-]*\//, /[A-Za-z]:\\Users\\(?!example\\)[A-Za-z]/]
+test('tracked text files contain no local home paths or IPv4 addresses', () => {
+  for (const path of tracked()) assert.deepEqual(leaks(readFileSync(path, 'utf8')), [], path)
+})
+
+test('maintainer-local forbidden patterns stay out of tracked files', t => {
+  // 外部贡献者和 CI 没有这份清单。断言只报文件名，不回显禁用词，免得它进入验证日志。
+  const patterns = forbiddenPatterns('.')
+  if (patterns === null) t.diagnostic('未找到 .verification/forbidden-patterns.txt，未检查本地禁用词')
   for (const path of tracked()) {
-    const text = readFileSync(path, 'utf8')
-    for (const pattern of homes) assert.doesNotMatch(text, pattern, path)
-    for (const [address] of text.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) assert.ok(['127.0.0.1', '0.0.0.0'].includes(address), `${path}: ${address}`)
+    assert.ok(!leaks(readFileSync(path, 'utf8'), patterns ?? []).some(found => found.kind === 'forbidden'), `${path} 含本地禁用词`)
   }
 })
 
-test('maintainer-local forbidden patterns stay out of tracked files', () => {
-  // 私有名称只写在被忽略的本地文件里，避免禁用词清单本身随仓库公开。
-  const list = '.verification/forbidden-patterns.txt'
-  if (!existsSync(list)) return
-  const patterns = readFileSync(list, 'utf8').split('\n').map(line => line.trim().toLowerCase()).filter(line => line && !line.startsWith('#'))
-  for (const path of tracked()) {
-    const text = readFileSync(path, 'utf8').toLowerCase()
-    assert.ok(!patterns.some(pattern => text.includes(pattern)), `${path} 含本地禁用词`)
-  }
+test('privacy rules report home paths, IPv4 addresses and local words by line', () => {
+  // 样例在运行时拼接，本文件自身也要通过上面的扫描；地址用 RFC 5737 保留给文档的网段。
+  const windows = 'C:' + '\\Users\\' + 'B', escaped = 'C:' + '\\\\Users\\\\' + 'B', lower = 'c:' + '\\users\\' + 'b', forward = 'c:' + '/users/' + 'b'
+  const unc = '\\home\\' + 'alice\\', address = ['192', '0', '2', '1'].join('.')
+  const text = ['/home/example/x 127.0.0.1 0.0.0.0 C:\\Users\\example\\x C:/Users/example/x C:/Users/example \\\\wsl.localhost\\Ubuntu\\home\\example\\x',
+    '/home/' + 'alice/x', '/Users/' + 'Bob/x', windows + 'ob', escaped + 'ob', lower + 'ob', forward + 'ob',
+    '\\\\wsl.localhost\\Ubuntu' + unc + 'x', address, 'a Secret Word'].join('\n')
+  assert.deepEqual(leaks(text, ['Secret Word']), [
+    { line: 2, kind: 'home', match: '/home/' + 'alice/' },
+    { line: 3, kind: 'home', match: '/Users/' + 'Bob/' },
+    { line: 4, kind: 'home', match: windows },
+    { line: 5, kind: 'home', match: escaped },
+    { line: 6, kind: 'home', match: lower },
+    { line: 7, kind: 'home', match: forward },
+    { line: 8, kind: 'home', match: unc },
+    { line: 9, kind: 'ipv4', match: address },
+    { line: 10, kind: 'forbidden', match: 'secret word' },
+  ])
+  assert.deepEqual(leaks(text.split('\n')[0]), [])
+})
+
+test('forbidden patterns come from the ignored local list', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-forbidden-'))
+  try {
+    assert.equal(forbiddenPatterns(root), null)
+    const list = join(root, '.verification/forbidden-patterns.txt')
+    mkdirSync(list, { recursive: true })
+    assert.throws(() => forbiddenPatterns(root), { code: 'EISDIR' })
+    rmSync(list, { recursive: true })
+    writeFileSync(list, '# 注释\n\n  Private Name  \nINTERNAL-HOST\n')
+    assert.deepEqual(forbiddenPatterns(root), ['private name', 'internal-host'])
+    // Windows 上编辑的清单可能带 BOM 和 CRLF；存成 UTF-16 时按 UTF-8 读会得到匹配不到任何文本的词，必须报错。
+    writeFileSync(list, '﻿Private Name\r\nINTERNAL-HOST\r\n')
+    assert.deepEqual(forbiddenPatterns(root), ['private name', 'internal-host'])
+    writeFileSync(list, Buffer.from('﻿private name\r\n', 'utf16le'))
+    assert.throws(() => forbiddenPatterns(root), /不是 UTF-8 文本/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('workflow scripts keep LF line endings on every checkout', () => {
