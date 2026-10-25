@@ -20,7 +20,7 @@ except ImportError:
     IMPORTED = False
 
 CHECKS = (('comments', 'review-comments.py'), ('skips', 'check-skips.py'),
-          ('links', 'check-links.py'), ('format', 'check-format.py'))
+          ('links', 'check-links.py'), ('format', 'check-format.py'), ('sync', 'check-sync.py'))
 LABELS = {'pass': '通过', 'warn': '提醒', 'fail': '未通过', 'incomplete': '未完成'}
 OID = r'(?:[0-9a-f]{40}|[0-9a-f]{64})'
 
@@ -31,7 +31,7 @@ def classify(check_id: str, result) -> str:
     if result.returncode == 0:
         return 'pass'
     if result.returncode == 1:
-        return 'warn' if check_id == 'comments' else 'fail'
+        return 'warn' if check_id in ('comments', 'sync') else 'fail'
     return 'incomplete'
 
 
@@ -91,7 +91,7 @@ def run_quality(root: Path, mode: tuple[str, str | None], *, timeout: float = 30
                 elif not script.is_file() or script.is_symlink():
                     result = ProcessResult(False, None, '', False, False, False, '缺少普通检查入口')
                 else:
-                    flags = ['--fail-on-incomplete'] if check_id in ('comments', 'skips') else []
+                    flags = ['--fail-on-incomplete'] if check_id in ('comments', 'skips', 'sync') else []
                     result = run_process([sys.executable, str(script), *args, *flags], cwd=root,
                                          timeout=timeout, cancelled=is_cancelled, cooperative=check_id == 'format')
                 state = classify(check_id, result)

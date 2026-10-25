@@ -173,6 +173,12 @@ test('extended secret rules are valid protection rules', async () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('post-commit and CI run the same quality check entries', () => {
+  const entries = path => [...readFileSync(path, 'utf8').match(/^CHECKS = \(([\s\S]*?)\)\n/m)[1].matchAll(/'([a-z-]+\.py)'/g)].map(match => match[1])
+  assert.deepEqual(entries('optional/quality/run-hook.py'), entries('optional/ci/run-quality.py'))
+  assert.ok(entries('optional/ci/run-quality.py').includes('check-sync.py'))
+})
+
 test('the comment checklist joins the review catalog as the quality README describes', async () => {
   const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
   const root = mkdtempSync(join(tmpdir(), 'workflow-quality-'))

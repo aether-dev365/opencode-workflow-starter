@@ -130,6 +130,7 @@ test('quality: genuine findings have layered outcomes and incomplete wins', t =>
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.match(result.stdout, /comments.*提醒/)
   assert.match(result.stdout, /没有登记格式命令/)
+  assert.match(result.stdout, /sync：通过/)
   r.write('src/example.test.ts', 'test.skip("case", () => {});\n')
   result = quality(r); assert.equal(result.status, 1, result.stdout + result.stderr)
   r.write('src/example.test.ts', 'test("case", () => {});\n')
@@ -138,6 +139,21 @@ test('quality: genuine findings have layered outcomes and incomplete wins', t =>
   r.write('src/bad.ts', Buffer.from([255]))
   result = quality(r); assert.equal(result.status, 2)
   assert.match(result.stdout, /links.*未通过/); assert.match(result.stdout, /format.*通过/)
+})
+
+test('quality: sync reminders warn while stale registries fail', t => {
+  const r = makeRepo(t, { ciFiles: qualityFiles })
+  r.write('scripts/quality/quality.json', JSON.stringify({ version: 1, include: ['src/*'], sync: [{ id: 'docs', paths: ['src/*'], related: ['src/README.md'], message: '源码变化要同步说明' }] }))
+  r.write('src/a.ts', 'export const a = 1\n'); r.write('src/README.md', '# 说明\n')
+  const base = r.commit()
+  r.write('src/a.ts', 'export const a = 2\n')
+  let result = r.py('scripts/ci/run-quality.py', ['--range', `${base}..${r.commit()}`])
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /\[sync\] docs/); assert.match(result.stdout, /sync：提醒/)
+  r.git('rm', '-q', 'src/README.md')
+  result = r.py('scripts/ci/run-quality.py', ['--range', `${base}..${r.commit()}`])
+  assert.equal(result.status, 2, result.stdout + result.stderr); assert.match(result.stdout, /sync：未完成/)
+  assert.equal(r.py('scripts/ci/run-quality.py', ['--all']).status, 2)
 })
 
 test('quality: hook false formats run checks and never fixes', t => {
