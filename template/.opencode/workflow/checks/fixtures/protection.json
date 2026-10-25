@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "secrets", "actions": ["read", "edit"], "paths": ["*.env", "*.env.*"], "effect": "deny", "reason": "Synthetic credential protection" },
+    { "id": "examples", "actions": ["read", "edit"], "paths": ["*.env.example"], "effect": "allow", "reason": "Synthetic public example" },
+    { "id": "vendor", "actions": ["edit"], "paths": ["vendor/*", "*/vendor/*"], "effect": "deny", "reason": "第三方 fixture" },
+    { "id": "generated", "actions": ["edit"], "paths": ["generated/*", "*/generated/*"], "effect": "deny", "reason": "Synthetic generated files" }
+  ]
+}

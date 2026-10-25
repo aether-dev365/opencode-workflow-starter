@@ -1,0 +1,2 @@
+# 统一使用 LF：Git for Windows 默认 core.autocrlf=true，CRLF 会让 bash 脚本失效
+* text=auto eol=lf

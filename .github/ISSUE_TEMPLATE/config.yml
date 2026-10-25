@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 报告安全问题
+    url: https://github.com/aether-dev365/opencode-workflow-starter/security/advisories/new
+    about: 可以绕过路径保护、凭据扫描、发布核查或 reviewer 限制的问题，请通过私密漏洞报告提交，不要公开细节。

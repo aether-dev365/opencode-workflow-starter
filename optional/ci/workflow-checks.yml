@@ -1,0 +1,102 @@
+name: 工作流检查
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  workflow-checks:
+    name: workflow-checks
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !github.event.deleted && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONDONTWRITEBYTECODE: '1'
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: 检出候选提交及完整历史
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 准备 Node.js
+        id: node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: 准备 Python
+        id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      - name: 确定质量检查范围
+        id: scope
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' }}
+        run: |
+          python3 scripts/ci/resolve-scope.py
+      - name: 安装并校验固定版 Gitleaks
+        id: scanner-install
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' }}
+        run: |
+          python3 .opencode/secret-scan/install.py --bin-dir "$RUNNER_TEMP/workflow-gitleaks"
+          printf '%s\n' "$RUNNER_TEMP/workflow-gitleaks" >> "$GITHUB_PATH"
+      - name: 安装锁定的插件依赖
+        id: plugin-install
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' }}
+        run: |
+          npm --prefix .opencode/plugins/workflow ci --ignore-scripts --no-audit --no-fund
+      - name: 在临时目录安装匹配的 CLI
+        id: opencode-install
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          import { spawnSync } from 'node:child_process'
+          const version = JSON.parse(readFileSync('.opencode/plugins/workflow/package.json', 'utf8')).dependencies?.['@opencode/plugin']
+          if (typeof version !== 'string' || /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version)?.[0] !== version) {
+            console.error('CLI 基线必须是精确的稳定版本号。')
+            process.exit(2)
+          }
+          const directory = join(process.env.RUNNER_TEMP, 'workflow-opencode')
+          const result = spawnSync('npm', ['install', '--prefix', directory, '--no-audit', '--no-fund', `@opencode/cli@${version}`], { stdio: 'inherit' })
+          if (result.error || result.status !== 0) process.exit(result.status || 2)
+          appendFileSync(process.env.GITHUB_ENV, `WORKFLOW_OPENCODE_BIN=${join(directory, 'node_modules/.bin/opencode')}\n`)
+          NODE
+      - name: 扫描候选完整历史中的凭据
+        id: secrets
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' && steps.scanner-install.outcome == 'success' }}
+        run: |
+          python3 scripts/ci/scan-secrets.py --head "$CANDIDATE_SHA"
+      - name: 工作流静态自检
+        id: doctor
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' && steps.scanner-install.outcome == 'success' && steps.plugin-install.outcome == 'success' && steps.opencode-install.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          node scripts/workflow/doctor.mjs --root .
+      - name: 分层质量检查
+        id: quality
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success' && steps.python.outcome == 'success' && steps.scope.outcome == 'success' }}
+        env:
+          QUALITY_MODE: ${{ steps.scope.outputs.mode }}
+          BASE_SHA: ${{ steps.scope.outputs.base }}
+          HEAD_SHA: ${{ steps.scope.outputs.head }}
+        run: |
+          case "$QUALITY_MODE" in
+            range) python3 scripts/ci/run-quality.py --range "$BASE_SHA..$HEAD_SHA" ;;
+            all) python3 scripts/ci/run-quality.py --all ;;
+            *) printf '%s\n' '质量检查范围无效。' >&2; exit 2 ;;
+          esac

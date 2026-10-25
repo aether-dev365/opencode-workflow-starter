@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # 全量验收：插件、守卫、分发、接入，以及固定版本 OpenCode CLI 的原生测试。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # 守卫声明的最低版本是 Python 3.10，在下限上验证。
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      - name: 安装插件依赖
+        run: npm --prefix template/.opencode/plugins/workflow ci --ignore-scripts --no-audit --no-fund
+      - name: 安装固定版本 Gitleaks
+        run: |
+          python3 template/.opencode/secret-scan/install.py --bin-dir "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+      - name: 获取固定版本 OpenCode CLI
+        run: node scripts/fetch-opencode.mjs
+      - name: 准备固定来源的 Superpowers 原生验收素材
+        run: node scripts/fetch-superpowers.mjs
+      - name: 全量验收
+        run: node scripts/verify.mjs
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-linux
+          path: |
+            .verification/*.log
+            .verification/report.json
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+  macos:
+    # 全量验收（含原生运行测试）：Apple Silicon，系统自带的 python3 是 3.9，这里固定 3.12；CLI 经 npm 安装验收版本。
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: 安装插件依赖
+        run: npm --prefix template/.opencode/plugins/workflow ci --ignore-scripts --no-audit --no-fund
+      - name: 安装固定版本 Gitleaks
+        run: |
+          python3 template/.opencode/secret-scan/install.py --bin-dir "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+      - name: 安装 OpenCode CLI（版本跟随插件依赖）
+        run: npm install -g "@opencode/cli@$(node -p "require('./template/.opencode/plugins/workflow/package.json').dependencies['@opencode/plugin']")" --no-audit --no-fund
+      - name: 准备固定来源的 Superpowers 原生验收素材
+        run: node scripts/fetch-superpowers.mjs
+      - name: 全量验收
+        run: node scripts/verify.mjs
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-macos
+          path: |
+            .verification/*.log
+            .verification/report.json
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+  windows:
+    # Windows 子集：typecheck、插件测试、守卫（依赖 bash 的 3 个用例跳过）、接入；在 PowerShell 中执行，与文档给 Windows 用户的命令一致。
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: 固定守卫使用的 Python
+        run: Add-Content -Path $env:GITHUB_ENV -Value "WORKFLOW_PYTHON=${{ steps.python.outputs.python-path }}"
+      - name: 安装插件依赖
+        run: npm --prefix template/.opencode/plugins/workflow ci --ignore-scripts --no-audit --no-fund
+      - name: 安装固定版本 Gitleaks
+        run: |
+          & $env:WORKFLOW_PYTHON template/.opencode/secret-scan/install.py --bin-dir "$env:RUNNER_TEMP\gitleaks"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\gitleaks"
+      - name: 安装 OpenCode CLI（接入测试检查 .cmd 启动器；版本跟随插件依赖）
+        run: |
+          $version = (Get-Content template/.opencode/plugins/workflow/package.json -Raw | ConvertFrom-Json).dependencies.'@opencode/plugin'
+          npm install -g "@opencode/cli@$version" --no-audit --no-fund
+      - name: Windows 子集验收
+        run: node scripts/verify.mjs --windows
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-windows
+          path: |
+            .verification/*.log
+            .verification/report.json
+          if-no-files-found: ignore
+          include-hidden-files: true

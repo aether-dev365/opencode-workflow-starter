@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "enabled": false,
+  "tagPattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+  "scope": { "include": ["**"], "exclude": [] },
+  "entries": [
+    { "id": "publish", "argv": ["node", "REPLACE_ME_PUBLISH_SCRIPT"], "artifacts": [".opencode/workflow/.state/release/package.zip"] }
+  ]
+}

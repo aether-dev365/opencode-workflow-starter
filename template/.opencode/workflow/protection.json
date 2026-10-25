@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "secrets", "actions": ["read", "edit"], "paths": ["*.env", "*.env.*"], "effect": "deny", "reason": "真实凭据不可读取或编辑；使用示例配置。" },
+    { "id": "examples", "actions": ["read", "edit"], "paths": ["*.env.example"], "effect": "allow", "reason": "示例配置可维护，内容不得含真实凭据。" },
+    { "id": "vendor", "actions": ["edit"], "paths": ["vendor/*", "*/vendor/*"], "effect": "deny", "reason": "第三方代码通过上游升级流程维护。" },
+    { "id": "generated", "actions": ["edit"], "paths": ["generated/*", "*/generated/*"], "effect": "deny", "reason": "生成文件通过项目登记的生成入口更新。" }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "areas": [{ "id": "workflow", "paths": [".opencode/**", "AGENTS.md", "opencode.jsonc", "scripts/workflow/**"] }],
+  "units": [
+    { "id": "core", "areas": ["*"] },
+    { "id": "tests", "areas": ["*"] },
+    { "id": "workflow", "areas": ["workflow"] }
+  ]
+}

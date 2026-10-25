@@ -1,0 +1,81 @@
+name: 缺陷报告
+description: 插件、守卫、接入脚本或可选扩展的行为与文档不符
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        能绕过路径保护、凭据扫描、发布核查或 reviewer 限制的问题属于安全问题，请按 [安全策略](https://github.com/aether-dev365/opencode-workflow-starter/security/policy) 私下报告，不要在这里公开细节。
+  - type: input
+    id: version
+    attributes:
+      label: 套件版本或提交
+      description: 插件 `package.json` 中的 `version`，或所用提交的 SHA。
+    validations:
+      required: true
+  - type: input
+    id: opencode
+    attributes:
+      label: OpenCode 版本
+      description: "`opencode --version` 的输出。"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Linux
+        - Windows + WSL2
+        - Windows 原生（Git Bash）
+        - macOS（Apple Silicon）
+        - macOS（Intel）
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及组件
+      options:
+        - 插件（领域规则、权限、/review）
+        - 守卫（路径保护、凭据扫描、pipefail）
+        - 接入（/workflow-setup、setup.mjs、doctor）
+        - 可选扩展（质量、CI、发布、保护、MCP）
+        - 文档
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 写出最小复现步骤，包括完整命令和工作目录。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 错误信息、拒绝原因或退出码。
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor 输出（可选）
+      description: 在项目根目录运行 `node scripts/workflow/doctor.mjs --root . --json` 的结果。
+      render: json
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 复现只使用合成数据，没有粘贴真实凭据、内部地址或私有代码。
+          required: true

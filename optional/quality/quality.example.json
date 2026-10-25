@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "formats": [],
+  "links": {"exclude": [], "ignoreTargets": []},
+  "include": ["*"],
+  "exclude": [],
+  "timeoutSeconds": 30,
+  "comments": {
+    "disable": [],
+    "extraRules": [
+      { "id": "jira", "pattern": "\\b[A-Z][A-Z0-9]+-\\d+\\b", "message": "JIRA 编号：写进提交说明" }
+    ]
+  },
+  "skips": {
+    "disable": [],
+    "extraMarkers": [
+      { "id": "pending-spec", "pattern": "\\bpending\\b", "paths": ["*_spec.rb"], "category": "skip" }
+    ]
+  }
+}

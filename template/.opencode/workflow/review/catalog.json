@@ -1,0 +1,5 @@
+{
+  "core": { "group": "core", "checklist": "core.md" },
+  "tests": { "group": "core", "checklist": "tests.md" },
+  "workflow": { "group": "workflow", "checklist": "workflow.md" }
+}

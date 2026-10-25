@@ -1,0 +1,41 @@
+# 依赖与运行缓存
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+coverage/
+*.tsbuildinfo
+*.tgz
+*.log
+
+# 凭据：只提交示例文件
+.env
+.env.*
+*.env
+!.env.example
+
+# 本地验证产物、分发包与工作流状态
+.verification/
+artifacts/
+.worktrees/
+template/.opencode/workflow/.state/
+
+# 维护者本地的计划、验收记录和工具状态
+/docs/superpowers/
+/docs/verification.md
+.superpowers/
+.codegraph/
+.claude/settings.local.json
+CLAUDE.local.md
+
+# 系统与编辑器文件
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
