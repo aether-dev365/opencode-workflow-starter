@@ -13,6 +13,16 @@
       "inputs": { "sha256:.opencode/workflow/.state/release/package.zip": "REPLACE_ME_SHA256" },
       "files": [".opencode/workflow/.state/release/package.zip", ".opencode/workflow/.state/release/build.log"],
       "companion": [".opencode/workflow/.state/release/build.log"]
+    },
+    {
+      "id": "docs-sync",
+      "units": ["sync"],
+      "kind": "manual",
+      "command": "python3 scripts/quality/check-sync.py --range REPLACE_ME_BASE_COMMIT_SHA..HEAD",
+      "cwd": ".",
+      "exit": null,
+      "inputs": {},
+      "files": [".opencode/workflow/.state/release/sync.log"]
     }
   ]
 }

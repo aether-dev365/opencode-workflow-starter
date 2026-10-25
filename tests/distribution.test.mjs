@@ -194,6 +194,13 @@ test('the template review routes the sync unit over every changed path', async (
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('the release evidence example covers every unit that routes all paths', () => {
+  const routing = JSON.parse(readFileSync('template/.opencode/workflow/review/routing.json', 'utf8'))
+  const example = JSON.parse(readFileSync('optional/release/evidence.example.json', 'utf8'))
+  const covered = new Set(example.entries.flatMap(entry => entry.units))
+  for (const unit of routing.units.filter(unit => unit.areas.includes('*'))) assert.ok(covered.has(unit.id), unit.id)
+})
+
 test('the comment checklist joins the review catalog as the quality README describes', async () => {
   const { loadProjectConfig } = await import('../template/.opencode/plugins/workflow/config.ts')
   const root = mkdtempSync(join(tmpdir(), 'workflow-quality-'))
