@@ -21,8 +21,8 @@ const all = [
   ['plugin', 'npm', ['--prefix', 'template/.opencode/plugins/workflow', 'test']],
   ['guards', python, [...pythonArgs, '-m', 'unittest', 'discover', '-s', checks, '-t', checks, '-p', 'test_*.py']],
   ['quality', python, [...pythonArgs, '-m', 'unittest', 'discover', '-v', '-s', 'optional/quality', '-t', 'optional/quality', '-p', 'test_*.py']],
-  ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs', 'tests/superpowers-fetch.test.mjs', 'tests/ci.test.mjs', 'tests/sync.test.mjs']],
-  ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs', 'tests/onboarding.test.mjs']],
+  ['distribution', process.execPath, ['--test', 'tests/doctor.test.mjs', 'tests/distribution.test.mjs', 'tests/verify.test.mjs', 'tests/fetch.test.mjs', 'tests/superpowers-fetch.test.mjs', 'tests/ci.test.mjs']],
+  ['adoption', process.execPath, ['--test', 'tests/adoption.test.mjs', 'tests/setup.test.mjs', 'tests/onboarding.test.mjs', 'tests/sync.test.mjs']],
   ['native', process.execPath, ['--test', 'tests/native.test.mjs', 'tests/onboarding-native.test.mjs']],
   ['sync', python, [...pythonArgs, 'scripts/check-sync.py']],
 ]

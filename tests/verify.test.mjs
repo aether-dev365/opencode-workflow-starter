@@ -71,10 +71,12 @@ test('verification schedules onboarding acceptance and fixed-source checks on th
       assert.equal(result.status, 0, result.stdout + result.stderr)
       const stage = id => report.stages.find(entry => entry.id === id)
       assert.ok(stage('adoption').args.includes('tests/onboarding.test.mjs'))
+      // 套件关联检查入口的用例可移植，放在 Windows 子集也运行的阶段。
+      assert.ok(stage('adoption').args.includes('tests/sync.test.mjs'))
       assert.equal(report.stages.at(-1).id, 'sync')
       if (!args.length) {
         assert.ok(stage('distribution').args.includes('tests/superpowers-fetch.test.mjs'))
-        assert.ok(stage('distribution').args.includes('tests/sync.test.mjs'))
+        assert.ok(!stage('distribution').args.includes('tests/sync.test.mjs'))
         assert.ok(stage('native').args.includes('tests/onboarding-native.test.mjs'))
       }
     }

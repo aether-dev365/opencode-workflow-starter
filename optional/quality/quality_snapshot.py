@@ -72,10 +72,12 @@ class Snapshot:
                     pass
         return tuple(sorted(set(result)))
 
-    def paths(self) -> tuple[str, ...]:
+    def paths(self, regular=()) -> tuple[str, ...]:
+        # regular 是调用方刚由 regular_paths 确认的常规文件，不再逐个 lstat。
         if not self._worktree:
             return tuple(sorted(self._entries))
-        return tuple(sorted(p for p in set(self._sources) if self.exists(p)))
+        known = set(regular)
+        return tuple(sorted(known | {p for p in set(self._sources) - known if self.exists(p)}))
 
     def exists(self, path: str) -> bool:
         if not self._worktree:

@@ -52,7 +52,7 @@ def main(argv: list[str], *, here: Path, cwd: Path | None = None) -> int:
         if not rules:
             print('关联检查：没有登记关联。')
             return 0
-        after = changes.after.paths()
+        after = changes.after.paths(changes.changed)
         if mode[0] == 'all':
             reminders, stale = [], _stale(rules, (), after, True)
             summary = f'关联检查：校验了 {len(rules)} 条登记，{len(stale)} 处登记失效。'

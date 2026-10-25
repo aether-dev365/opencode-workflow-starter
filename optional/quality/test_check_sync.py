@@ -1,7 +1,14 @@
+import contextlib
+import io
 import json
+import os
+from pathlib import Path
+import shutil
 import time
 import unittest
-from quality_testing import TempRepo
+from unittest import mock
+import quality_sync
+from quality_testing import NEEDS_SYMLINK, TempRepo
 
 API = {'id': 'api', 'paths': ['src/api/*'], 'exclude': ['src/api/*_test.py'], 'related': ['docs/api.md', 'CHANGELOG.md'],
        'message': '接口变化要同步接口文档和变更记录'}
@@ -118,6 +125,36 @@ class SyncChecks(unittest.TestCase):
         self.repo.git('checkout', '-q', 'main'); self.change('docs/api.md')
         self.assertIn('（改动：src/api/a.py；未改动：docs/api.md、CHANGELOG.md）', self.run_sync('--range', 'main..feature', code=1)[0])
 
+    def test_intent_to_add_is_not_a_staged_change(self):
+        self.repo.write('src/api/b.py', 'x\n'); self.repo.git('add', '-N', 'src/api/b.py')
+        self.assertEqual(self.run_sync('--staged')[0], '关联检查：检查了 1 条登记，0 条需要确认同步，0 处登记失效。\n')
+        self.repo.git('add', 'src/api/b.py')
+        self.assertIn('（改动：src/api/b.py；', self.run_sync('--staged', code=1)[0])
+
+    @NEEDS_SYMLINK
+    def test_links_and_submodules_are_changes_and_existing_entries(self):
+        base = self.repo.git('rev-parse', 'HEAD').stdout.strip()
+        os.symlink('a.py', self.repo.root / 'src/api/link')
+        self.repo.git('add', 'src/api/link')
+        self.repo.git('update-index', '--add', '--cacheinfo', f'160000,{base},src/api/sub')
+        (self.repo.root / 'src/api/sub').mkdir()  # 未初始化的子模块在工作区是空目录。
+        self.repo.commit(add=False)
+        self.assertIn('（改动：src/api/link、src/api/sub；', self.run_sync(code=1)[0])
+        self.configure({**API, 'related': ['src/api/link', 'src/api/sub']})
+        self.assertEqual(self.run_sync('--all')[0], '关联检查：校验了 1 条登记，0 处登记失效。\n')
+
+    def test_staged_before_the_first_commit(self):
+        fresh = TempRepo(); self.addCleanup(fresh.close)
+        here = fresh.install_scripts()
+        (here / 'quality.json').write_text(json.dumps({'version': 1, 'sync': [API]}), encoding='utf-8')
+        fresh.write('src/api/a.py', 'x\n'); fresh.git('add', 'src/api/a.py')
+        result = fresh.run(here / 'check-sync.py', '--staged')
+        self.assertEqual((result.returncode, result.stdout.splitlines()), (1, [REMIND, '关联检查：检查了 1 条登记，1 条需要确认同步，0 处登记失效。']))
+
+    def test_copy_counts_only_the_new_path(self):
+        shutil.copyfile(self.repo.root / 'src/api/a.py', self.repo.root / 'src/api/c.py'); self.repo.commit()
+        self.assertIn('（改动：src/api/c.py；未改动：docs/api.md、CHANGELOG.md）', self.run_sync(code=1)[0])
+
     def test_root_commit_reports_reminders_and_full_validation(self):
         fresh = TempRepo(); self.addCleanup(fresh.close)
         here = fresh.install_scripts()
@@ -143,6 +180,20 @@ class SyncChecks(unittest.TestCase):
     def test_missing_shared_module_is_incomplete(self):
         (self.here / 'quality_sync.py').unlink()
         self.assertEqual(self.run_sync(code=2)[1], '关联检查未完成：质量扩展文件不完整（ModuleNotFoundError）\n')
+
+    def test_all_mode_inspects_each_entry_once(self):
+        for n in range(5):
+            self.repo.write(f'docs/{n}.md', 'x\n')
+        self.repo.commit('docs')
+        seen, lstat = [], Path.lstat
+
+        def record(path):
+            seen.append(path)
+            return lstat(path)
+        with mock.patch.object(Path, 'lstat', autospec=True, side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(quality_sync.main(['--all'], here=self.here, cwd=self.repo.root), 0)
+        files = [path for path in seen if path.parent == self.repo.root / 'docs']
+        self.assertEqual(sorted(path.name for path in files), ['0.md', '1.md', '2.md', '3.md', '4.md', 'api.md'])
 
     def test_subdirectory_and_unicode_paths(self):
         self.configure({'id': 'zh', 'paths': ['接口 目录/*'], 'related': ['说明 文档.md'], 'message': '接口变化要同步说明'})
