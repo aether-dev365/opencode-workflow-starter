@@ -89,12 +89,13 @@ test('paths with spaces and Chinese characters are reported verbatim and matched
   assert.deepEqual(report.undecided, ['前端 应用/.cursor'])
 })
 
-test('git failures, timeouts, oversized listings, non-UTF-8 names and more than 100 items are incomplete', async t => {
+test('git failures, timeouts, oversized listings and more than 100 items are incomplete with advice', async t => {
   const f = await repo(t)
   const run = (result: object) => detectExisting(f.root, { personal: false, list: () => ({ status: 0, stdout: Buffer.alloc(0), ...result }) })
   const failure = (code: string) => Object.assign(new Error(`spawnSync git ${code}`), { code })
-  const cases: [object, RegExp][] = [[{ status: null, error: failure('ETIMEDOUT') }, /20 秒.*\.gitignore/], [{ status: null, error: failure('ENOBUFS') }, /64 MiB/],
-    [{ status: 128 }, /Git/], [{ stdout: Buffer.from([0x43, 0xff, 0x00]) }, /UTF-8/]]
+  const cases: [object, RegExp][] = [[{ status: null, error: failure('ETIMEDOUT') }, /20 秒.*\.gitignore/], [{ status: null, error: failure('ENOBUFS') }, /64 MiB.*\.gitignore/],
+    [{ status: null, error: failure('ENOENT') }, /未找到 git.*PATH/], [{ status: null, error: failure('EACCES') }, /无法启动 Git（EACCES）/],
+    [{ status: 128 }, /退出码 128.*Git 仓库.*safe\.directory/]]
   for (const [result, pattern] of cases) {
     const report = await run(result)
     assert.deepEqual([report.complete, report.items, report.undecided], [false, [], []])
@@ -103,6 +104,27 @@ test('git failures, timeouts, oversized listings, non-UTF-8 names and more than 
   const many = await run({ stdout: Buffer.from(Array.from({ length: 101 }, (_, i) => `p${i}/CLAUDE.md\0`).join('')) })
   assert.equal(many.complete, false)
   assert.match(many.issues.join('\n'), /超过 100/)
+})
+
+test('a non-UTF-8 file name only blocks detection when the reported path itself cannot be decoded', async t => {
+  const f = await repo(t)
+  const run = (...names: Buffer[]) => detectExisting(f.root, { personal: false, list: () => ({ status: 0, stdout: Buffer.concat(names.flatMap(name => [name, Buffer.from([0])])) }) })
+  const bad = (before: string, after = '') => Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)])
+  const fine = await run(bad('src/a'), bad('.claude/agents/', '.md'), Buffer.from('.claude/commands/c.md'))
+  assert.equal(fine.complete, true, fine.issues.join('\n'))
+  assert.deepEqual(fine.items.map(i => [i.path, i.files]), [['.claude', 2]])
+  const blocked = await run(bad('docs/'), bad('docs/', '/CLAUDE.md'))
+  assert.deepEqual([blocked.complete, blocked.items], [false, []])
+  assert.match(blocked.issues.join('\n'), /1 处.*不是有效 UTF-8.*docs\/�\/CLAUDE\.md.*重命名/)
+})
+
+test('detected paths that cannot be recorded as decisions are incomplete instead of blocking every plan', async t => {
+  const f = await repo(t)
+  for (const path of ['a\\b/CLAUDE.md', '~old/CLAUDE.md', `${'x'.repeat(600)}/CLAUDE.md`]) {
+    const report = await detectExisting(f.root, { personal: false, list: () => ({ status: 0, stdout: Buffer.from(`${path}\0.cursorrules\0`) }) })
+    assert.deepEqual([report.complete, report.items], [false, []], path)
+    assert.match(report.issues.join('\n'), /无法记录决定.*重命名/, path)
+  }
 })
 
 test('personal locations show home-relative paths and counts without plugin sources', async t => {

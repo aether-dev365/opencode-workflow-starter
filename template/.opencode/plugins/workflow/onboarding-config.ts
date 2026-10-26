@@ -43,16 +43,17 @@ function agent(value: unknown): AgentChoice {
   return { name, description: text, focus: body, model: model(value.model) }
 }
 
-// 决定的键必须是检测结果中的 path 原样：项目相对路径，不能指向个人目录或带有 ./、../ 写法。
+// 决定的键必须是检测结果中的 path 原样：项目相对路径，不能指向个人目录或带有 ./、../ 写法；检测到不满足的路径时报告未完成。
+export const decisionKey = (path: string) => !!path && path.length <= 512 && !path.startsWith('/') && !path.startsWith('~') && !path.includes('\\') &&
+  !/[\u0000-\u001f\u007f]/.test(path) && !path.split('/').some(part => ['', '.', '..'].includes(part))
+
 function existing(value: unknown): Record<string, ExistingDecision> {
   if (!object(value)) throw new Error('existing 必须是以检测项 path 为键的对象')
   const entries = Object.entries(value)
   if (entries.length > 200) throw new Error('既有 AI 配置的决定最多 200 条')
   const result: Record<string, ExistingDecision> = {}
   for (const [path, decision] of entries) {
-    if (!path || path.length > 512 || path.startsWith('/') || path.startsWith('~') || path.includes('\\') || /[\u0000-\u001f\u007f]/.test(path) || path.split('/').some(part => ['', '.', '..'].includes(part))) {
-      throw new Error('既有 AI 配置的决定键必须是检测结果中的 path 原样：项目相对路径，用 / 分隔，不以 ./、/ 或 ~ 开头')
-    }
+    if (!decisionKey(path)) throw new Error('既有 AI 配置的决定键必须是检测结果中的 path 原样：项目相对路径，用 / 分隔，不以 ./、/ 或 ~ 开头')
     if (decision !== 'migrate' && decision !== 'keep') throw new Error('既有 AI 配置的决定只能是 migrate 或 keep')
     result[path] = decision
   }

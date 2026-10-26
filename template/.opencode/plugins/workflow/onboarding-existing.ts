@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse, type ParseError } from 'jsonc-parser'
 import { containedRelative } from './platform.ts'
-import type { ExistingDecision } from './onboarding-config.ts'
+import { decisionKey, type ExistingDecision } from './onboarding-config.ts'
 
 export type ExistingItem = { path: string; tool: string; files: number; opencode: 'loaded' | 'workspace' | 'not-loaded'; note: string; decision: ExistingDecision | null }
 export type SharedItem = { path: string; tool: string; note: string }
@@ -45,6 +45,7 @@ const rootMarkers = EXISTING_MARKERS.filter(m => m.where === 'root')
 const ignored = (tool: string) => `OpenCode V2 不读取 ${tool} 的这部分配置`
 const WORKSPACE = '工作目录位于该目录或更深时，OpenCode 会加载并覆盖上层同名设置'
 const SHARED = '只引用 AGENTS.md，与 OpenCode 共用同一份规则'
+const shorten = (path: string) => [...path].length > 80 ? [...path].slice(0, 77).join('') + '…' : path
 
 type Found = { path: string; tool: string; opencode: ExistingItem['opencode']; note: string; pointer?: boolean }
 
@@ -144,13 +145,28 @@ export async function detectExisting(root: string, options: ExistingOptions = {}
   const result = (options.list ?? listFiles)(root)
   const code = (result.error as NodeJS.ErrnoException | undefined)?.code
   if (code === 'ETIMEDOUT') return incomplete('列出项目文件超过 20 秒；把构建产物等加入 .gitignore 后重试')
-  if (code === 'ENOBUFS') return incomplete('文件清单超过 64 MiB')
-  if (result.error || result.status !== 0) return incomplete('Git 无法列出项目文件')
-  let paths: string[]
-  try { paths = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout).split('\0').filter(Boolean) } catch { return incomplete('文件名不是有效 UTF-8') }
+  if (code === 'ENOBUFS') return incomplete('文件清单超过 64 MiB；把构建产物、依赖目录等加入 .gitignore 后重试')
+  if (code === 'ENOENT') return incomplete('未找到 git 命令；安装 Git 并确认它在 PATH 中后重试')
+  if (result.error) return incomplete(`无法启动 Git（${code ?? '未知错误'}）`)
+  // 不回显 Git 的错误输出：其中可能有绝对路径。
+  if (result.status !== 0) return incomplete(`Git 无法列出项目文件（退出码 ${result.status ?? '未知'}）；确认项目是 Git 仓库、当前用户有权访问（必要时检查 safe.directory）后重试`)
+  // 逐个解码：无效 UTF-8 的文件名只有在检测项路径本身无法解码时才挡住检测，其余照常归类。
+  const managed = options.managedAgents ?? [], strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }), lossy = new TextDecoder('utf-8', { ignoreBOM: true })
+  const paths: string[] = [], undecodable: string[] = []
+  for (let start = 0, end; start < result.stdout.length; start = end + 1) {
+    end = result.stdout.indexOf(0, start)
+    if (end === -1) end = result.stdout.length
+    const bytes = result.stdout.subarray(start, end)
+    if (!bytes.length) continue
+    try { paths.push(strict.decode(bytes)) } catch {
+      const path = lossy.decode(bytes), match = classify(path, managed)
+      if (match?.path.includes('�')) undecodable.push(path); else if (match) paths.push(path)
+    }
+  }
+  if (undecodable.length) return incomplete(`${undecodable.length} 处 AI 配置的文件名不是有效 UTF-8（如 ${shorten(undecodable[0])}）；请重命名为 UTF-8 文件名后重试`)
   const files = new Set(paths), found = new Map<string, Found & { files: number }>()
   for (const path of paths) {
-    const match = classify(path, options.managedAgents ?? [])
+    const match = classify(path, managed)
     if (!match) continue
     const existing = found.get(match.path)
     if (existing) existing.files++; else found.set(match.path, { ...match, files: 1 })
@@ -166,6 +182,8 @@ export async function detectExisting(root: string, options: ExistingOptions = {}
     }
     items.push({ path: item.path, tool: item.tool, files: item.files, opencode: item.opencode, note: item.note, decision: Object.hasOwn(decisions, item.path) ? decisions[item.path] : null })
   }
+  const blocked = items.filter(item => !decisionKey(item.path))
+  if (blocked.length) return incomplete(`${blocked.length} 处既有 AI 配置的路径无法记录决定（含 \\ 或控制字符、以 ~ 开头或超过 512 个字符，如 ${shorten(blocked[0].path)}）；请重命名后重试`)
   if (items.length > LIMIT) return incomplete(`检测到超过 ${LIMIT} 处既有 AI 配置，请先人工梳理`)
   const order = (a: { path: string }, b: { path: string }) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0
   items.sort(order); shared.sort(order)
