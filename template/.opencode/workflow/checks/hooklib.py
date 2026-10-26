@@ -28,7 +28,9 @@
 inspect-paths.py 传 include_readonly=True，由原生插件发现 scope 并补充 context；规则加载的口径是
 「读到就该加载」，不是护栏，只读命令的 token 也要。
 """
+import ntpath
 import os
+import posixpath
 import re
 import shlex
 
@@ -165,6 +167,43 @@ def windows_path(value, os_name=None):
     for form in WINDOWS_DRIVE_FORMS:
         value = form.sub(lambda m: m.group(1).upper() + ':/', value, count=1)
     return value
+
+
+def _env_value(env, name):
+    return next((value for key, value in env.items() if key.upper() == name), None)
+
+
+def find_program(name, os_name=None, env=None, exists=None):
+    """在 PATH 的绝对目录中查找程序并返回绝对路径，找不到时返回 None；Windows 按 PATHEXT 补扩展名。
+    不查当前目录：Windows 的 CreateProcess 和 shutil.which 会先查它，相对的 PATH 项也指向它。"""
+    windows = (os_name or os.name) == 'nt'
+    module = ntpath if windows else posixpath
+    env = os.environ if env is None else env
+    if exists is None:
+        exists = os.path.isfile if windows else (lambda file: os.path.isfile(file) and os.access(file, os.X_OK))
+    names = [name]
+    if windows:
+        extensions = [ext for ext in (_env_value(env, 'PATHEXT') or '.COM;.EXE;.BAT;.CMD').split(';') if ext]
+        if not any(name.lower().endswith(ext.lower()) for ext in extensions):
+            names = [name + ext for ext in extensions]
+    for directory in (_env_value(env, 'PATH') or '').split(';' if windows else ':'):
+        if module.isabs(directory):
+            found = next((module.join(directory, item) for item in names if exists(module.join(directory, item))), None)
+            if found:
+                return found
+    return None
+
+
+def program(name, os_name=None, env=None, exists=None):
+    """启动外部程序时用的名称：Windows 上解析为 PATH 中的绝对路径，找不到时返回 None；其他平台不查当前目录，原样返回。"""
+    if (os_name or os.name) != 'nt':
+        return name
+    return find_program(name, os_name, env, exists)
+
+
+def system_command(name, env=None):
+    """taskkill.exe 等 Windows 系统程序固定取自 %SystemRoot%\\System32。"""
+    return ntpath.join(_env_value(os.environ if env is None else env, 'SYSTEMROOT') or 'C:\\Windows', 'System32', name)
 
 
 def is_absolute(path, os_name=None):

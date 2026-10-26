@@ -17,7 +17,7 @@ import tempfile
 import time
 
 from hooklib import (_command_lines, _lift_substitutions, _strip_redirects, split_segments, windows_path,
-                     SHELL_WRAPPERS, supported_shell_command)
+                     SHELL_WRAPPERS, find_program, program, supported_shell_command, system_command)
 from protocol import emit_result, read_event
 
 TOTAL_TIMEOUT = 8
@@ -46,7 +46,7 @@ def install_command(os_name=os.name):
 def kill_tree(proc, os_name=os.name, run=subprocess.run):
     """超时后终止扫描器及其子进程：POSIX 杀掉整个进程组，Windows 用 taskkill /T。"""
     if os_name == 'nt':
-        run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
+        run([system_command('taskkill.exe'), '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
     else:
         os.killpg(proc.pid, signal.SIGKILL)
 
@@ -284,7 +284,7 @@ def scan_commit(parsed, runner, *, snapshot=None):
     if any(os.environ.get(name) for name in GIT_ENV):
         raise Blocked('已拦截：当前环境覆盖了 Git 仓库或 index；请清除 GIT_* 覆盖后用独立 git -C <目录> commit。')
     pin = json.loads((PIN / 'pinned.json').read_text(encoding='utf-8'))
-    scanner = shutil.which('gitleaks')
+    scanner = find_program('gitleaks')
     if not scanner:
         fallback = Path.home() / '.local/bin' / ('gitleaks.exe' if os.name == 'nt' else 'gitleaks')
         scanner = str(fallback) if fallback.is_file() else None
@@ -297,8 +297,12 @@ def scan_commit(parsed, runner, *, snapshot=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith('GITLEAKS_')}
     env['GIT_OPTIONAL_LOCKS'] = '0'
 
+    git_program = program('git')
+    if not git_program:
+        raise Blocked('已拦截：Git/Gitleaks 无法启动，请检查安装和仓库路径后重试。')
+
     def git(*args, data=b'', ok=(0,), directory=None):
-        return runner.run(['git', '-C', str(directory or cwd), *args], env=env, data=data, ok=ok)
+        return runner.run([git_program, '-C', str(directory or cwd), *args], env=env, data=data, ok=ok)
 
     _, root_data = git('rev-parse', '--show-toplevel')
     root = Path(os.fsdecode(root_data.rstrip(b'\n')))

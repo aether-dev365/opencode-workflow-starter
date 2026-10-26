@@ -10,6 +10,8 @@
 
 插件每次只启动一个检查进程：`run-checks.py` 的输入为上述事件加 `checks` 名称列表，inspect-paths 的结果放在输出的 `inspect` 中；守卫按 pre-guard-paths、pre-secret-scan、pre-bash-pipefail 的顺序运行，前一个改写的 input 交给下一个，遇到第一个拒绝即停止。各脚本仍可单独运行，协议不变。
 
+守卫和插件启动 Git、Gitleaks 和 Python 启动器时，只在 PATH 的绝对目录中查找，不查当前目录和 `.` 一类相对项；Windows 默认会先查当前目录，项目里放置的同名程序因此不会被执行。`taskkill.exe`、`cmd.exe` 固定取自 `%SystemRoot%\System32`。这些工具要以绝对路径登记在 PATH 中。
+
 保护规则来自 `protection.json`，按顺序最后命中生效，路径中只有 `*`、`?` 为通配符。插件还在原生权限边界检查规范化后的路径。shell 解析覆盖字面路径、cd、常见写命令、数据 heredoc 和部分命令替换；不是执行任意程序的系统沙盒。
 
 `.opencode/workflow/protection.json` 另由守卫和插件内置为代理只读，不依赖该文件自己的规则；修复模式也不例外，没有询问放行入口。修改、合并或修复保护配置需由用户在 OpenCode 之外完成。替换父目录、补丁删除或重命名、通过链接编辑同样拒绝；不锁定插件和守卫代码，仍可按升级流程更新它们。

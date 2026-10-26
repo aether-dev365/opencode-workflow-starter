@@ -60,7 +60,23 @@ class Platform(unittest.TestCase):
         class Proc:
             pid = 42
         scan.kill_tree(Proc(), os_name='nt', run=lambda args, **kwargs: calls.append(args))
-        self.assertEqual(calls, [['taskkill', '/PID', '42', '/T', '/F']])
+        self.assertEqual(calls, [[hooklib.system_command('taskkill.exe'), '/PID', '42', '/T', '/F']])
+
+    def test_programs_are_found_only_in_absolute_path_entries(self):
+        # Windows 的 CreateProcess 和 shutil.which 都先查当前目录；相对 PATH 项同样指向当前目录。
+        files = {'C:\\bin\\git.exe', 'git.exe', 'tools\\git.exe', 'C:\\scan\\gitleaks.cmd'}
+        env = {'Path': '.;tools;C:\\bin;C:\\scan', 'PATHEXT': '.com;.exe;.bat;.cmd'}
+        find = lambda name: hooklib.find_program(name, os_name='nt', env=env, exists=files.__contains__)
+        self.assertEqual(find('git'), 'C:\\bin\\git.exe')
+        self.assertEqual(find('gitleaks'), 'C:\\scan\\gitleaks.cmd')
+        self.assertIsNone(find('missing'))
+        self.assertEqual(hooklib.program('git', os_name='nt', env=env, exists=files.__contains__), 'C:\\bin\\git.exe')
+        self.assertIsNone(hooklib.program('git', os_name='nt', env={}, exists=files.__contains__))
+        posix = {'git', 'bin/git', '/usr/bin/git'}
+        self.assertEqual(hooklib.find_program('git', os_name='posix', env={'PATH': '.:bin:/usr/bin'}, exists=posix.__contains__), '/usr/bin/git')
+        self.assertEqual(hooklib.program('git', os_name='posix', env={}, exists=posix.__contains__), 'git')
+        self.assertEqual(hooklib.system_command('taskkill.exe', env={'SystemRoot': 'D:\\Windows'}), 'D:\\Windows\\System32\\taskkill.exe')
+        self.assertEqual(hooklib.system_command('cmd.exe', env={}), 'C:\\Windows\\System32\\cmd.exe')
 
     def test_install_command_uses_the_python_launcher_on_windows(self):
         scan = load('pre-secret-scan')
@@ -71,7 +87,7 @@ class Platform(unittest.TestCase):
         # OpenCode 后台服务的 PATH 在服务启动时确定；安装扫描器后需要重启服务。
         scan = load('pre-secret-scan')
         env = {k: v for k, v in os.environ.items() if k not in scan.GIT_ENV}
-        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(scan.shutil, 'which', return_value=None), \
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(scan, 'find_program', return_value=None), \
                 mock.patch.object(scan.Path, 'home', return_value=Path('/nonexistent-home')), self.assertRaises(scan.Blocked) as raised:
             scan.scan_commit((Path('/repo'), 'staged', False, []), scan.Runner())
         self.assertIn('install.py', str(raised.exception))

@@ -508,6 +508,19 @@ class SecretScanTest(unittest.TestCase):
         self.stage('settings.conf', PAYLOAD)
         self.assert_blocked(self.hook("git commit -F - <<'EOF'\nsafe message\nEOF"))
 
+    def test_programs_planted_in_the_project_are_not_run(self):
+        # Windows 的 CreateProcess 先在当前目录查找 git、gitleaks：用 hostname.exe 的副本冒充，它只输出主机名。
+        # 其他平台不查当前目录，这里不做任何事。
+        if os.name != 'nt':
+            return
+        hostname = Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe'
+        for name in ('git.exe', 'gitleaks.exe'):
+            shutil.copyfile(hostname, self.root / name)
+        self.stage('safe.txt', 'safe\n')
+        self.assert_allowed(self.hook())
+        self.stage('settings.conf', PAYLOAD)
+        self.assert_blocked(self.hook(), 'settings.conf')
+
     def test_missing_scanner_blocks_even_clean_commit(self):
         self.scanner.unlink()
         self.assert_blocked(self.hook(), 'install.py')
