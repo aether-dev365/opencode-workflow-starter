@@ -131,7 +131,7 @@ def main(argv: list[str]) -> int:
         print(f'已更新质量检查 hook：{hook}' if exists else f'已安装质量检查 hook：{hook}')
         return 0
     except Exception as error:
-        reason = '不在 git 仓库中' if isinstance(error, Incomplete) and error.args == ('不在 git 仓库中',) else type(error).__name__
+        reason = error.args[0] if isinstance(error, Incomplete) and error.args else type(error).__name__
         print(f'安装失败：{reason}')
         return 2
 

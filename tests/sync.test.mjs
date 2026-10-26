@@ -54,7 +54,7 @@ test('a missing git is incomplete without a traceback', t => {
   assert.ok(python, '取不到解释器路径')
   const result = r.run(python, [entry], { env: { PATH: join(r.temp, 'empty') } })
   assert.equal(result.status, 2, result.stdout + result.stderr)
-  assert.equal(result.stderr, '关联检查未完成：无法运行 git（FileNotFoundError）\n')
+  assert.equal(result.stderr, '关联检查未完成：找不到 git 命令；安装 Git 并确认它在 PATH 中\n')
 })
 
 // 在同一进程里替换标准库函数后运行入口，模拟难以在所有平台上真实制造的故障。

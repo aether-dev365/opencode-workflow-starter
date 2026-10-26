@@ -110,6 +110,7 @@ export function hookExecutable(file: string, platform: Platform = process.platfo
 
 // Windows 只按 PATHEXT 查找：npm 在同一目录放有无扩展名的 sh 启动脚本，它不能直接执行。
 // 只查 PATH 中的绝对目录：空项和 `.` 一类相对项指向当前目录。Windows 的 PATH 项可以带一对引号，与系统一样去掉。
+// 没有 PATH 时，macOS 和 Linux 与 Python 的 shutil.which 一样用 /bin:/usr/bin。
 type Lookup = { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean }
 export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = (file: string) => launchable(file, platform), pathext }: Lookup & { pathext?: string } = {}): string | undefined {
   const p = platform === 'win32' ? path.win32 : path.posix
@@ -117,7 +118,7 @@ export function findExecutable(name: string, { env = process.env, platform = pro
   const extensions = platform !== 'win32' || known.some(ext => name.toLowerCase().endsWith(ext.toLowerCase())) ? [''] : known
   const first = (base: string) => extensions.map(ext => base + ext).find(exists)
   if (name.includes('/') || (platform === 'win32' && name.includes('\\'))) return first(name)
-  const entries = (envValue(env, 'PATH') ?? '').split(p.delimiter).map(entry => platform === 'win32' ? entry.replace(/^"([^"]*)"$/, '$1') : entry)
+  const entries = (envValue(env, 'PATH') ?? (platform === 'win32' ? '' : '/bin:/usr/bin')).split(p.delimiter).map(entry => platform === 'win32' ? entry.replace(/^"([^"]*)"$/, '$1') : entry)
   for (const directory of entries.filter(entry => p.isAbsolute(entry))) {
     const found = first(p.join(directory, name))
     if (found) return found
@@ -134,9 +135,9 @@ export function executable(name: string, { env = process.env, platform = process
   throw Object.assign(new Error(`找不到 ${name}：请确认它在 PATH 中`), { code: 'ENOENT' })
 }
 
-// cmd.exe、taskkill.exe 等系统程序固定取自 %SystemRoot%\System32，没有 SystemRoot 时依次用 windir、C:\Windows。
+// cmd.exe、taskkill.exe 等系统程序固定取自 %SystemRoot%\System32，SystemRoot 为空时依次用 windir、C:\Windows。
 export function systemCommand(name: string, env: NodeJS.ProcessEnv = process.env): string {
-  return path.win32.join(envValue(env, 'SYSTEMROOT') ?? envValue(env, 'WINDIR') ?? 'C:\\Windows', 'System32', name)
+  return path.win32.join(envValue(env, 'SYSTEMROOT') || envValue(env, 'WINDIR') || 'C:\\Windows', 'System32', name)
 }
 
 // Node 不再直接启动 .cmd/.bat；改经 cmd.exe，/s 去掉最外层引号后按原样执行整行。

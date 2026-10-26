@@ -59,7 +59,7 @@ test('macOS and Linux require python3 to be 3.10+ and fall back to versioned int
   assert.deepEqual(tried, ['/usr/bin/python3', '/opt/homebrew/bin/python3.13', '/opt/homebrew/bin/python3.12'])
   assert.deepEqual(pythonCommand({ env, platform: 'linux', exists, probe: c => c.command.endsWith('/python3') }), { command: '/usr/bin/python3', args: [] })
   assert.throws(() => pythonCommand({ env, platform: 'darwin', exists, probe: () => false }), /python3.*python3\.10.*brew install python@3\.12.*WORKFLOW_PYTHON/s)
-  assert.throws(() => pythonCommand({ env: {}, platform: 'linux', exists, probe: () => true }), /python3.*python3\.10.*WORKFLOW_PYTHON/s)
+  assert.throws(() => pythonCommand({ env: { PATH: '' }, platform: 'linux', exists, probe: () => true }), /python3.*python3\.10.*WORKFLOW_PYTHON/s)
 })
 
 test('Node checks use a suspended-job Python supervisor on Windows and direct Node elsewhere', () => {
@@ -137,6 +137,9 @@ test('Windows starts PATH programs only by absolute path and system programs fro
   assert.equal(executable('git', { env: { Path: '"C:\\Git\\cmd"' }, platform: 'win32', exists }), 'C:\\Git\\cmd\\git.exe')
   assert.equal(systemCommand('cmd.exe', env), 'D:\\Windows\\System32\\cmd.exe')
   assert.equal(systemCommand('cmd.exe', { windir: 'E:\\WINNT' }), 'E:\\WINNT\\System32\\cmd.exe')
+  // 空的 SystemRoot 也要回退，否则得到相对路径，又会按当前目录查找。
+  assert.equal(systemCommand('cmd.exe', { SystemRoot: '', windir: 'E:\\WINNT' }), 'E:\\WINNT\\System32\\cmd.exe')
+  assert.equal(systemCommand('cmd.exe', { SystemRoot: '' }), 'C:\\Windows\\System32\\cmd.exe')
   assert.equal(systemCommand('taskkill.exe', {}), 'C:\\Windows\\System32\\taskkill.exe')
 })
 
@@ -147,6 +150,8 @@ test('macOS and Linux also start PATH programs by absolute path, because an empt
   assert.equal(executable('opencode', { env: { PATH: '/usr/bin:/usr/local/bin:' }, platform: 'darwin', exists, scripts: true }), '/usr/local/bin/opencode')
   assert.throws(() => executable('git', { env: { PATH: ':.' }, platform: 'linux', exists }), (error: NodeJS.ErrnoException) => error.code === 'ENOENT')
   for (const name of ['./run', '/opt/tool']) assert.equal(executable(name, { env: {}, platform: 'linux', exists }), name)
+  // 没有 PATH 时与 Python 的 shutil.which 一样用 /bin:/usr/bin。
+  assert.equal(executable('git', { env: {}, platform: 'linux', exists }), '/usr/bin/git')
 })
 
 test('cmd scripts run through cmd.exe with the whole command line quoted', () => {

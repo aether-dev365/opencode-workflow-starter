@@ -45,6 +45,13 @@ class Installer(unittest.TestCase):
         result = self.install()
         self.assertEqual((result.returncode, result.stdout.strip()), (0, f'已安装质量检查 hook：{self.hook}'), result.stderr)
 
+    def test_missing_git_reports_the_reason(self):
+        empty = self.repo.root.parent / 'empty-bin'
+        empty.mkdir()
+        self.repo.env['PATH'] = str(empty)
+        result = self.install()
+        self.assertEqual((result.returncode, result.stdout.strip()), (2, '安装失败：找不到 git 命令；安装 Git 并确认它在 PATH 中'))
+
     def test_foreign_hook_and_hooks_path_are_left_alone(self):
         self.hook.parent.mkdir(parents=True, exist_ok=True)
         self.hook.write_text('#!/bin/sh\necho mine\n', encoding='utf-8')
