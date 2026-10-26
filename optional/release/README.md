@@ -4,7 +4,7 @@
 
 ## 启用
 
-1. 将 `release.example.json` 复制到目标项目 `.opencode/workflow/release.json`，填写真实固定入口 argv、发布范围和产物路径，再设 enabled 为 true。argv 是参数数组，默认不经过 shell。Windows 上 argv 的第一项不能是 `.cmd`/`.bat` 启动器（例如 `npm`、`npx`），Node 不会直接启动它们；改为直接调用解释器，例如 `["node", "scripts/publish.mjs"]`。
+1. 将 `release.example.json` 复制到目标项目 `.opencode/workflow/release.json`，填写真实固定入口 argv、发布范围和产物路径，再设 enabled 为 true。argv 是参数数组，默认不经过 shell。Windows 上 argv 的第一项不能是 `.cmd`/`.bat` 启动器（例如 `npm`、`npx`），Node 不会直接启动它们；改为直接调用解释器，例如 `["node", "scripts/publish.mjs"]`。Windows 上不带路径的第一项只在 PATH 的绝对目录中查找，不查项目目录；带路径的按项目根解析。
 2. 保留目标 `opencode.jsonc` 中 workflow_release 的 ask 权限；重新加载插件。该工具只有 entry 参数，不能临时传命令、环境变量或工作目录。
 3. 将此处的 `release-checklist.md` 作为项目专项检查单接入 catalog/routing，按领域确定适用路径。默认 core、tests 与 sync 覆盖所有变更。
 4. 提交候选和配置。在忽略目录 `.opencode/workflow/.state/release/` 保存本次日志和产物，用 evidence 示例登记真实验证，不填写虚构成功。
