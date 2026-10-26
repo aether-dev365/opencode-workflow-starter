@@ -139,7 +139,7 @@ class Runner(unittest.TestCase):
             else:
                 kwargs.pop('start_new_session', None)
             process = popen(command, **kwargs)
-            if command[0] != 'git':
+            if Path(command[0]).stem.lower() != 'git':
                 processes.append(process)
                 if stalled_output and len(processes) == 1:
                     communicate = process.communicate
@@ -152,7 +152,7 @@ class Runner(unittest.TestCase):
             return process
 
         def command_run(command, **kwargs):
-            if command[0] == 'taskkill':
+            if command[0].lower().endswith('taskkill.exe'):
                 if missing_taskkill:
                     raise FileNotFoundError()
                 raise subprocess.CalledProcessError(1, command)
@@ -260,7 +260,7 @@ class Runner(unittest.TestCase):
         popen = subprocess.Popen
         started = []
         def launch(command, **kwargs):
-            if command[0] != 'git':
+            if Path(command[0]).stem.lower() != 'git':
                 started.append(Path(command[1]).name)
                 if len(started) == 1:
                     raise PermissionError()
@@ -294,7 +294,7 @@ class Runner(unittest.TestCase):
         start_process = module.start_process
         def launch(command, **kwargs):
             p = start_process(command, **kwargs)
-            if command[0] != 'git' and Path(command[1]).name == 'check-format.py':
+            if Path(command[0]).stem.lower() != 'git' and Path(command[1]).name == 'check-format.py':
                 communicate = p.communicate
                 # 启动握手与待测的 0.5 秒预算分开；Windows Job 恢复主线程后才等待。
                 startup_deadline = time.monotonic() + 10

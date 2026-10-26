@@ -3,6 +3,7 @@
 import codecs
 from contextlib import contextmanager
 from dataclasses import dataclass
+import ntpath
 import os
 from pathlib import Path
 import signal
@@ -58,7 +59,9 @@ def resolve_executable(command: str, *, cwd: Path, env=None, os_name=None) -> Pa
         extensions = env.get('PATHEXT', '.COM;.EXE;.BAT;.CMD').split(';')
         if not any(command.lower().endswith(ext.lower()) for ext in extensions if ext):
             names += [command + ext for ext in extensions if ext]
-    directories = [cwd] if has_path else [Path(p) for p in env.get('PATH', os.defpath).split(';' if windows and os.name == 'nt' else os.pathsep)]
+    # 只查 PATH 中的绝对目录：`.` 一类相对项指向当前目录，项目里的同名程序会被执行。
+    entries = env.get('PATH', os.defpath).split(';' if windows and os.name == 'nt' else os.pathsep)
+    directories = [cwd] if has_path else [Path(p) for p in entries if os.path.isabs(p) or (windows and ntpath.isabs(p))]
     for directory in directories:
         directory = cwd / directory
         for name in names:
@@ -72,6 +75,20 @@ def resolve_executable(command: str, *, cwd: Path, env=None, os_name=None) -> Pa
             if file.is_file() and (windows or os.access(file, os.X_OK)):
                 return file.absolute()
     return None
+
+
+def program(name: str, *, os_name=None, env=None) -> str | None:
+    """启动外部程序时用的名称：Windows 的进程创建先查当前目录，解析为 PATH 中的绝对路径，找不到时返回 None；其他平台原样返回。"""
+    if (os_name or os.name) != 'nt':
+        return name
+    found = resolve_executable(name, cwd=Path.cwd(), env=env, os_name=os_name)
+    return str(found) if found else None
+
+
+def system_command(name: str, env=None) -> str:
+    """taskkill.exe 等 Windows 系统程序固定取自 %SystemRoot%\\System32。"""
+    env = os.environ if env is None else env
+    return ntpath.join(next((v for k, v in env.items() if k.upper() == 'SYSTEMROOT'), None) or 'C:\\Windows', 'System32', name)
 
 
 class _LifecycleError(OSError):
@@ -230,7 +247,7 @@ def kill_tree(process: subprocess.Popen, *, os_name=None) -> bool:
             return False
     try:
         if (os_name or os.name) == 'nt':
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+            subprocess.run([system_command('taskkill.exe'), '/F', '/T', '/PID', str(process.pid)],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=5)
         else:
             os.killpg(process.pid, signal.SIGKILL)

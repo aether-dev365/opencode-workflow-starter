@@ -275,6 +275,29 @@ class Processes(unittest.TestCase):
         self.assertEqual(process.resolve_executable('direct', cwd=self.root, env={'PATH': str(self.root)}), self.root / 'direct')
         self.assertIsNone(process.resolve_executable('missing', cwd=self.root, env=env))
 
+    def test_command_lookup_skips_relative_path_entries(self):
+        # 相对 PATH 项指向当前目录：Windows 的进程创建本来就会先查它，项目里的同名程序不能因此被执行。
+        for directory in ('.', 'bin', 'abs'):
+            (self.root / directory).mkdir(exist_ok=True)
+            (self.root / directory / 'tool').write_text('', encoding='utf-8')
+            (self.root / directory / 'tool').chmod(0o755)
+        relative = os.pathsep.join(['.', 'bin'])
+        self.assertEqual(process.resolve_executable('tool', cwd=self.root, env={'PATH': os.pathsep.join([relative, str(self.root / 'abs')])}), self.root / 'abs' / 'tool')
+        self.assertIsNone(process.resolve_executable('tool', cwd=self.root, env={'PATH': relative}))
+
+    def test_windows_programs_resolve_to_absolute_paths(self):
+        (self.root / 'git.exe').write_text('', encoding='utf-8')
+        (self.root / 'bin').mkdir()
+        (self.root / 'bin' / 'git.exe').write_text('', encoding='utf-8')
+        previous = os.getcwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, previous)
+        self.assertEqual(process.program('git', os_name='nt', env={'PATH': str(self.root / 'bin'), 'PATHEXT': '.com;.exe'}), str(self.root / 'bin' / 'git.exe'))
+        self.assertIsNone(process.program('git', os_name='nt', env={'PATH': '', 'PATHEXT': '.com;.exe'}))
+        self.assertEqual(process.program('git', os_name='posix', env={}), 'git')
+        self.assertEqual(process.system_command('taskkill.exe', env={'SystemRoot': 'D:\\Windows'}), 'D:\\Windows\\System32\\taskkill.exe')
+        self.assertEqual(process.system_command('taskkill.exe', env={}), 'C:\\Windows\\System32\\taskkill.exe')
+
     def test_termination_handlers_are_restored(self):
         before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
         with process.termination_flag() as cancelled:

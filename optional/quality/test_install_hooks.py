@@ -32,6 +32,15 @@ class Installer(unittest.TestCase):
             self.assertTrue(os.access(self.hook, os.X_OK))
         self.assertEqual(self.install(cwd=self.here).stdout.strip(), f'已更新质量检查 hook：{self.hook}')
 
+    def test_programs_planted_in_the_project_are_not_run(self):
+        # Windows 的 CreateProcess 先在当前目录查找 git：用 hostname.exe 的副本冒充，它只输出主机名。
+        # 其他平台不查当前目录，这里不做任何事。
+        if os.name != 'nt':
+            return
+        shutil.copyfile(Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe', self.repo.root / 'git.exe')
+        result = self.install()
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, f'已安装质量检查 hook：{self.hook}'), result.stderr)
+
     def test_foreign_hook_and_hooks_path_are_left_alone(self):
         self.hook.parent.mkdir(parents=True, exist_ok=True)
         self.hook.write_text('#!/bin/sh\necho mine\n', encoding='utf-8')
@@ -133,7 +142,7 @@ class Installer(unittest.TestCase):
     def test_scripts_outside_the_checkout_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             outside = Path(directory)
-            for name in ['install-hooks.py', 'quality_lib.py', 'quality_lexer.py']:
+            for name in ['install-hooks.py', 'quality_lib.py', 'quality_lexer.py', 'quality_process.py']:
                 shutil.copy(self.here / name, outside / name)
             result = self.repo.run(outside / 'install-hooks.py')
             self.assertEqual(result.returncode, 2)
