@@ -10,6 +10,7 @@ import { fixture, before, context, load } from './fixture.ts'
 import { type SetupChoices } from '../onboarding-config.ts'
 import { planSetup } from '../onboarding-files.ts'
 import { SUPERPOWERS_SPEC } from '../onboarding-source.ts'
+import { agentText } from '../onboarding-agents.ts'
 import { verifySuperpowers, SkillEvidence, checkModels, runSetupDoctor, probeSetupRuntime, type SourceSnapshot } from '../onboarding-runtime.ts'
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
@@ -295,6 +296,65 @@ test('status and verify expose existing AI configuration and stay unready until 
     const verified = await f.invoke({ action: 'verify' })
     assert.equal(verified.ready, true, JSON.stringify(verified.issues))
     assert.equal(verified.existing.items[0].decision, 'keep')
+  } finally { await f.close() }
+})
+
+const managed = [{ name: 'web-implementer', description: '前端', focus: '前端。', model: { mode: 'inherit' as const } }, { name: 'docs-writer', description: '文档', focus: '文档。', model: { mode: 'fixed' as const, model: 'fake/fixture' } }]
+
+test('model checks cover managed subagents: missing, not a subagent, empty prompt, mismatched fixed model and overridden inheritance', () => {
+  const model = { id: 'fixture', modelID: 'fixture', providerID: 'fake', name: 'Fixture', enabled: true, capabilities: { tools: true }, variants: [] } as any
+  const selected = { ...choices(), agents: managed }
+  const loaded = (id: string, extra = {}) => ({ id, mode: 'subagent' as const, system: `${id} 说明。`, ...extra })
+  const agents = { implementer: loaded('implementer'), reviewer: loaded('reviewer'), 'web-implementer': loaded('web-implementer'), 'docs-writer': loaded('docs-writer', { model: { providerID: 'fake', id: 'fixture' } }) }
+  assert.deepEqual(checkModels(selected, [model], agents).issues, [])
+  const { 'web-implementer': _, ...missing } = agents
+  for (const [override, pattern] of [
+    [missing, /无法确认有效 web-implementer 代理/],
+    [{ ...agents, 'web-implementer': loaded('web-implementer', { mode: 'primary' }) }, /web-implementer 没有正确加载为可用子代理/],
+    [{ ...agents, 'web-implementer': loaded('web-implementer', { system: ' ' }) }, /web-implementer 没有正确加载为可用子代理/],
+    [{ ...agents, 'docs-writer': loaded('docs-writer') }, /docs-writer 有效模型与固定选择不一致/],
+    [{ ...agents, 'web-implementer': loaded('web-implementer', { model: { providerID: 'fake', id: 'fixture' } }) }, /web-implementer 已选择动态继承/],
+  ] as const) assert.match(checkModels(selected, [model], override as any).issues.join('\n'), pattern)
+  assert.deepEqual(checkModels(selected, [model], { implementer: agents.implementer, reviewer: agents.reviewer }, false).issues, [])
+})
+
+test('verify waits until the host loads every managed subagent and status lists it as an effective role', async () => {
+  const f = await setup('basic')
+  try {
+    await mkdir(join(f.root, '.opencode/agents'), { recursive: true })
+    await writeFile(join(f.root, '.opencode/agents/web-implementer.md'), agentText(managed[0]))
+    await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify({ ...choices(), agents: [managed[0]] }))
+    const missing = await f.invoke({ action: 'verify' })
+    assert.equal(missing.ready, false)
+    assert.match(JSON.stringify(missing.issues), /web-implementer/)
+    f.agents.set('web-implementer', { id: 'web-implementer', name: 'web-implementer', mode: 'subagent', hidden: false, system: '前端。', request: { settings: {}, headers: {}, body: {} }, permissions: [] })
+    const ready = await f.invoke({ action: 'verify' })
+    assert.equal(ready.ready, true, JSON.stringify(ready.issues))
+    assert.deepEqual(Object.keys(ready.models.effective).sort(), ['implementer', 'reviewer', 'web-implementer'])
+  } finally { await f.close() }
+})
+
+test('plan previews reasoning effort and inheritance notes for every managed role', async () => {
+  const f = await setup('basic')
+  try {
+    f.models[0].variants = [{ id: 'high' }] as never
+    const planned = await f.invoke({ action: 'plan', choices: { ...choices(), agents: [managed[0], { ...managed[1], model: { mode: 'fixed', model: 'fake/fixture#high' } }] } })
+    assert.ok(planned.id, JSON.stringify(planned))
+    assert.match(planned.effort['web-implementer'], /跟随发起会话的模型和思考强度/)
+    assert.match(planned.effort['docs-writer'], /思考强度 high/)
+    assert.ok(planned.unverified.some((x: string) => x.startsWith('web-implementer 的候选继承计划')))
+  } finally { await f.close() }
+})
+
+test('editing a managed subagent file changes the runtime fingerprint', async () => {
+  const f = await setup('basic')
+  try {
+    await mkdir(join(f.root, '.opencode/agents'), { recursive: true })
+    await writeFile(join(f.root, '.opencode/agents/web-implementer.md'), agentText(managed[0]))
+    await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify({ ...choices(), agents: [managed[0]] }))
+    const first = (await probeSetupRuntime(f.ctx, 's1')).fingerprint
+    await writeFile(join(f.root, '.opencode/agents/web-implementer.md'), agentText({ ...managed[0], focus: '改过。' }))
+    assert.notEqual((await probeSetupRuntime(f.ctx, 's1')).fingerprint, first)
   } finally { await f.close() }
 })
 

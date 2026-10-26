@@ -83,6 +83,11 @@ export function validateSetupChoices(value: unknown, { legacy = false }: { legac
   }
 }
 
+// 向导管理的全部角色及其模型选择：两个套件角色在前，新增子代理按选择顺序在后。
+export function managedRoles(choices: SetupChoices): [string, ModelChoice][] {
+  return [['implementer', choices.models.implementer], ['reviewer', choices.models.reviewer], ...choices.agents.map(agent => [agent.name, agent.model] as [string, ModelChoice])]
+}
+
 export async function readSetupChoices(root: string): Promise<SetupChoices | null> {
   const base = await realpath(resolve(root))
   let file = base

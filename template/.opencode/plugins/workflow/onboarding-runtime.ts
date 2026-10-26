@@ -8,7 +8,8 @@ import { spawn } from 'node:child_process'
 import { childOptions, killTree, findExecutable, containedRelative, samePath, nodeCheckCommand, pythonEnv } from './platform.ts'
 import { scopeRoot } from './scopes.ts'
 import { SUPERPOWERS_SOURCE, SUPERPOWERS_SPEC, SUPERPOWERS_REVISION } from './onboarding-source.ts'
-import { SETUP_PROFILE, type SetupChoices } from './onboarding-config.ts'
+import { SETUP_PROFILE, managedRoles, readSetupChoices, type SetupChoices } from './onboarding-config.ts'
+import { agentPath } from './onboarding-agents.ts'
 import { REVIEWER } from './review.ts'
 
 const normalize = (text: string) => text.replaceAll('\r\n', '\n')
@@ -75,8 +76,8 @@ export class SkillEvidence {
 
 export function checkModels(choices: SetupChoices, models: ModelInfo[], agents: Record<string, Pick<AgentInfo, 'id'> & Partial<AgentInfo>>, requireEffective = true): { issues: string[] } {
   const issues: string[] = []
-  for (const role of ['implementer', 'reviewer'] as const) {
-    const choice = choices.models[role], effective = agents[role]
+  for (const [role, choice] of managedRoles(choices)) {
+    const effective = agents[role]
     if (requireEffective) {
       if (!effective || effective.id !== role) { issues.push(`无法确认有效 ${role} 代理`); continue }
       if (!['subagent', 'all'].includes(effective.mode ?? '') || typeof effective.system !== 'string' || !effective.system.trim()) {
@@ -97,7 +98,7 @@ export function checkModels(choices: SetupChoices, models: ModelInfo[], agents: 
 }
 
 // 宿主按 显式 model → 代理 model → 父会话 model 解析子代理模型：继承时 variant 随父会话，固定且不写 variant 时用模型默认。
-export function describeEffort(choices: SetupChoices, models: ModelInfo[]): Record<'implementer' | 'reviewer', string> {
+export function describeEffort(choices: SetupChoices, models: ModelInfo[]): Record<string, string> {
   const describe = (choice: SetupChoices['models']['implementer']) => {
     if (choice.mode === 'inherit') return '继承：跟随发起会话的模型和思考强度'
     const [name, variant] = choice.model.split('#'), slash = name.indexOf('/')
@@ -105,7 +106,7 @@ export function describeEffort(choices: SetupChoices, models: ModelInfo[]): Reco
     const options = models.find(model => model.providerID === name.slice(0, slash) && model.id === name.slice(slash + 1))?.variants.map(value => value.id) ?? []
     return options.length ? `固定 ${name}，未选择思考强度：使用模型默认，不跟随主会话（可选：${options.join('、')}）` : `固定 ${name}，该模型没有可选思考强度`
   }
-  return { implementer: describe(choices.models.implementer), reviewer: describe(choices.models.reviewer) }
+  return Object.fromEntries(managedRoles(choices).map(([role, choice]) => [role, describe(choice)]))
 }
 
 async function boundedText(file: string, anchor: string): Promise<string> {
@@ -151,14 +152,18 @@ export async function probeSetupRuntime(ctx: Plugin.Context, sessionID: Paramete
   const root = await realpath(found), location = { directory }
   const [modelList, implementer, reviewer] = await Promise.all([ctx.model.list({ location }), ctx.agent.get({ agentID: 'implementer', location }), ctx.agent.get({ agentID: REVIEWER, location })])
   if (!Array.isArray(modelList.data) || !implementer.data || !reviewer.data) throw new Error('宿主模型或有效代理目录返回无效')
-  const agents = { implementer: implementer.data, reviewer: reviewer.data }
+  // 受管子代理按档案逐个读取；档案无效时由 inspectSetup 报告，宿主没有返回的代理留给 checkModels 报告缺失。
+  const managed = await readSetupChoices(root).then(choices => choices?.agents.map(agent => agent.name) ?? [], () => [] as string[])
+  const extra = await Promise.all(managed.map(agentID => ctx.agent.get({ agentID, location }).then(result => result.data ?? undefined, () => undefined)))
+  const agents: Record<string, AgentInfo> = { implementer: implementer.data, reviewer: reviewer.data }
+  managed.forEach((name, index) => { const agent = extra[index]; if (agent) agents[name] = agent })
   let superpowers: ReturnType<typeof verifySuperpowers>
   try {
     const [plugins, skills] = await Promise.all([ctx.plugin.list({ location }), ctx.skill.list({ location })])
     if (!Array.isArray(plugins.data) || !Array.isArray(skills.data)) throw new Error('宿主插件或技能目录返回无效')
     superpowers = verifySuperpowers(await sourceSnapshot(plugins.data, skills.data))
   } catch (error) { superpowers = { issues: [`Superpowers 运行时核验失败：${(error as Error).message}`], skills: [], fingerprint: 'unavailable' } }
-  const config = await Promise.all(['opencode.json', 'opencode.jsonc', SETUP_PROFILE, '.opencode/agents/implementer.md', '.opencode/agents/reviewer.md', '.opencode/agent/implementer.md', '.opencode/agent/reviewer.md', '.opencode/workflow/protection.json'].map(async name => [name, hash(await optionalText(root, name) ?? '<missing>')]))
+  const config = await Promise.all(['opencode.json', 'opencode.jsonc', SETUP_PROFILE, '.opencode/agents/implementer.md', '.opencode/agents/reviewer.md', '.opencode/agent/implementer.md', '.opencode/agent/reviewer.md', '.opencode/workflow/protection.json', ...managed.map(agentPath)].map(async name => [name, hash(await optionalText(root, name) ?? '<missing>')]))
   // 宿主异步刷新目录会重排；证据绑定模型身份与可用能力，不绑定价格和显示字段。
   const models = sorted(modelList.data.map(model => ({ providerID: model.providerID, id: model.id, enabled: model.enabled, tools: model.capabilities.tools, variants: model.variants.map(variant => variant.id).sort() })))
   const fingerprint = hash(stable({ directory, root, config, superpowers: superpowers.fingerprint, models, agents, sessionModel: session.model, currentModel }))

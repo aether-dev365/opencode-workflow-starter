@@ -1,7 +1,7 @@
 import type { Plugin } from '@opencode/plugin'
 import type { ModelRef } from '@opencode/client'
 import { isAbsolute } from 'node:path'
-import { validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
+import { managedRoles, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
 import { planSetup, readSetupPlan, pendingSetupPlan, setupWritePaths, applySetup, inspectSetup, type SetupPlan } from './onboarding-files.ts'
 import { checkModels, describeEffort, probeSetupRuntime, runSetupDoctor, SkillEvidence, type DoctorReport } from './onboarding-runtime.ts'
 import { normalizeCall, type WorkflowEvent } from './protocol.ts'
@@ -17,7 +17,7 @@ const pointer = (root: string) => `onboarding/plan/${root}`
 const modelSummary = (model?: ModelRef) => model ? { providerID: model.providerID, id: model.id, ...(model.variant === undefined ? {} : { variant: model.variant }) } : null
 function planningNotes(plan: SetupPlan | null): string[] {
   const request = plan?.request
-  return request?.kind === 'configure' ? (['implementer', 'reviewer'] as const).filter(role => request.choices.models[role].mode === 'inherit').map(role => `${role} 的候选继承计划只移除本项目模型覆盖；上级或全局覆盖尚未确认，须应用并重载后由 verify/finish 核对真正有效配置`) : []
+  return request?.kind === 'configure' ? managedRoles(request.choices).filter(([, choice]) => choice.mode === 'inherit').map(([role]) => `${role} 的候选继承计划只移除本项目模型覆盖；上级或全局覆盖尚未确认，须应用并重载后由 verify/finish 核对真正有效配置`) : []
 }
 
 export async function registerSetupTools(ctx: Plugin.Context, validateMutation: (event: WorkflowEvent, signal: AbortSignal) => Promise<void>): Promise<() => Promise<void>> {

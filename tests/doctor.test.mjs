@@ -194,6 +194,22 @@ test('doctor distinguishes chosen inheritance from missing or conflicting review
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('doctor warns when a recorded subagent has no agent file', () => {
+  const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-onboarding-'))
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    spawnSync('git', ['init', '-q', root])
+    const agent = { name: 'web-implementer', description: '前端', focus: '前端。', model: { mode: 'inherit' } }
+    writeFileSync(join(root, '.opencode/workflow/onboarding.json'), JSON.stringify({ version: 2, mode: 'basic', superpowers: 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [agent], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } }))
+    const check = () => JSON.parse(spawnSync(process.execPath, ['template/scripts/workflow/doctor.mjs', '--root', root, '--json'], { encoding: 'utf8' }).stdout).checks.find(c => c.id === 'onboarding')
+    const missing = check()
+    assert.equal(missing.status, 'warn')
+    assert.match(missing.message, /缺少代理文件：web-implementer/)
+    writeFileSync(join(root, '.opencode/agents/web-implementer.md'), '---\ndescription: 前端\nmode: subagent\n---\n前端。\n')
+    assert.equal(check().status, 'unverified')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('doctor rejects a dangling onboarding profile instead of reporting it as absent', () => {
   const root = mkdtempSync(join(tmpdir(), 'workflow-doctor-onboarding-'))
   try {

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { applyEdits, modify, parse, parseTree, type ParseError, type Node } from 'jsonc-parser'
 import { containedRelative, samePath, pythonCommand, pythonEnv, hookExecutable } from './platform.ts'
 import { loadReleaseConfig } from './release.ts'
-import { SETUP_PROFILE, SUPERPOWERS_SPEC, readSetupChoices, validateSetupChoices, type ModelChoice, type SetupChoices } from './onboarding-config.ts'
+import { SETUP_PROFILE, SUPERPOWERS_SPEC, managedRoles, readSetupChoices, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
 import { agentPath, agentText, unmodifiedAgent } from './onboarding-agents.ts'
 import { detectExisting, type ExistingItem, type ExistingReport } from './onboarding-existing.ts'
 
@@ -250,7 +250,7 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
     if (item.decision === 'migrate') plan.manualTasks.push(`迁移 ${item.path}（${item.tool}）：AI 评估后并入 OpenCode 结构，逐项展示差异并经你确认；原文件保留，能共用的改为引用`)
     else plan.warnings.push(`保留 ${item.path}（${item.tool}）：${keepEffect[item.opencode]}`)
   }
-  const roles: [string, ModelChoice][] = [['implementer', choices.models.implementer], ['reviewer', choices.models.reviewer], ...choices.agents.map(agent => [agent.name, agent.model] as [string, ModelChoice])]
+  const roles = managedRoles(choices)
   const generated = new Set(choices.agents.map(agent => agent.name))
   const configs: [string, string | null][] = []
   for (const name of CONFIGS) configs.push([name, await observe(project, name)])

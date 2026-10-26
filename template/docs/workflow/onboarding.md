@@ -80,6 +80,8 @@ AI 先说明“建议新增 N 个”，用表格列出名称、职责、依据�
 
 只能新增实现类子代理。名称只用小写字母、数字和连字符，不能与内置代理、implementer、reviewer 同名，也不能包含 review 段；需要更多审核视角时增加检查单。向导按固定模板生成 `.opencode/agents/<名称>.md`：权限与 implementer 相同，禁止再派代理、访问生产和发布；正文由 AI 写的职责重点加上 implementer 的协作边界组成，预览中展示全文。frontmatter 中的注释带生成摘要，用来识别文件是否被人工修改；被修改过的文件、手写的同名文件或同名代理配置都报冲突并保留原文件。新的选择中去掉某个子代理时，不删除文件和模型配置，它会作为既有 OpenCode 配置，要求决定保留或迁移。
 
+`verify`、`finish` 逐个核对受管子代理在宿主中的实际加载和有效模型；doctor 在接入档案记录的子代理缺少代理文件时报 warn。
+
 ## 模型选择
 
 向导展示宿主模型目录和当前会话模型，再询问 implementer 与 reviewer 的策略。它管理 implementer、reviewer 和向导生成的子代理，不重写 build、general、explore 或项目其他已有代理的模型；独立实现任务按领域派给对应的实现类子代理或 implementer，正式审核由 `/review` 使用 reviewer。

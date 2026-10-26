@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve, dirname, join } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { commandLine, findExecutable, pythonCommand, pythonEnv, samePath, unsupportedShell } from '../../.opencode/plugins/workflow/platform.ts'
@@ -95,6 +95,8 @@ async function diagnose() {
     const { readSetupChoices } = await import('../../.opencode/plugins/workflow/onboarding-config.ts')
     onboarding = await readSetupChoices(root)
     if (onboarding === null) return { status: 'pass', message: '未记录引导选择，保留现有基础工作流行为' }
+    const missing = onboarding.agents.filter(agent => !existsSync(join(root, '.opencode/agents', `${agent.name}.md`))).map(agent => agent.name)
+    if (missing.length) return { status: 'warn', message: `onboarding.json 记录的子代理缺少代理文件：${missing.join('、')}；在 OpenCode 中重新运行 /workflow-setup，或从版本库恢复这些文件` }
     return { status: 'unverified', message: `已记录${onboarding.mode === 'full' ? '完整' : '基础'}模式选择；静态检查不证明当前会话的技能、有效模型或安装已完成，请在 OpenCode 中调用 workflow_setup verify/finish` }
   })
   await check('reviewer-model', async () => {
