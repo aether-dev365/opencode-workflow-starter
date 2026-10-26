@@ -59,27 +59,48 @@ test('root-only markers are ignored in subdirectories and marker files inside a 
 test('ignored files, template agent files, managed agents and dependency bookkeeping are not existing configuration', async t => {
   const f = await repo(t, { '.gitignore': 'CLAUDE.local.md\n.claude/settings.local.json\n', 'CLAUDE.local.md': 'private', '.claude/settings.local.json': '{}', '.claude/agents/a.md': 'a',
     '.opencode/agents/web-implementer.md': 'w', '.opencode/agent/implementer.md': 'i', '.opencode/.gitignore': 'x', '.opencode/bun.lock': 'x', '.opencode/package.json': '{}',
-    '.opencode/agents/AGENTS.md': '领域规则' })
+    '.opencode/AGENTS.md': '领域规则', '.opencode/skills/AGENTS.md': '领域规则', '.opencode/plugins/AGENTS.md': '领域规则' })
   const managed = await detectExisting(f.root, { personal: false, managedAgents: ['web-implementer'] })
   assert.deepEqual(managed.items.map(i => [i.path, i.files]), [['.claude', 1], ['.opencode/package.json', 1]])
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))
 })
 
+test('AGENTS.md inside OpenCode agent, mode or command directories is reported because OpenCode loads it as an agent or command', async t => {
+  const f = await repo(t, { '.opencode/agents/AGENTS.md': '领域规则', '.opencode/mode/AGENTS.md': '领域规则', '.opencode/commands/AGENTS.md': '领域规则', '.opencode/agent/web/AGENTS.md': '领域规则' })
+  const report = await detectExisting(f.root, { personal: false })
+  assert.deepEqual(report.items.map(i => [i.path, i.opencode]), [['.opencode/agent/web', 'loaded'], ['.opencode/agents/AGENTS.md', 'loaded'],
+    ['.opencode/commands/AGENTS.md', 'loaded'], ['.opencode/mode/AGENTS.md', 'loaded']])
+  assert.match(report.items.find(i => i.path === '.opencode/agents/AGENTS.md')!.note, /加载为代理.*领域规则/)
+  assert.match(report.items.find(i => i.path === '.opencode/commands/AGENTS.md')!.note, /加载为命令.*领域规则/)
+})
+
+test('operating system bookkeeping files neither create nor count toward an item', async t => {
+  const f = await repo(t, { '.cursor/.DS_Store': 'x', '.windsurf/Thumbs.db': 'x', '.kiro/Desktop.ini': 'x', '.claude/.DS_Store': 'x', '.claude/agents/a.md': 'a' })
+  for (const name of ['.claude/skills/.DS_Store', '.agents/skills/.DS_Store', '.agents/skills/a/SKILL.md']) await f.put(name, 'x', f.home)
+  const report = await detectExisting(f.root, { home: f.home })
+  assert.deepEqual(report.items.map(i => [i.path, i.files]), [['.claude', 1]])
+  assert.deepEqual(report.personal.map(p => [p.path, p.entries]), [['~/.agents/skills', 1]])
+})
+
 test('CLAUDE.md and GEMINI.md that only reference a sibling AGENTS.md are shared', async t => {
   const f = await repo(t, { 'AGENTS.md': '# rules', 'CLAUDE.md': '\uFEFF@./AGENTS.md\r\n', 'GEMINI.md': 'AGENTS.md\n', 'api/AGENTS.md': 'r', 'api/CLAUDE.md': '@AGENTS.md',
-    'lonely/CLAUDE.md': '@AGENTS.md', 'big/AGENTS.md': 'r', 'big/CLAUDE.md': '@AGENTS.md\n' + 'x'.repeat(70 * 1024) })
+    'lonely/CLAUDE.md': '@AGENTS.md', 'big/AGENTS.md': 'r', 'big/CLAUDE.md': '@AGENTS.md\n' + 'x'.repeat(70 * 1024), 'le/AGENTS.md': 'r', 'be/AGENTS.md': 'r' })
+  // PowerShell 5.1 的重定向写出带 BOM 的 UTF-16。
+  await writeFile(join(f.root, 'le/CLAUDE.md'), Buffer.from('\uFEFF@AGENTS.md\r\n', 'utf16le'))
+  await writeFile(join(f.root, 'be/CLAUDE.md'), Buffer.from('\uFEFF@AGENTS.md\r\n', 'utf16le').swap16())
   const report = await detectExisting(f.root, { personal: false })
-  assert.deepEqual(report.shared.map(s => s.path), ['CLAUDE.md', 'GEMINI.md', 'api/CLAUDE.md'])
+  assert.deepEqual(report.shared.map(s => s.path), ['CLAUDE.md', 'GEMINI.md', 'api/CLAUDE.md', 'be/CLAUDE.md', 'le/CLAUDE.md'])
   assert.deepEqual(report.items.map(i => i.path), ['big/CLAUDE.md', 'lonely/CLAUDE.md'])
   assert.match(report.items.find(i => i.path === 'lonely/CLAUDE.md')!.note, /引用的 AGENTS\.md 不存在/)
 })
 
 test('a CLAUDE.md symlink to the sibling AGENTS.md is shared but other links are not followed', async t => {
-  const f = await repo(t, { 'AGENTS.md': '# rules', 'other/AGENTS.md': 'r' })
-  try { await symlink('AGENTS.md', join(f.root, 'CLAUDE.md')); await symlink('../AGENTS.md', join(f.root, 'other/CLAUDE.md')) }
+  const f = await repo(t, { 'AGENTS.md': '# rules', 'other/AGENTS.md': 'r', 'win/AGENTS.md': 'r' })
+  // Windows 上 Node 把相对目标中的 / 写成 \，readlink 原样返回。
+  try { await symlink('AGENTS.md', join(f.root, 'CLAUDE.md')); await symlink('../AGENTS.md', join(f.root, 'other/CLAUDE.md')); await symlink('.\\AGENTS.md', join(f.root, 'win/GEMINI.md')) }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('需要创建符号链接的权限'); throw error }
   const report = await detectExisting(f.root, { personal: false })
-  assert.deepEqual([report.shared.map(s => s.path), report.items.map(i => i.path)], [['CLAUDE.md'], ['other/CLAUDE.md']])
+  assert.deepEqual([report.shared.map(s => s.path), report.items.map(i => i.path)], [['CLAUDE.md', 'win/GEMINI.md'], ['other/CLAUDE.md']])
 })
 
 test('paths with spaces and Chinese characters are reported verbatim and matched by their decisions', async t => {

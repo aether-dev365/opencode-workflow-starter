@@ -631,9 +631,9 @@ test('接入计划真实领域未进入上下文时拒绝，注入后显式重�
     await mkdir(join(f.root, '.opencode/agents'), { recursive: true })
     const path = join(f.root, '.opencode/agents/reviewer.md'), original = '---\nmodel: fake/fixture\n---\n只读审核。\n'
     await writeFile(path, original)
-    await writeFile(join(f.root, '.opencode/agents/AGENTS.md'), '接入代理领域必须保留审核权限。\n')
+    await writeFile(join(f.root, '.opencode/AGENTS.md'), '接入代理领域必须保留审核权限。\n')
     const scopesFile = join(f.root, '.opencode/workflow/scopes.json'), scopes = JSON.parse(await readFile(scopesFile, 'utf8'))
-    await writeFile(scopesFile, JSON.stringify([...scopes, { paths: ['.opencode/agents/**'], instruction: '.opencode/agents/AGENTS.md' }]))
+    await writeFile(scopesFile, JSON.stringify([...scopes, { paths: ['.opencode/agents/**'], instruction: '.opencode/AGENTS.md' }]))
     const plan = await f.invoke({ action: 'plan', choices: choices() })
     const denied = await f.invoke({ action: 'apply', planID: plan.id })
     assert.match(denied.issues.join(' '), /范围规则尚未进入本轮上下文/)

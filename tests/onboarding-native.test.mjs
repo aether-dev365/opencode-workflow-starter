@@ -182,9 +182,9 @@ test('native setup requires actual plan domain rules in context and succeeds onl
     const agentFile = join(h.directory, '.opencode/agents/reviewer.md')
     const original = readFileSync(agentFile, 'utf8').replace('mode: subagent', 'mode: subagent\nmodel: openai/gpt-fixture')
     put(agentFile, original)
-    put(join(h.directory, '.opencode/agents/AGENTS.md'), rule)
+    put(join(h.directory, '.opencode/AGENTS.md'), rule)
     const mapping = join(h.directory, '.opencode/workflow/scopes.json')
-    put(mapping, JSON.stringify([...JSON.parse(readFileSync(mapping, 'utf8')), { paths: ['.opencode/agents/**'], instruction: '.opencode/agents/AGENTS.md' }]))
+    put(mapping, JSON.stringify([...JSON.parse(readFileSync(mapping, 'utf8')), { paths: ['.opencode/agents/**'], instruction: '.opencode/AGENTS.md' }]))
     const plan = returnedPlan(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'plan', choices: choices('basic') } }]]))
     const session = await h.client.session.create({ agent: 'build', model: { providerID: 'openai', id: 'gpt-fixture' }, location: h.location })
     const apply = [{ name: 'workflow_setup', input: { action: 'apply', planID: plan.id } }]

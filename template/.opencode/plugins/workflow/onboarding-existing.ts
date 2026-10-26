@@ -35,6 +35,9 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
 ]
 
 // 根 .opencode/ 下的模板文件、领域规则 AGENTS.md、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
+// 代理、命令目录中的每个 .md 都会被 OpenCode 加载，AGENTS.md 也不例外。
+const LOADED_AS = new Map([['agents', '代理'], ['agent', '代理'], ['modes', '代理'], ['mode', '代理'], ['commands', '命令'], ['command', '命令']])
+const SYSTEM_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
 const TEMPLATE_FILES = new Set(['LICENSE', 'agents/implementer.md', 'agents/reviewer.md', 'agent/implementer.md', 'agent/reviewer.md', 'commands/review.md', 'commands/workflow-setup.md', '.gitignore', 'bun.lock', 'bun.lockb', 'package-lock.json'])
 const TEMPLATE_PREFIXES = ['plugins/workflow/', 'secret-scan/', 'skills/workflow-onboarding/', 'workflow/', 'node_modules/']
 const POINTER_FILES = ['CLAUDE.md', 'GEMINI.md']
@@ -45,6 +48,7 @@ const rootMarkers = EXISTING_MARKERS.filter(m => m.where === 'root')
 const ignored = (tool: string) => `OpenCode V2 不读取 ${tool} 的这部分配置`
 const WORKSPACE = '工作目录位于该目录或更深时，OpenCode 会加载并覆盖上层同名设置'
 const SHARED = '只引用 AGENTS.md，与 OpenCode 共用同一份规则'
+const system = (name: string) => SYSTEM_FILES.has(name.toLowerCase())
 const shorten = (path: string) => [...path].length > 80 ? [...path].slice(0, 77).join('') + '…' : path
 
 type Found = { path: string; tool: string; opencode: ExistingItem['opencode']; note: string; pointer?: boolean }
@@ -52,10 +56,11 @@ type Found = { path: string; tool: string; opencode: ExistingItem['opencode']; n
 function classify(path: string, managed: readonly string[]): Found | null {
   const parts = path.split('/')
   if (parts[0] === '.opencode') {
-    const rest = parts.slice(1).join('/')
-    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || parts.at(-1) === 'AGENTS.md' || managed.some(name => rest === `agents/${name}.md`)) return null
+    const rest = parts.slice(1).join('/'), rules = parts.at(-1) === 'AGENTS.md', loader = LOADED_AS.get(parts[1])
+    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || rules && !loader || managed.some(name => rest === `agents/${name}.md`)) return null
     const key = ['.opencode', ...parts.slice(1, 3)].join('/')
-    const note = key === '.opencode/opencode.json' || key === '.opencode/opencode.jsonc' ? '会覆盖根目录 opencode.jsonc 的同名设置，可能改变 shell、权限和代理模型' : 'OpenCode 会加载；不受向导管理'
+    const note = key === '.opencode/opencode.json' || key === '.opencode/opencode.jsonc' ? '会覆盖根目录 opencode.jsonc 的同名设置，可能改变 shell、权限和代理模型'
+      : rules ? `OpenCode 会把其中的 AGENTS.md 加载为${loader}；领域规则不要放在代理、命令目录中` : 'OpenCode 会加载；不受向导管理'
     return { path: key, tool: 'OpenCode', opencode: 'loaded', note }
   }
   for (const { tool, marker } of rootMarkers) {
@@ -86,6 +91,7 @@ function classify(path: string, managed: readonly string[]): Found | null {
 }
 
 // 只引用 AGENTS.md：@ 引用、指向它的符号链接（只读链接目标），或不支持符号链接的检出中 Git 写出的占位文件。
+// 带 BOM 的 UTF-16 按 UTF-16 解码：PowerShell 5.1 的重定向写出这种文件。
 async function references(file: string): Promise<boolean> {
   try {
     const info = await lstat(file)
@@ -93,7 +99,9 @@ async function references(file: string): Promise<boolean> {
     if (!info.isFile() || info.size > POINTER_BYTES) return false
     const handle = await open(file, 'r')
     try {
-      const text = (await handle.readFile('utf8')).replace(/^\uFEFF/, '').replaceAll('\r\n', '\n').trim()
+      const bytes = await handle.readFile()
+      const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : 'utf-8'
+      const text = new TextDecoder(encoding).decode(bytes).replaceAll('\r\n', '\n').trim()
       return ['@AGENTS.md', '@./AGENTS.md', 'AGENTS.md'].includes(text)
     } finally { await handle.close() }
   } catch { return false }
@@ -120,7 +128,7 @@ async function personalItems(home: string, configHome: string): Promise<Personal
     try {
       const info = await stat(file)
       let entries: number
-      if (kind === 'directory') { if (!info.isDirectory()) continue; entries = (await readdir(file)).length }
+      if (kind === 'directory') { if (!info.isDirectory()) continue; entries = (await readdir(file)).filter(name => !system(name)).length }
       else if (kind === 'file') { if (!info.isFile()) continue; entries = 1 }
       else {
         if (!info.isFile() || info.size > 1024 * 1024) { items.push({ path: display(file), tool, entries: null, opencode: 'loaded', note: '个人配置无法安全读取，未统计插件' }); continue }
@@ -166,6 +174,7 @@ export async function detectExisting(root: string, options: ExistingOptions = {}
   if (undecodable.length) return incomplete(`${undecodable.length} 处 AI 配置的文件名不是有效 UTF-8（如 ${shorten(undecodable[0])}）；请重命名为 UTF-8 文件名后重试`)
   const files = new Set(paths), found = new Map<string, Found & { files: number }>()
   for (const path of paths) {
+    if (system(path.slice(path.lastIndexOf('/') + 1))) continue
     const match = classify(path, managed)
     if (!match) continue
     const existing = found.get(match.path)
