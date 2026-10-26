@@ -17,7 +17,7 @@ export type ExistingOptions = {
 }
 export type Listing = { status: number | null; stdout: Buffer; error?: NodeJS.ErrnoException }
 
-// 只认标记，不解析各工具的格式；目录标记以 / 结尾。接入文档的标记表与此一致，由分发测试核对。
+// 只认标记，不解析各工具的格式；目录标记以 / 结尾。接入文档的标记表与此一致。
 export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: 'any' | 'root' | 'nested' }[] = [
   { tool: 'Claude Code', marker: '.claude/', where: 'any' }, { tool: 'Claude Code', marker: 'CLAUDE.md', where: 'any' }, { tool: 'Claude Code', marker: '.mcp.json', where: 'root' },
   { tool: 'Cursor', marker: '.cursor/', where: 'any' }, { tool: 'Cursor', marker: '.cursorrules', where: 'root' }, { tool: 'Cursor', marker: '.cursorignore', where: 'root' },

@@ -176,13 +176,11 @@ async function setup(mode?: 'basic' | 'full') {
   await writeFile(join(f.root, '.gitignore'), '.opencode/workflow/.state/\n')
   await writeFile(join(f.root, 'opencode.jsonc'), '{"agents":{"implementer":{},"reviewer":{}}}\n')
   if (mode) await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify(choices(mode)))
-  const oldXdg = process.env.XDG_CONFIG_HOME
-  process.env.XDG_CONFIG_HOME = join(f.root, 'home/.config')
-  // 既有 AI 配置检测走调用方的 Git 配置：屏蔽个人全局 excludes，避免 CLAUDE.md 等规则改变结果。
-  const oldGit = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM }
-  const gitDirectory = await mkdtemp(join(tmpdir(), 'workflow-gitconfig-'))
-  await writeFile(join(gitDirectory, 'gitconfig'), '')
-  Object.assign(process.env, { GIT_CONFIG_GLOBAL: join(gitDirectory, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' })
+  // 既有 AI 配置检测走调用方的 Git 配置和主目录：屏蔽个人全局 excludes 与个人技能目录，避免改变结果。
+  const old = Object.fromEntries(['XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'HOME', 'USERPROFILE'].map(key => [key, process.env[key]]))
+  const isolated = await mkdtemp(join(tmpdir(), 'workflow-isolated-'))
+  await writeFile(join(isolated, 'gitconfig'), '')
+  Object.assign(process.env, { XDG_CONFIG_HOME: join(f.root, 'home/.config'), GIT_CONFIG_GLOBAL: join(isolated, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1', HOME: isolated, USERPROFILE: isolated })
   const dispose = await (await load())(f.ctx)
   await f.fire('tool.execute.before', before('read', { path: 'AGENTS.md' }))
   await f.fire('session.context', context())
@@ -197,10 +195,10 @@ async function setup(mode?: 'basic' | 'full') {
     return JSON.parse(typeof result.content === 'string' ? result.content : result.content.map((p: any) => p.text ?? '').join(''))
   }
   return { ...f, invoke, close: async () => {
-    await dispose(); await f.close()
-    if (oldXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldXdg
-    for (const [key, value] of Object.entries(oldGit)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
-    await rm(gitDirectory, { recursive: true, force: true })
+    try { await dispose(); await f.close() } finally {
+      for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
+      await rm(isolated, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
   } }
 }
 
@@ -290,7 +288,7 @@ test('status and verify expose existing AI configuration and stay unready until 
   try {
     await writeFile(join(f.root, 'CLAUDE.md'), '# rules\n')
     const status = await f.invoke({ action: 'status' })
-    assert.deepEqual([status.ready, status.existing?.undecided], [false, ['CLAUDE.md']])
+    assert.deepEqual([status.ready, status.existing?.undecided, status.existing?.personal], [false, ['CLAUDE.md'], []])
     assert.match(JSON.stringify(status.issues), /尚未决定的既有 AI 配置/)
     await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify({ ...choices(), existing: { 'CLAUDE.md': 'keep' } }))
     const verified = await f.invoke({ action: 'verify' })

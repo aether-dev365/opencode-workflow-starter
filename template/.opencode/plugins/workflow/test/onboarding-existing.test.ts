@@ -6,16 +6,16 @@ import { join, dirname, delimiter } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { detectExisting, listFiles, EXISTING_MARKERS } from '../onboarding-existing.ts'
 
-// 检测走调用方的 Git 配置：屏蔽全局与系统配置，避免个人 excludes 改变结果。
+// 检测走调用方的 Git 配置：屏蔽全局与系统配置及默认的 $XDG_CONFIG_HOME/git/ignore，避免个人 excludes 改变结果。
 async function repo(t: { after(fn: () => Promise<void>): void }, files: Record<string, string> = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'workflow-existing-')))
   const root = join(base, 'project'), home = join(base, 'home'), gitConfig = join(base, 'gitconfig')
   await mkdir(root); await mkdir(home); await writeFile(gitConfig, '')
-  const old = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM }
-  Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1' })
+  const old = Object.fromEntries(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'XDG_CONFIG_HOME'].map(key => [key, process.env[key]]))
+  Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1', XDG_CONFIG_HOME: join(base, 'xdg') })
   t.after(async () => {
     for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
-    await rm(base, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   })
   execFileSync('git', ['-c', 'init.templateDir=', 'init', '-q', root], { stdio: 'ignore' })
   const put = async (name: string, text: string, where = root) => {
@@ -156,12 +156,28 @@ test('personal locations show home-relative paths and counts without plugin sour
   const report = await detectExisting(f.root, { home: f.home })
   assert.deepEqual(report.personal.map(p => [p.path, p.entries]), [['~/.agents/skills', 1], ['~/.claude/skills', 2],
     ['~/.config/opencode/AGENTS.md', 1], ['~/.config/opencode/agents', 1], ['~/.config/opencode/opencode.jsonc', 2]])
-  for (const value of [secret, f.home]) assert.equal(JSON.stringify(report).includes(value), false)
+  // 主目录中的 \ 在 JSON 里转义为 \\，也可能以正斜杠出现：两种写法都要查。
+  for (const value of [secret, JSON.stringify(f.home).slice(1, -1), f.home.replaceAll('\\', '/')]) assert.equal(JSON.stringify(report).includes(value), false, value)
   const elsewhere = await realpath(await mkdtemp(join(tmpdir(), 'workflow-xdg-')))
-  t.after(() => rm(elsewhere, { recursive: true, force: true }))
+  t.after(() => rm(elsewhere, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
   await f.put('opencode/AGENTS.md', 'r', elsewhere)
   const outside = await detectExisting(f.root, { home: f.home, configHome: elsewhere })
   assert.ok(outside.personal.some(p => p.path === '$XDG_CONFIG_HOME/opencode/AGENTS.md'), JSON.stringify(outside.personal))
+})
+
+test('personal configuration that cannot be read safely is listed without counting plugins', async t => {
+  const f = await repo(t)
+  await f.put('.config/opencode/opencode.json', '{ "plugins": [', f.home)
+  await f.put('.config/opencode/opencode.jsonc', 'x'.repeat(1024 * 1024 + 1), f.home)
+  const report = await detectExisting(f.root, { home: f.home })
+  assert.deepEqual(report.personal.map(p => [p.path, p.entries, p.note]), [['~/.config/opencode/opencode.json', null, '个人配置无法解析，未统计插件'],
+    ['~/.config/opencode/opencode.jsonc', null, '个人配置无法安全读取，未统计插件']])
+  // 指向自身的链接让 stat 报 ELOOP；Windows 上创建链接需要额外权限。
+  if (process.platform !== 'win32') {
+    await symlink('agents', join(f.home, '.config/opencode/agents'))
+    const looped = await detectExisting(f.root, { home: f.home })
+    assert.equal(looped.personal.find(p => p.path === '~/.config/opencode/agents')?.note, '无法读取（ELOOP）')
+  }
 })
 
 test('symlinked marker directories listed by Git as single entries are still classified', async t => {

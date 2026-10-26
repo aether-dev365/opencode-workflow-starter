@@ -203,7 +203,6 @@ test('native setup requires actual plan domain rules in context and succeeds onl
 
 const agent = { name: 'web-implementer', description: '负责 "web" 前端：组件 #1 \\ 样式', focus: '先读 web/AGENTS.md。\n---\n只改 web/ 下的文件。', model: { mode: 'inherit' } }
 
-// 测试 1
 test('guided setup generates an implementation subagent that OpenCode loads with its focus, contract and model policy', { timeout: 300000 }, async () => {
   const h = await setupFixture({ mode: 'basic' })
   try {
