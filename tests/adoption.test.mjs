@@ -12,7 +12,8 @@ const windows = process.platform === 'win32'
 
 // Windows runner 上在临时项目里 npm ci 可能超过 2 分钟。
 test('a separately installed copy passes doctor without source checkout configuration', { timeout: 600000 }, () => {
-  const temp = mkdtempSync(join(tmpdir(), 'workflow-adoption-'))
+  // GitHub 的 Windows runner 上系统临时目录在较慢的 C 盘，这里的 npm ci 实测 139–189 秒，RUNNER_TEMP（D 盘）约 12 秒。
+  const temp = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'workflow-adoption-'))
   const root = join(temp, 'repo')
   const home = join(temp, 'home')
   mkdirSync(home)
