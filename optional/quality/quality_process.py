@@ -3,8 +3,10 @@
 import codecs
 from contextlib import contextmanager
 from dataclasses import dataclass
+import functools
 import ntpath
 import os
+import posixpath
 from pathlib import Path
 import signal
 import subprocess
@@ -59,15 +61,15 @@ def resolve_executable(command: str, *, cwd: Path, env=None, os_name=None) -> Pa
         extensions = env.get('PATHEXT', '.COM;.EXE;.BAT;.CMD').split(';')
         if not any(command.lower().endswith(ext.lower()) for ext in extensions if ext):
             names += [command + ext for ext in extensions if ext]
-    # 只查 PATH 中的绝对目录：`.` 一类相对项指向当前目录，项目里的同名程序会被执行。
-    entries = env.get('PATH', os.defpath).split(';' if windows and os.name == 'nt' else os.pathsep)
+    # 只查 PATH 中的绝对目录：空项和 `.` 一类相对项指向当前目录，项目里的同名程序会被执行。
+    entries = [_unquote(p, windows) for p in env.get('PATH', os.defpath).split(';' if windows and os.name == 'nt' else os.pathsep)]
     directories = [cwd] if has_path else [Path(p) for p in entries if os.path.isabs(p) or (windows and ntpath.isabs(p))]
     for directory in directories:
         directory = cwd / directory
         for name in names:
             file = directory / (name.replace('\\', '/') if windows else name)
-            if windows and not file.is_file():
-                # 真实 Windows 不区分大小写；注入平台时也保留此查找语义。
+            if windows and os.name != 'nt' and not file.is_file():
+                # 真实 Windows 不区分大小写，is_file 已经能找到；只在注入平台时逐个比对目录项，它在大目录上很慢。
                 try:
                     file = next(p for p in file.parent.iterdir() if p.name.lower() == file.name.lower())
                 except (OSError, StopIteration):
@@ -77,18 +79,39 @@ def resolve_executable(command: str, *, cwd: Path, env=None, os_name=None) -> Pa
     return None
 
 
+def _unquote(entry: str, windows: bool) -> str:
+    # Windows 的 PATH 项可以带一对引号，与系统一样去掉。
+    return entry[1:-1] if windows and len(entry) > 1 and entry[0] == entry[-1] == '"' else entry
+
+
 def program(name: str, *, os_name=None, env=None) -> str | None:
-    """启动外部程序时用的名称：Windows 的进程创建先查当前目录，解析为 PATH 中的绝对路径，找不到时返回 None；其他平台原样返回。"""
-    if (os_name or os.name) != 'nt':
-        return name
-    found = resolve_executable(name, cwd=Path.cwd(), env=env, os_name=os_name)
-    return str(found) if found else None
+    """启动外部程序用的绝对路径，找不到时返回 None：进程创建会在当前目录查找不带路径的命令，Windows 总是先查，
+    macOS 和 Linux 在 PATH 有空项时也查。Windows 上只认 .com/.exe：经 cmd.exe 执行时，参数会被 cmd 解释。"""
+    windows = (os_name or os.name) == 'nt'
+    env = os.environ if env is None else env
+    path = next((value for key, value in env.items() if key.upper() == 'PATH'), None)
+    return _program(name, windows, ('' if windows else posixpath.defpath) if path is None else path)
+
+
+# 每个检查会调用 git 几十次，按 PATH 缓存查找结果。
+@functools.lru_cache(maxsize=32)
+def _program(name: str, windows: bool, path: str) -> str | None:
+    names = [name] if not windows or name.lower().endswith(('.com', '.exe')) else [name + '.com', name + '.exe']
+    for directory in (_unquote(p, windows) for p in path.split(';' if windows and os.name == 'nt' else os.pathsep)):
+        if not (os.path.isabs(directory) or (windows and ntpath.isabs(directory))):
+            continue
+        for item in names:
+            file = os.path.join(directory, item)
+            if os.path.isfile(file) and (windows or os.access(file, os.X_OK)):
+                return file
+    return None
 
 
 def system_command(name: str, env=None) -> str:
-    """taskkill.exe 等 Windows 系统程序固定取自 %SystemRoot%\\System32。"""
+    """taskkill.exe 等 Windows 系统程序固定取自 %SystemRoot%\\System32，没有 SystemRoot 时依次用 windir、C:\\Windows。"""
     env = os.environ if env is None else env
-    return ntpath.join(next((v for k, v in env.items() if k.upper() == 'SYSTEMROOT'), None) or 'C:\\Windows', 'System32', name)
+    root = next((v for k, v in env.items() if k.upper() == 'SYSTEMROOT'), None) or next((v for k, v in env.items() if k.upper() == 'WINDIR'), None)
+    return ntpath.join(root or 'C:\\Windows', 'System32', name)
 
 
 class _LifecycleError(OSError):

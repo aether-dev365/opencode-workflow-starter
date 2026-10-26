@@ -285,18 +285,39 @@ class Processes(unittest.TestCase):
         self.assertEqual(process.resolve_executable('tool', cwd=self.root, env={'PATH': os.pathsep.join([relative, str(self.root / 'abs')])}), self.root / 'abs' / 'tool')
         self.assertIsNone(process.resolve_executable('tool', cwd=self.root, env={'PATH': relative}))
 
-    def test_windows_programs_resolve_to_absolute_paths(self):
-        (self.root / 'git.exe').write_text('', encoding='utf-8')
-        (self.root / 'bin').mkdir()
-        (self.root / 'bin' / 'git.exe').write_text('', encoding='utf-8')
+    def test_programs_resolve_to_absolute_paths(self):
+        # 进程创建会在当前目录查找不带路径的命令：Windows 总是先查，macOS 和 Linux 在 PATH 有空项时也查。
+        for name in ('git.exe', 'git', 'bin/git.exe', 'bin/git', 'scripts/git.cmd'):
+            (self.root / name).parent.mkdir(exist_ok=True)
+            (self.root / name).write_text('', encoding='utf-8')
+            (self.root / name).chmod(0o755)
         previous = os.getcwd()
         os.chdir(self.root)
         self.addCleanup(os.chdir, previous)
-        self.assertEqual(process.program('git', os_name='nt', env={'PATH': str(self.root / 'bin'), 'PATHEXT': '.com;.exe'}), str(self.root / 'bin' / 'git.exe'))
-        self.assertIsNone(process.program('git', os_name='nt', env={'PATH': '', 'PATHEXT': '.com;.exe'}))
-        self.assertEqual(process.program('git', os_name='posix', env={}), 'git')
+        bin, scripts = str(self.root / 'bin'), str(self.root / 'scripts')
+        # Windows 上启动 Git 只认 .com/.exe：经 cmd.exe 执行时，参数会被 cmd 解释。
+        self.assertEqual(process.program('git', os_name='nt', env={'PATH': os.pathsep.join(['', '.', scripts, bin])}), os.path.join(bin, 'git.exe'))
+        self.assertEqual(process.program('git', os_name='nt', env={'PATH': f'"{bin}"'}), os.path.join(bin, 'git.exe'))
+        self.assertIsNone(process.program('git', os_name='nt', env={'PATH': os.pathsep.join(['', '.'])}))
+        self.assertEqual(process.program('git', os_name='posix', env={'PATH': os.pathsep.join(['', bin])}), os.path.join(bin, 'git'))
+        self.assertIsNone(process.program('git', os_name='posix', env={'PATH': os.pathsep + '.'}))
         self.assertEqual(process.system_command('taskkill.exe', env={'SystemRoot': 'D:\\Windows'}), 'D:\\Windows\\System32\\taskkill.exe')
+        self.assertEqual(process.system_command('taskkill.exe', env={'windir': 'E:\\WINNT'}), 'E:\\WINNT\\System32\\taskkill.exe')
         self.assertEqual(process.system_command('taskkill.exe', env={}), 'C:\\Windows\\System32\\taskkill.exe')
+
+    def test_program_lookup_is_cached_per_path(self):
+        # 每个检查会调用 git 几十次；Windows 上逐个探测 PATH 目录很慢。
+        (self.root / 'bin').mkdir()
+        for name in ('git', 'git.exe'):
+            (self.root / 'bin' / name).write_text('', encoding='utf-8')
+            (self.root / 'bin' / name).chmod(0o755)
+        env = {'PATH': str(self.root / 'bin')}
+        with mock.patch.object(process.os.path, 'isfile', wraps=os.path.isfile) as isfile:
+            first = process.program('git', env=env)
+            calls = isfile.call_count
+            self.assertEqual(process.program('git', env=env), first)
+            self.assertEqual(isfile.call_count, calls)
+        self.assertTrue(first)
 
     def test_termination_handlers_are_restored(self):
         before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}

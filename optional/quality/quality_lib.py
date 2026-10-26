@@ -268,12 +268,16 @@ def parse_line_options(argv: list[str], *, description='检查新增或改动的
     return _mode(args), args.fail_on_incomplete
 
 
-def git_bytes(root: Path, *args: str, reason='git 命令失败', input=None) -> bytes:
-    env = {key: value for key, value in os.environ.items() if key not in {'GIT_DIFF_OPTS', 'GIT_EXTERNAL_DIFF'}}
+def git_command() -> str:
     git = program('git')
     if git is None:
         raise Incomplete('找不到 git 命令；安装 Git 并确认它在 PATH 中')
-    result = subprocess.run([git, '-c', 'core.quotepath=off', '--literal-pathspecs', *args],
+    return git
+
+
+def git_bytes(root: Path, *args: str, reason='git 命令失败', input=None) -> bytes:
+    env = {key: value for key, value in os.environ.items() if key not in {'GIT_DIFF_OPTS', 'GIT_EXTERNAL_DIFF'}}
+    result = subprocess.run([git_command(), '-c', 'core.quotepath=off', '--literal-pathspecs', *args],
                             cwd=root, env=env, input=input, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
         raise Incomplete(reason)

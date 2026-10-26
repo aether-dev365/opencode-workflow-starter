@@ -9,8 +9,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
-from quality_lib import Incomplete, git_bytes, repo_root, utf8_stdio
-from quality_process import program
+from quality_lib import Incomplete, git_bytes, git_command, repo_root, utf8_stdio
 
 
 MARKER = '# workflow-quality-hook'
@@ -94,11 +93,7 @@ def main(argv: list[str]) -> int:
         if unsupported_directory(relative):
             print('脚本目录的路径含有换行等控制字符，未安装。')
             return 2
-        git = program('git')
-        if git is None:
-            print('找不到 git 命令，未安装。')
-            return 2
-        configured = subprocess.run([git, 'config', '--get', 'core.hooksPath'], cwd=root,
+        configured = subprocess.run([git_command(), 'config', '--get', 'core.hooksPath'], cwd=root,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if configured.returncode == 0 and not args.uninstall:
             value = configured.stdout.decode('utf-8', 'replace').strip()

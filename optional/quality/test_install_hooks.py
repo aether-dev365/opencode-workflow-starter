@@ -33,11 +33,15 @@ class Installer(unittest.TestCase):
         self.assertEqual(self.install(cwd=self.here).stdout.strip(), f'已更新质量检查 hook：{self.hook}')
 
     def test_programs_planted_in_the_project_are_not_run(self):
-        # Windows 的 CreateProcess 先在当前目录查找 git：用 hostname.exe 的副本冒充，它只输出主机名。
-        # 其他平台不查当前目录，这里不做任何事。
-        if os.name != 'nt':
-            return
-        shutil.copyfile(Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe', self.repo.root / 'git.exe')
+        # 进程创建会在当前目录查找不带路径的 git：Windows 总是先查，macOS 和 Linux 在 PATH 有空项时也查。
+        # Windows 上用只输出主机名的 hostname.exe 副本冒充，其他平台用只输出 planted 的脚本，并在 PATH 前加一个空项。
+        # 之后不能再用 self.repo.git：它同样在仓库根按名字启动 git。
+        if os.name == 'nt':
+            shutil.copyfile(Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe', self.repo.root / 'git.exe')
+        else:
+            (self.repo.root / 'git').write_text('#!/bin/sh\necho planted\n', encoding='utf-8')
+            (self.repo.root / 'git').chmod(0o755)
+            self.repo.env['PATH'] = os.pathsep + self.repo.env['PATH']
         result = self.install()
         self.assertEqual((result.returncode, result.stdout.strip()), (0, f'已安装质量检查 hook：{self.hook}'), result.stderr)
 
