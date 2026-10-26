@@ -11,7 +11,7 @@ if (Number(process.versions.node.split('.')[0]) < 24) {
   console.error(`需要 Node.js 24 或更新版本，当前为 ${process.version}。下载：https://nodejs.org/en/download`)
   process.exit(1)
 }
-const { commandLine, findExecutable, pythonCommand, pythonEnv, samePath } = await import('../../.opencode/plugins/workflow/platform.ts')
+const { commandLine, executable, findExecutable, pythonCommand, pythonEnv, samePath } = await import('../../.opencode/plugins/workflow/platform.ts')
 
 const docs = 'https://opencode.ai/v2/docs/'
 const hints = {
@@ -31,9 +31,13 @@ export async function ask(input = process.stdin, output = process.stdout) {
   } catch { return 'skip' } finally { prompt.close() }
 }
 
+// 不按名字启动：找不到时返回 ENOENT，与启动失败走同一提示。
 function run(file, args, options = {}) {
-  const invocation = commandLine(file, args)
-  return spawnSync(invocation.command, invocation.args, { encoding: 'utf8', windowsVerbatimArguments: invocation.windowsVerbatimArguments, ...options })
+  let resolved
+  try { resolved = executable(file, { scripts: true }) } catch (error) { return { status: null, error, stdout: '', stderr: '' } }
+  const invocation = commandLine(resolved, args)
+  const { env = process.env, ...rest } = options
+  return spawnSync(invocation.command, invocation.args, { encoding: 'utf8', windowsVerbatimArguments: invocation.windowsVerbatimArguments, ...rest, env: { ...env, ...invocation.env } })
 }
 
 function opencodeVersion(binary) {

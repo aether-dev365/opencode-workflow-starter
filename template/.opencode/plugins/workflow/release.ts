@@ -62,6 +62,11 @@ export function launchFailure(platform: NodeJS.Platform = process.platform): str
   // Node 在 Windows 上不会直接启动 .cmd/.bat（npm、pnpm 等都是这类启动器）。
   return platform === 'win32' ? '无法启动发布入口：Windows 上 argv[0] 必须是可执行文件，不能是 .cmd/.bat；请改用 node 等入口，例如 ["node", "scripts/publish.mjs"]' : '无法启动发布入口'
 }
+export function missingEntry(name: string, platform: NodeJS.Platform = process.platform): string {
+  // 不带路径的入口只在 PATH 中查找，不查项目目录；项目内的程序要写明路径。
+  const windows = platform === 'win32' ? '；Windows 上只认 .exe/.com，.cmd/.bat 启动器（例如 npm、npx）请改用 ["node", "scripts/publish.mjs"] 这类入口' : ''
+  return `无法启动发布入口：PATH 中找不到 ${name}；项目内的程序请写成带路径的形式，例如 ./scripts/publish${windows}`
+}
 export async function executeRelease(root: string, entryId: string, signal?: AbortSignal): Promise<{ code: number; output: string }> {
   root = git(root, ['rev-parse', '--show-toplevel'])
   const gate = checkRelease(root, entryId)
@@ -70,7 +75,7 @@ export async function executeRelease(root: string, entryId: string, signal?: Abo
   const entry = loadReleaseConfig(root)!.entries.find(e => e.id === entryId)!
   return new Promise((done, fail) => {
     let command: string
-    try { command = executable(entry.argv[0]) } catch { fail(new Error(launchFailure())); return }
+    try { command = executable(entry.argv[0]) } catch { fail(new Error(missingEntry(entry.argv[0]))); return }
     const child = spawn(command, entry.argv.slice(1), { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], ...childOptions() })
     let output = '', bytes = 0, stopped = false
     const stop = (reason: string) => {

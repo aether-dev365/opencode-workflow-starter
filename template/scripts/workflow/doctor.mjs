@@ -31,7 +31,8 @@ const checks = []
 // Windows 上 npm 安装的 CLI 是 .cmd 启动器，需要经 cmd.exe 执行；PATH 中找不到时不按名字启动，以免执行项目里的同名程序。
 const command = (exe, args, options = {}) => {
   const invocation = commandLine(findExecutable(exe) ?? executable(exe, { scripts: true }), args)
-  return execFileSync(invocation.command, invocation.args, { cwd: root, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: invocation.windowsVerbatimArguments, ...options }).trim()
+  const { env = process.env, ...rest } = options
+  return execFileSync(invocation.command, invocation.args, { cwd: root, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: invocation.windowsVerbatimArguments, ...rest, env: { ...env, ...invocation.env } }).trim()
 }
 const python = (args, options = {}) => {
   const interpreter = pythonCommand()
@@ -117,7 +118,8 @@ async function diagnose() {
     const version = python(['--version']).match(/Python (\d+)\.(\d+)/)
     if (!version || Number(version[1]) < 3 || (Number(version[1]) === 3 && Number(version[2]) < 10)) throw new Error('需要 Python 3.10 或更新版本')
   })
-  await check('git', () => { command('git', ['--version']) })
+  // 与插件一致：Windows 上 git 只认 .exe/.com，不经 cmd.exe。
+  await check('git', () => { command(executable('git'), ['--version']) })
   await check('opencode-version', () => {
     if (!baseline) throw new Error('无法读取插件 package.json 中的 @opencode/plugin 版本，不能确定验收基线')
     const binary = process.env.WORKFLOW_OPENCODE_BIN || 'opencode'
@@ -147,8 +149,8 @@ async function diagnose() {
     }
   })
   await check('git-ignore', () => {
-    if (!samePath(command('git', ['rev-parse', '--show-toplevel']), root)) throw new Error('目标必须是独立 Git 检出根，不能借用祖先仓库')
-    for (const path of ['.opencode/workflow/.state/probe', '.worktrees/probe', '.verification/probe']) command('git', ['check-ignore', '--no-index', '-q', path])
+    if (!samePath(command(executable('git'), ['rev-parse', '--show-toplevel']), root)) throw new Error('目标必须是独立 Git 检出根，不能借用祖先仓库')
+    for (const path of ['.opencode/workflow/.state/probe', '.worktrees/probe', '.verification/probe']) command(executable('git'), ['check-ignore', '--no-index', '-q', path])
   })
   await check('tracked-protected', () => {
     const deadline = Date.now() + 120000

@@ -1,11 +1,11 @@
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, realpathSync, accessSync, constants } from 'node:fs'
+import { existsSync, lstatSync, realpathSync, accessSync, statSync, constants } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // 操作系统差异集中在这里：路径分隔符、Python 启动器、.cmd 启动器、进程树终止和 shell 识别。
 export type Platform = NodeJS.Platform
-export type Command = { command: string; args: string[]; windowsVerbatimArguments?: boolean }
+export type Command = { command: string; args: string[]; windowsVerbatimArguments?: boolean; env?: Record<string, string> }
 
 // 与 OpenCode FSUtil.windowsPath 相同：Git Bash、Cygwin、WSL 风格的盘符路径在 Windows 上指向 `X:/`。
 const driveForms = [/^\/([a-zA-Z]):(?:[\\/]|$)/, /^\/([a-zA-Z])(?:\/|$)/, /^\/cygdrive\/([a-zA-Z])(?:\/|$)/, /^\/mnt\/([a-zA-Z])(?:\/|$)/]
@@ -36,10 +36,14 @@ const probeLauncher = (launcher: Command) => spawnSync(launcher.command, [...lau
 let cached: { key: string; value: Command } | undefined
 
 // WORKFLOW_PYTHON 是解释器路径，不拆分参数。其余情况按顺序探测 3.10+ 并按 PATH 缓存：
-// Windows 上 python3 常是应用商店占位程序，macOS 自带的 python3 版本过旧。Windows 上探测和缓存的都是绝对路径。
+// Windows 上 python3 常是应用商店占位程序，macOS 自带的 python3 版本过旧。探测和缓存的都是绝对路径。
 export function pythonCommand({ env = process.env, platform = process.platform, probe, exists }: { env?: NodeJS.ProcessEnv; platform?: Platform; probe?: (launcher: Command) => boolean; exists?: (file: string) => boolean } = {}): Command {
   const override = envValue(env, 'WORKFLOW_PYTHON')
-  if (override) return { command: executable(override, { env, platform, exists }), args: [] }
+  if (override) {
+    try { return { command: executable(override, { env, platform, exists }), args: [] } } catch {
+      throw new Error(`WORKFLOW_PYTHON 指定的 ${override} 不在 PATH 中；请改为解释器的绝对路径，OpenCode 以后台服务运行时修改环境变量后执行 opencode service restart`)
+    }
+  }
   const candidates = platform === 'win32' ? launchers : posixLaunchers
   const key = `${platform}\0${envValue(env, 'PATH') ?? ''}`
   if (!probe && cached?.key === key) return { ...cached.value, args: [...cached.value.args] }
@@ -85,10 +89,12 @@ export function killTree(child: { pid?: number; kill(signal?: NodeJS.Signals): b
 }
 
 // Windows 应用执行别名（Microsoft Store 与 Python 安装管理器放在 WindowsApps 下的 py.exe、python.exe）是重解析点：
-// stat 报 EACCES，existsSync 返回 false，但 CreateProcess 能启动它；lstat 能看到这个链接。
+// stat 报 EACCES，existsSync 返回 false，但 CreateProcess 能启动它；lstat 能看到这个链接。macOS 和 Linux 要求带执行权限的常规文件。
 export function launchable(file: string, platform: Platform = process.platform): boolean {
+  if (platform !== 'win32') {
+    try { accessSync(file, constants.X_OK); return statSync(file).isFile() } catch { return false }
+  }
   if (existsSync(file)) return true
-  if (platform !== 'win32') return false
   try { return lstatSync(file).isSymbolicLink() } catch { return false }
 }
 
@@ -103,7 +109,7 @@ export function hookExecutable(file: string, platform: Platform = process.platfo
 }
 
 // Windows 只按 PATHEXT 查找：npm 在同一目录放有无扩展名的 sh 启动脚本，它不能直接执行。
-// 只查 PATH 中的绝对目录：`.` 一类相对项会指向当前目录。
+// 只查 PATH 中的绝对目录：空项和 `.` 一类相对项指向当前目录。Windows 的 PATH 项可以带一对引号，与系统一样去掉。
 type Lookup = { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean }
 export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = (file: string) => launchable(file, platform), pathext }: Lookup & { pathext?: string } = {}): string | undefined {
   const p = platform === 'win32' ? path.win32 : path.posix
@@ -111,35 +117,37 @@ export function findExecutable(name: string, { env = process.env, platform = pro
   const extensions = platform !== 'win32' || known.some(ext => name.toLowerCase().endsWith(ext.toLowerCase())) ? [''] : known
   const first = (base: string) => extensions.map(ext => base + ext).find(exists)
   if (name.includes('/') || (platform === 'win32' && name.includes('\\'))) return first(name)
-  for (const directory of (envValue(env, 'PATH') ?? '').split(p.delimiter).filter(entry => p.isAbsolute(entry))) {
+  const entries = (envValue(env, 'PATH') ?? '').split(p.delimiter).map(entry => platform === 'win32' ? entry.replace(/^"([^"]*)"$/, '$1') : entry)
+  for (const directory of entries.filter(entry => p.isAbsolute(entry))) {
     const found = first(p.join(directory, name))
     if (found) return found
   }
 }
 
-// Windows 的进程创建（CreateProcess、libuv）先在当前目录或 cwd 中查找不带路径的命令，项目里的同名程序会被执行。
-// 因此 Windows 上先在 PATH 的绝对目录中解析出绝对路径；直接启动只接受 .exe/.com，scripts 时也接受交给 commandLine 的 .bat/.cmd。
-// 找不到时报 ENOENT，不退回按名字启动。带路径的名称是调用方明确给出的，原样返回；其他平台不查当前目录，也原样返回。
+// 进程创建会在当前目录或 cwd 中查找不带路径的命令：Windows（CreateProcess、libuv）总是先查，macOS 和 Linux 在 PATH 有空项时也查，
+// 项目里的同名程序因此会被执行。所以先在 PATH 的绝对目录中解析出绝对路径再启动；Windows 上直接启动只接受 .exe/.com，
+// scripts 时也接受交给 commandLine 的 .bat/.cmd。找不到时报 ENOENT，不退回按名字启动。带路径的名称是调用方明确给出的，原样返回。
 export function executable(name: string, { env = process.env, platform = process.platform, exists, scripts = false }: Lookup & { scripts?: boolean } = {}): string {
-  if (platform !== 'win32' || /[\\/]/.test(name)) return name
-  const found = findExecutable(name, { env, platform, exists, pathext: scripts ? undefined : '.com;.exe' })
+  if (name.includes('/') || (platform === 'win32' && name.includes('\\'))) return name
+  const found = findExecutable(name, { env, platform, exists, pathext: platform === 'win32' && !scripts ? '.com;.exe' : undefined })
   if (found) return found
   throw Object.assign(new Error(`找不到 ${name}：请确认它在 PATH 中`), { code: 'ENOENT' })
 }
 
-// cmd.exe、taskkill.exe 等系统程序固定取自 %SystemRoot%\System32。
+// cmd.exe、taskkill.exe 等系统程序固定取自 %SystemRoot%\System32，没有 SystemRoot 时依次用 windir、C:\Windows。
 export function systemCommand(name: string, env: NodeJS.ProcessEnv = process.env): string {
-  return path.win32.join(envValue(env, 'SYSTEMROOT') ?? 'C:\\Windows', 'System32', name)
+  return path.win32.join(envValue(env, 'SYSTEMROOT') ?? envValue(env, 'WINDIR') ?? 'C:\\Windows', 'System32', name)
 }
 
 // Node 不再直接启动 .cmd/.bat；改经 cmd.exe，/s 去掉最外层引号后按原样执行整行。
+// npm 的 .cmd 启动器旁边没有 node.exe 时按名字启动 node：cmd.exe 认 NoDefaultCurrentDirectoryInExePath，不再先查当前目录，调用方把 env 并入子进程环境。
 export function commandLine(file: string, args: string[], platform: Platform = process.platform): Command {
   if (platform !== 'win32' || !/\.(?:cmd|bat)$/i.test(file)) return { command: file, args }
   const quote = (value: string) => {
     if (/["%!]/.test(value)) throw new Error(`参数含有 cmd 无法安全转义的字符：${value}`)
     return /[\s&|<>^()]/.test(value) ? `"${value}"` : value
   }
-  return { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', `"${[file, ...args].map(quote).join(' ')}"`], windowsVerbatimArguments: true }
+  return { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', `"${[file, ...args].map(quote).join(' ')}"`], windowsVerbatimArguments: true, env: { NoDefaultCurrentDirectoryInExePath: '1' } }
 }
 
 export function samePath(a: string, b: string, platform: Platform = process.platform): boolean {

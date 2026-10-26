@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { fixture, load } from './fixture.ts'
 import { git, submitVerdict, closeBatch } from '../review-batches.ts'
 import { runReview } from '../review.ts'
-import { checkRelease, executeRelease, loadReleaseConfig, launchFailure } from '../release.ts'
+import { checkRelease, executeRelease, loadReleaseConfig, launchFailure, missingEntry } from '../release.ts'
 
 async function releaseFixture(script = 'import { appendFileSync } from "node:fs"; appendFileSync(".opencode/workflow/.state/deployed", "run\\n")\n') {
   const f = await fixture()
@@ -143,4 +143,10 @@ test('a release entry that cannot start explains the Windows .cmd limitation', (
   assert.match(launchFailure('win32'), /\.cmd/)
   assert.match(launchFailure('win32'), /"node"/)
   assert.doesNotMatch(launchFailure('linux'), /\.cmd/)
+})
+
+test('a release entry that is not on PATH says how to name a program inside the project', () => {
+  assert.match(missingEntry('publish', 'linux'), /PATH 中找不到 publish.*\.\/scripts\/publish/)
+  assert.doesNotMatch(missingEntry('publish', 'linux'), /\.cmd/)
+  assert.match(missingEntry('npm', 'win32'), /PATH 中找不到 npm.*\.cmd.*"node"/)
 })

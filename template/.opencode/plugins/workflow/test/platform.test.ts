@@ -45,17 +45,21 @@ test('the Python override is used as one executable path without probing', () =>
   assert.deepEqual(pythonCommand({ env: { WORKFLOW_PYTHON: 'C:\\Program Files\\Python312\\python.exe' }, platform: 'win32', probe: never }),
     { command: 'C:\\Program Files\\Python312\\python.exe', args: [] })
   assert.deepEqual(pythonCommand({ env: { WORKFLOW_PYTHON: '/opt/python/bin/python3' }, platform: 'darwin', probe: never }), { command: '/opt/python/bin/python3', args: [] })
+  assert.throws(() => pythonCommand({ env: { WORKFLOW_PYTHON: 'python3.12' }, platform: 'linux', probe: never, exists: () => false }),
+    /WORKFLOW_PYTHON.*python3\.12.*绝对路径.*opencode service restart/s)
 })
 
 test('macOS and Linux require python3 to be 3.10+ and fall back to versioned interpreters', () => {
   // macOS 自带的 python3 是 3.9；Homebrew 的 python3.12 不一定排在 PATH 前面。
-  const tried: string[] = []
-  const found = pythonCommand({ env: {}, platform: 'darwin', probe: c => { tried.push(c.command); return c.command === 'python3.12' } })
-  assert.deepEqual(found, { command: 'python3.12', args: [] })
-  assert.deepEqual(tried, ['python3', 'python3.14', 'python3.13', 'python3.12'])
-  assert.deepEqual(pythonCommand({ env: {}, platform: 'linux', probe: c => c.command === 'python3' }), { command: 'python3', args: [] })
-  assert.throws(() => pythonCommand({ env: {}, platform: 'darwin', probe: () => false }), /python3.*python3\.10.*brew install python@3\.12.*WORKFLOW_PYTHON/s)
-  assert.throws(() => pythonCommand({ env: {}, platform: 'linux', probe: () => false }), /python3.*python3\.10.*WORKFLOW_PYTHON/s)
+  // 探测和缓存的都是 PATH 中的绝对路径：PATH 的空项指向当前目录，按名字启动可能换成项目里的同名程序。
+  const env = { PATH: ':/usr/bin:/opt/homebrew/bin' }, files = new Set(['python3', '/usr/bin/python3', '/opt/homebrew/bin/python3.12', '/opt/homebrew/bin/python3.13'])
+  const exists = (file: string) => files.has(file), tried: string[] = []
+  const found = pythonCommand({ env, platform: 'darwin', exists, probe: c => { tried.push(c.command); return c.command.endsWith('python3.12') } })
+  assert.deepEqual(found, { command: '/opt/homebrew/bin/python3.12', args: [] })
+  assert.deepEqual(tried, ['/usr/bin/python3', '/opt/homebrew/bin/python3.13', '/opt/homebrew/bin/python3.12'])
+  assert.deepEqual(pythonCommand({ env, platform: 'linux', exists, probe: c => c.command.endsWith('/python3') }), { command: '/usr/bin/python3', args: [] })
+  assert.throws(() => pythonCommand({ env, platform: 'darwin', exists, probe: () => false }), /python3.*python3\.10.*brew install python@3\.12.*WORKFLOW_PYTHON/s)
+  assert.throws(() => pythonCommand({ env: {}, platform: 'linux', exists, probe: () => true }), /python3.*python3\.10.*WORKFLOW_PYTHON/s)
 })
 
 test('Node checks use a suspended-job Python supervisor on Windows and direct Node elsewhere', () => {
@@ -129,14 +133,27 @@ test('Windows starts PATH programs only by absolute path and system programs fro
   assert.equal(executable('git', { env, platform: 'win32', exists, scripts: true }), 'C:\\scripts\\git.cmd')
   assert.throws(() => executable('npm', { env, platform: 'win32', exists }), (error: NodeJS.ErrnoException) => error.code === 'ENOENT' && /npm.*PATH/.test(error.message))
   for (const name of ['C:\\tools\\node.exe', 'scripts\\publish.exe', './run']) assert.equal(executable(name, { env, platform: 'win32', exists }), name)
-  assert.equal(executable('git', { env: {}, platform: 'linux', exists }), 'git')
+  // 带引号的 PATH 项按其中的目录查找，与系统一致。
+  assert.equal(executable('git', { env: { Path: '"C:\\Git\\cmd"' }, platform: 'win32', exists }), 'C:\\Git\\cmd\\git.exe')
   assert.equal(systemCommand('cmd.exe', env), 'D:\\Windows\\System32\\cmd.exe')
+  assert.equal(systemCommand('cmd.exe', { windir: 'E:\\WINNT' }), 'E:\\WINNT\\System32\\cmd.exe')
   assert.equal(systemCommand('taskkill.exe', {}), 'C:\\Windows\\System32\\taskkill.exe')
+})
+
+test('macOS and Linux also start PATH programs by absolute path, because an empty PATH entry means the working directory', () => {
+  const files = new Set(['git', '/usr/bin/git', '/usr/local/bin/opencode'])
+  const exists = (file: string) => files.has(file)
+  assert.equal(executable('git', { env: { PATH: ':/usr/bin' }, platform: 'linux', exists }), '/usr/bin/git')
+  assert.equal(executable('opencode', { env: { PATH: '/usr/bin:/usr/local/bin:' }, platform: 'darwin', exists, scripts: true }), '/usr/local/bin/opencode')
+  assert.throws(() => executable('git', { env: { PATH: ':.' }, platform: 'linux', exists }), (error: NodeJS.ErrnoException) => error.code === 'ENOENT')
+  for (const name of ['./run', '/opt/tool']) assert.equal(executable(name, { env: {}, platform: 'linux', exists }), name)
 })
 
 test('cmd scripts run through cmd.exe with the whole command line quoted', () => {
   assert.deepEqual(commandLine('C:\\Program Files\\nodejs\\opencode.cmd', ['--version'], 'win32'),
-    { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', '""C:\\Program Files\\nodejs\\opencode.cmd" --version"'], windowsVerbatimArguments: true })
+    { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', '""C:\\Program Files\\nodejs\\opencode.cmd" --version"'], windowsVerbatimArguments: true,
+      // npm 的 .cmd 启动器在旁边没有 node.exe 时按名字启动 node，cmd.exe 认这个变量，不再先查当前目录。
+      env: { NoDefaultCurrentDirectoryInExePath: '1' } })
   assert.deepEqual(commandLine('C:\\tools\\gitleaks.exe', ['version'], 'win32'), { command: 'C:\\tools\\gitleaks.exe', args: ['version'] })
   assert.deepEqual(commandLine('/usr/bin/opencode.cmd', ['--version'], 'linux'), { command: '/usr/bin/opencode.cmd', args: ['--version'] })
   assert.throws(() => commandLine('C:\\x\\a.cmd', ['say "hi"'], 'win32'), /cmd/)
@@ -182,7 +199,11 @@ test('Windows app execution aliases count as launchable although stat cannot fol
     writeFileSync(real, '')
     assert.equal(launchable(alias, 'win32'), true)
     assert.equal(launchable(alias, 'linux'), false)
+    // macOS 和 Linux 上只有带执行权限的常规文件可以启动；Windows 宿主上 X_OK 只检查存在。
+    if (process.platform !== 'win32') assert.equal(launchable(real, 'linux'), false)
+    chmodSync(real, 0o755)
     assert.equal(launchable(real, 'linux'), true)
+    assert.equal(launchable(root, 'linux'), false)
     assert.equal(launchable(path.join(root, 'absent'), 'win32'), false)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
