@@ -8,14 +8,14 @@ import { superpowersDirectory, verifySuperpowers } from '../scripts/fetch-superp
 import { SUPERPOWERS_SOURCE, SUPERPOWERS_SPEC } from '../template/.opencode/plugins/workflow/onboarding-source.ts'
 
 const choices = mode => ({ version: 2, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } })
-async function setupFixture({ mode, superpowers = false } = {}) {
+async function setupFixture({ mode, superpowers = false, profile } = {}) {
   if (superpowers) assert.ok(verifySuperpowers(), '先运行 node scripts/fetch-superpowers.mjs 准备固定来源；缺失不能跳过验收')
   const h = await start({ prepare: directory => {
     const path = join(directory, 'opencode.jsonc'), config = JSON.parse(readFileSync(path, 'utf8'))
     for (const role of ['implementer', 'reviewer']) delete config.agents[role].model
     if (superpowers) config.plugins = [...config.plugins ?? [], superpowersDirectory]
     put(path, JSON.stringify(config))
-    if (mode) put(join(directory, '.opencode/workflow/onboarding.json'), JSON.stringify(choices(mode)))
+    if (mode || profile) put(join(directory, '.opencode/workflow/onboarding.json'), JSON.stringify(profile ?? choices(mode)))
   } })
   if (superpowers) await until(async () => {
     const plugins = (await h.client.plugin.list({ location: h.location })).data
@@ -198,6 +198,57 @@ test('native setup requires actual plan domain rules in context and succeeds onl
     assert.equal(readFileSync(agentFile, 'utf8'), original.replace('model: openai/gpt-fixture\n', ''))
     assert.deepEqual(JSON.parse(readFileSync(join(h.directory, '.opencode/workflow/onboarding.json'), 'utf8')), choices('basic'))
     assert.deepEqual(h.model.failures, [])
+  } finally { await h.close() }
+})
+
+const agent = { name: 'web-implementer', description: '负责 "web" 前端：组件 #1 \\ 样式', focus: '先读 web/AGENTS.md。\n---\n只改 web/ 下的文件。', model: { mode: 'inherit' } }
+
+// 测试 1
+test('guided setup generates an implementation subagent that OpenCode loads with its focus, contract and model policy', { timeout: 300000 }, async () => {
+  const h = await setupFixture({ mode: 'basic' })
+  try {
+    for (const model of [{ mode: 'inherit' }, { mode: 'fixed', model: 'openai/gpt-fixture' }]) {
+      const plan = returnedPlan(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'plan', choices: { ...choices('basic'), agents: [{ ...agent, model }] } } }]]))
+      await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }], [{ name: 'workflow_setup', input: { action: 'apply', planID: plan.id } }]], { replies: ['once', 'once', 'once'] })
+      await h.client.location.reload()
+      const loaded = await until(async () => {
+        const found = (await h.client.agent.list({ location: h.location })).data.find(a => a.id === 'web-implementer')
+        return found?.mode === 'subagent' && (model.mode === 'fixed' ? found.model?.id === 'gpt-fixture' : !found.model) && found
+      }, 'generated subagent effective')
+      assert.equal(loaded.description, agent.description)
+      for (const line of ['只改 web/ 下的文件。', '\n---\n', '主代理负责最终集成和提交。']) assert.ok(loaded.system.includes(line), line)
+      const verified = setupResults(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'verify' } }]])).at(-1)
+      assert.equal(verified?.ready, true, JSON.stringify(verified?.issues))
+    }
+    assert.deepEqual(h.model.failures, [])
+  } finally { await h.close() }
+})
+
+test('the native question tool returns every option selected in a multiple-choice form', { timeout: 180000 }, async () => {
+  const h = await setupFixture(), labels = ['CLAUDE.md', '.cursor', '.claude/skills']
+  const question = { name: 'question', input: { questions: [{ header: '既有配置', question: '选择要迁移的项（未选的保留）', multiple: true, options: labels.map(label => ({ label, description: `迁移 ${label}` })) }] } }
+  try {
+    let type
+    const result = await runCase(h, [[question]], { formReplies: [form => {
+      const field = form.fields[0]
+      type = field.type
+      return { [field.key]: field.options.filter(option => labels.slice(0, 2).includes(option.label)).map(option => option.value) }
+    }] })
+    assert.equal(result.forms.length, 1)
+    assert.equal(type, 'multiselect')
+    for (const label of labels.slice(0, 2)) assert.ok(result.toolResults.includes(label), label)
+    assert.equal(result.toolResults.includes(labels[2]), false)
+    assert.deepEqual(h.model.failures, [])
+  } finally { await h.close() }
+})
+
+test('a saved version 1 profile still verifies in basic mode', { timeout: 180000 }, async () => {
+  const { agents, existing, ...rest } = choices('basic'), legacy = { ...rest, version: 1 }
+  const h = await setupFixture({ profile: legacy })
+  try {
+    const verified = setupResults(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'verify' } }]])).at(-1)
+    assert.equal(verified?.ready, true, JSON.stringify(verified?.issues))
+    assert.deepEqual(verified.choices, { ...legacy, agents: [], existing: {} })
   } finally { await h.close() }
 })
 
