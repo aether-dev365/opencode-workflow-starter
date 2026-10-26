@@ -1,9 +1,9 @@
 import { lstat, open, readFile, readdir, readlink, stat } from 'node:fs/promises'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse, type ParseError } from 'jsonc-parser'
-import { containedRelative } from './platform.ts'
+import { childOptions, containedRelative, killTree } from './platform.ts'
 import { decisionKey, type ExistingDecision } from './onboarding-config.ts'
 
 export type ExistingItem = { path: string; tool: string; files: number; opencode: 'loaded' | 'workspace' | 'not-loaded'; note: string; decision: ExistingDecision | null }
@@ -13,8 +13,9 @@ export type ExistingReport = { complete: boolean; issues: string[]; items: Exist
 export type ExistingOptions = {
   managedAgents?: readonly string[]; decisions?: Readonly<Record<string, ExistingDecision>>
   personal?: boolean; home?: string; configHome?: string
-  list?: (root: string) => { status: number | null; stdout: Buffer; error?: NodeJS.ErrnoException }
+  list?: (root: string) => Listing | Promise<Listing>
 }
+export type Listing = { status: number | null; stdout: Buffer; error?: NodeJS.ErrnoException }
 
 // 只认标记，不解析各工具的格式；目录标记以 / 结尾。接入文档的标记表与此一致，由分发测试核对。
 export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: 'any' | 'root' | 'nested' }[] = [
@@ -107,8 +108,19 @@ async function references(file: string): Promise<boolean> {
   } catch { return false }
 }
 
-function listFiles(root: string) {
-  return spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, timeout: 20_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true })
+// 异步运行，避免未被忽略的大目录让宿主卡住；超时或超过上限时终止进程树并立即返回。
+export function listFiles(root: string, { timeout = 20_000, limit = 64 * 1024 * 1024 } = {}): Promise<Listing> {
+  return new Promise(resolve => {
+    const chunks: Buffer[] = []
+    let size = 0, done = false, timer: NodeJS.Timeout | undefined
+    const finish = (result: Listing) => { if (!done) { done = true; clearTimeout(timer); resolve(result) } }
+    const child = spawn('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, ...childOptions(), stdio: ['ignore', 'pipe', 'ignore'] })
+    const stop = (code: string) => { killTree(child); finish({ status: null, stdout: Buffer.alloc(0), error: Object.assign(new Error(`git ls-files ${code}`), { code }) }) }
+    timer = setTimeout(() => stop('ETIMEDOUT'), timeout)
+    child.stdout.on('data', (chunk: Buffer) => { size += chunk.length; if (size > limit) stop('ENOBUFS'); else chunks.push(chunk) })
+    child.on('error', error => finish({ status: null, stdout: Buffer.alloc(0), error }))
+    child.on('close', status => finish({ status, stdout: Buffer.concat(chunks) }))
+  })
 }
 
 async function personalItems(home: string, configHome: string): Promise<PersonalItem[]> {
@@ -150,7 +162,7 @@ export async function detectExisting(root: string, options: ExistingOptions = {}
   const configHome = options.configHome ?? (options.home === undefined ? process.env.XDG_CONFIG_HOME || join(home, '.config') : join(home, '.config'))
   const personal = options.personal === false ? [] : await personalItems(home, configHome)
   const incomplete = (reason: string): ExistingReport => ({ complete: false, issues: [`既有 AI 配置检测未完成：${reason}`], items: [], shared: [], personal, undecided: [] })
-  const result = (options.list ?? listFiles)(root)
+  const result = await (options.list ?? listFiles)(root)
   const code = (result.error as NodeJS.ErrnoException | undefined)?.code
   if (code === 'ETIMEDOUT') return incomplete('列出项目文件超过 20 秒；把构建产物等加入 .gitignore 后重试')
   if (code === 'ENOBUFS') return incomplete('文件清单超过 64 MiB；把构建产物、依赖目录等加入 .gitignore 后重试')

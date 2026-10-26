@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, delimiter } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { detectExisting, EXISTING_MARKERS } from '../onboarding-existing.ts'
+import { detectExisting, listFiles, EXISTING_MARKERS } from '../onboarding-existing.ts'
 
 // 检测走调用方的 Git 配置：屏蔽全局与系统配置，避免个人 excludes 改变结果。
 async function repo(t: { after(fn: () => Promise<void>): void }, files: Record<string, string> = {}) {
@@ -179,4 +179,33 @@ test('credential values in tool configuration never appear in the report', async
   const report = await detectExisting(f.root, { personal: false })
   assert.equal(report.items.length, 3)
   assert.equal(JSON.stringify(report).includes(token), false)
+})
+
+// 假 git 经 PATH 直接启动只在 POSIX 上可行：Windows 只按 .exe、.com 查找。
+test('listing project files leaves the host event loop running and stops at its time and size limits', async t => {
+  if (process.platform === 'win32') return
+  const f = await repo(t), bin = join(dirname(f.root), 'bin')
+  await f.put('git', `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'fake.mjs')}"\n`, bin)
+  await chmod(join(bin, 'git'), 0o755)
+  await f.put('fake.mjs', [
+    "const mode = process.env.WORKFLOW_FAKE_GIT",
+    "if (mode === 'hang') setTimeout(() => {}, 60000)",
+    "else if (mode === 'large') process.stdout.write(Buffer.alloc(2 * 1024 * 1024, 0x61))",
+    "else setTimeout(() => process.stdout.write('CLAUDE.md\\0'), 1000)", ''].join('\n'), bin)
+  const path = process.env.PATH
+  process.env.PATH = bin + delimiter + path
+  t.after(() => { process.env.PATH = path; delete process.env.WORKFLOW_FAKE_GIT })
+  let ticks = 0
+  const timer = setInterval(() => ticks++, 10)
+  const report = await detectExisting(f.root, { personal: false })
+  clearInterval(timer)
+  assert.deepEqual(report.items.map(i => i.path), ['CLAUDE.md'])
+  assert.ok(ticks > 30, `检测期间事件循环只运行了 ${ticks} 次`)
+  process.env.WORKFLOW_FAKE_GIT = 'hang'
+  const started = Date.now(), hung = await listFiles(f.root, { timeout: 300 })
+  assert.deepEqual([hung.status, hung.error?.code], [null, 'ETIMEDOUT'])
+  assert.ok(Date.now() - started < 5000)
+  process.env.WORKFLOW_FAKE_GIT = 'large'
+  const large = await listFiles(f.root, { limit: 1024 * 1024 })
+  assert.deepEqual([large.status, large.error?.code], [null, 'ENOBUFS'])
 })
