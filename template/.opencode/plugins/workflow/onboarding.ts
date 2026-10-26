@@ -102,7 +102,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
   registrations.push(await ctx.session.hook('compaction', async event => { await serial(event.sessionID, async () => { ledger.invalidate(event.sessionID) }) }))
   registrations.push(await ctx.tool.transform(editor => editor.add({
     name: 'workflow_setup', options: { codemode: false },
-    description: '引导式接入：status 查看已有选择、候选模型和待应用计划；bootstrap 明确项目/个人全局安装计划；plan 预览完整选择；apply 授权指定 planID；verify 核对真实运行时；finish 运行 doctor。不会代用户回答或接受自报技能证据。',
+    description: '引导式接入：status 查看已有选择、既有 AI 配置、候选模型和待应用计划；bootstrap 明确项目/个人全局安装计划；plan 预览完整选择；apply 授权指定 planID；verify 核对真实运行时；finish 运行 doctor。不会代用户回答或接受自报技能证据。',
     input: { type: 'object', properties: {
       action: { type: 'string', enum: actions }, scope: { type: 'string', enum: ['project', 'global'] }, choices: { type: 'object' }, source: { type: 'string' }, planID: { type: 'string' },
     }, required: ['action'], additionalProperties: false },

@@ -32,15 +32,15 @@
 | Kiro、Continue、Zed、Junie、Amazon Q、Trae、Augment | `.kiro/`、`.continue/`、`.rules`、`.junie/`、`.amazonq/`、`.trae/`、`.augment/`、`.augment-guidelines` | 不读取 |
 | OpenCode（本模板以外） | 根 `.opencode/` 下模板与向导以外的代理、命令、技能、插件等；子目录中的 `.opencode/`、`opencode.json`、`opencode.jsonc` | 加载 |
 
-目录标记和 `CLAUDE.md`、`GEMINI.md`、`AGENTS.override.md` 在任意子目录中识别，其余标记只认项目根。`.claude/skills`、`.agents/skills` 单独列出；子目录中的技能和 OpenCode 配置只在工作目录位于其下时生效。`.opencode/opencode.json(c)` 会覆盖根目录 `opencode.jsonc` 的同名设置，可能改变 shell、权限和代理模型。模板文件、领域规则 `AGENTS.md` 和向导生成的子代理不算既有配置。
+目录标记和 `CLAUDE.md`、`GEMINI.md`、`AGENTS.override.md` 在任意子目录中识别，其余标记只认项目根。`.claude/skills`、`.agents/skills` 单独列出，目录标记本身是符号链接时整体列为一项；子目录中的技能和 OpenCode 配置只在工作目录位于其下时生效。`.opencode/opencode.json(c)` 会覆盖根目录 `opencode.jsonc` 的同名设置，可能改变 shell、权限和代理模型。模板文件、领域规则 `AGENTS.md` 和向导生成的子代理不算既有配置。
 
 同目录有 `AGENTS.md`，并且 `CLAUDE.md` 或 `GEMINI.md` 只写一行 `@AGENTS.md`、是指向它的符号链接，或是 Git 在不支持符号链接的检出中写出的占位文件（内容为 `AGENTS.md`）时，列为共用单一来源，不需要决定。
 
-个人目录中会被 OpenCode 加载进本项目的位置（`~/.claude/skills`、`~/.agents/skills`，以及 OpenCode 个人目录下的规则、代理、命令、技能和插件）只报告条目数，不要求决定，也不写入共享配置。
+个人目录中会被 OpenCode 加载进本项目的位置（`~/.claude/skills`、`~/.agents/skills`，以及 OpenCode 个人目录下的规则、代理、命令、技能和插件）只报告条目数，不要求决定，也不写入共享配置；个人 `opencode.json(c)` 会被读取解析，只统计其中登记的插件数，不输出其他内容。
 
 ### 决定与门槛
 
-每个检测项都由用户决定迁移（`migrate`）或保留（`keep`），记录在 `onboarding.json` 的 `existing` 中，键是检测结果里的 path 原样。还有未决定的项时不生成配置计划；已接入的项目出现新的配置，或仍是 version 1 档案时，`verify`、`finish` 不就绪。取消或没有答复的项保持未决定，不由 AI 代填；已记录的决定只展示，不重复询问。
+每个检测项都由用户决定迁移（`migrate`）或保留（`keep`），记录在 `onboarding.json` 的 `existing` 中，键是检测结果里的 path 原样。还有未决定的项时不生成配置计划；已接入的项目出现新的配置，或 version 1 档案的项目中检测到既有配置时，`verify`、`finish` 不就绪；迁移项在 `verify` 中列为未验证，由用户核对迁移是否完整、等价。取消或没有答复的项保持未决定，不由 AI 代填；已记录的决定只展示，不重复询问。
 
 AI 逐项阅读后说明：用途，以及 OpenCode 是否加载；与本工作流的重叠，例如拦截读取 `.env` 的钩子对应路径保护、提交前扫描对应 Gitleaks、格式化钩子对应质量扩展；冲突，例如要求自动提交或推送、跳过测试或 `--no-verify`、指定 PowerShell、`bash -c` 一类写法、写受保护路径、与 Superpowers 或向导技能同 ID 的技能、带写权限或能访问生产的 MCP、向 OpenCode 注入整套工作流的其他插件；最后建议迁移还是保留，并说明理由和迁移去向。可能含凭据的文件（各类 MCP 配置、`.claude/settings*.json`、`.codex/config.toml`、`.gemini/settings.json`、`.aider.conf.yml`）只看结构，不复述凭据值，也不写进被跟踪的文件。
 
@@ -57,7 +57,7 @@ AI 逐项阅读后说明：用途，以及 OpenCode 是否加载；与本工作�
 | MCP | `opencode.jsonc` 的 `mcp.servers`（V2 格式），凭据用环境变量引用；有写权限或能访问生产的按只读 MCP 扩展处理 |
 | 钩子、权限 | 工作流已覆盖的不迁；禁止读写一类的规则整理成 `protection.json` 的拟议差异，由用户在 OpenCode 之外修改；其他列为待决定 |
 
-不通过 `instructions` 配置引入其他工具的规则：这些文件不经过领域规则加载和大小检查。迁移后重新运行 `verify`，确认没有未决定的项，并复查保留项是否仍有冲突。
+迁到 `.opencode/commands`、`.opencode/skills` 的文件不受向导管理，迁移后同样会被检测：在作出迁移决定的同一次选择中，把计划的目标路径（`.opencode/commands/<name>.md`、`.opencode/skills/<id>`）记为保留，迁移后就不会再要求决定。不通过 `instructions` 配置引入其他工具的规则：这些文件不经过领域规则加载和大小检查。迁移后重新运行 `verify`，确认没有未决定的项，并复查保留项是否仍有冲突。
 
 ## 模式
 
@@ -78,13 +78,13 @@ implementer 和 reviewer 始终保留。AI 根据项目实际情况建议是否�
 
 AI 先说明“建议新增 N 个”，用表格列出名称、职责、依据和建议的模型策略，再多选；用户可以改名或改职责。明确不需要时记录为空数组，取消则停留在本阶段。
 
-只能新增实现类子代理。名称只用小写字母、数字和连字符，不能与内置代理、implementer、reviewer 同名，也不能包含 review 段；需要更多审核视角时增加检查单。向导按固定模板生成 `.opencode/agents/<名称>.md`：权限与 implementer 相同，禁止再派代理、访问生产和发布；正文由 AI 写的职责重点加上 implementer 的协作边界组成，预览中展示全文。frontmatter 中的注释带生成摘要，用来识别文件是否被人工修改；被修改过的文件、手写的同名文件或同名代理配置都报冲突并保留原文件。新的选择中去掉某个子代理时，不删除文件和模型配置，它会作为既有 OpenCode 配置，要求决定保留或迁移。
+只能新增实现类子代理。名称以小写字母开头，只用小写字母、数字和连字符，长度 2–40，不能与内置代理、implementer、reviewer 同名，不能包含 review、reviewer 段，也不能是 Windows 保留的设备名（如 `con`、`nul`、`com1`）；需要更多审核视角时增加检查单。向导按固定模板生成 `.opencode/agents/<名称>.md`：权限与 implementer 相同，禁止再派代理、访问生产和发布；正文由 AI 写的职责重点加上 implementer 的协作边界组成，预览中展示全文。frontmatter 中的注释带生成摘要，用来识别文件是否被人工修改；被修改过的文件、手写的同名文件或同名代理配置都报冲突并保留原文件。新的选择中去掉某个子代理时，不删除文件和模型配置，它会作为既有 OpenCode 配置，要求决定保留或迁移。
 
 `verify`、`finish` 逐个核对受管子代理在宿主中的实际加载和有效模型；doctor 在接入档案记录的子代理缺少代理文件时报 warn。
 
 ## 模型选择
 
-向导展示宿主模型目录和当前会话模型，再询问 implementer 与 reviewer 的策略。它管理 implementer、reviewer 和向导生成的子代理，不重写 build、general、explore 或项目其他已有代理的模型；独立实现任务按领域派给对应的实现类子代理或 implementer，正式审核由 `/review` 使用 reviewer。
+向导展示宿主模型目录和当前会话模型，再询问 implementer、reviewer 与向导生成的子代理的策略。它管理 implementer、reviewer 和向导生成的子代理，不重写 build、general、explore 或项目其他已有代理的模型；独立实现任务按领域派给对应的实现类子代理或 implementer，正式审核由 `/review` 使用 reviewer。
 
 两种策略分别是：
 

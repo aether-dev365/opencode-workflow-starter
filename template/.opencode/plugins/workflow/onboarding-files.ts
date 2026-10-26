@@ -394,10 +394,16 @@ export async function setupWritePaths(root: string, id: string): Promise<string[
 }
 
 // 被忽略的状态目录可能被整体清除：待应用指针指向的计划不存在时视为没有待应用计划，内容无效仍然拒绝。
+// 升级前由 version 1 向导保存、尚未应用的配置计划视为过期，需要重新预览；apply 仍然拒绝它。
 export async function pendingSetupPlan(root: string, id: string): Promise<SetupPlan | null> {
   const base = await realpath(root)
   if (/^[a-f0-9]{64}$/.test(id) && await textAt(projectArea(base), `${STATE}/${id}.json`) === null) return null
-  return (await savedPlan(base, id)).plan
+  try { return (await savedPlan(base, id)).plan } catch (error) {
+    let saved: any
+    try { saved = JSON.parse((await textAt(projectArea(base), `${STATE}/${id}.json`))!) } catch { throw error }
+    if (saved?.plan?.request?.kind === 'configure' && saved.plan.request.choices?.version === 1) return null
+    throw error
+  }
 }
 
 async function verify(observations: Observation[]) {
@@ -539,6 +545,7 @@ export async function inspectSetup(root: string, options: { home?: string; confi
   const existing = await detectExisting(base, { managedAgents: choices?.agents.map(agent => agent.name) ?? [], decisions: choices?.existing ?? {}, home: options.home, configHome: options.configHome })
   issues.push(...existing.issues)
   if (choices && existing.undecided.length) issues.push(`检测到尚未决定的既有 AI 配置：${existing.undecided.join('、')}；请重新运行 /workflow-setup，评估后记录迁移或保留`)
+  for (const item of existing.items) if (item.decision === 'migrate') unverified.push(`迁移 ${item.path}（${item.tool}）由 AI 完成，迁移内容是否完整、等价需要你核对`)
   const components: Awaited<ReturnType<typeof inspectSetup>>['components'] = {}
   const read = async (name: string) => {
     try { return await textAt(area, name) } catch (error) { issues.push((error as Error).message); return null }

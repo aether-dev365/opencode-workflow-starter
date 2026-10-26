@@ -1,13 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, cp } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { detectExisting, EXISTING_MARKERS } from '../onboarding-existing.ts'
-
-const template = fileURLToPath(new URL('../../../..', import.meta.url))
 
 // 检测走调用方的 Git 配置：屏蔽全局与系统配置，避免个人 excludes 改变结果。
 async function repo(t: { after(fn: () => Promise<void>): void }, files: Record<string, string> = {}) {
@@ -68,13 +65,6 @@ test('ignored files, template agent files, managed agents and dependency bookkee
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))
 })
 
-test('a copy of the whole template has no existing AI configuration', async t => {
-  const f = await repo(t)
-  await cp(template, f.root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
-  const report = await detectExisting(f.root, { personal: false })
-  assert.deepEqual([report.complete, report.items, report.shared], [true, [], []])
-})
-
 test('CLAUDE.md and GEMINI.md that only reference a sibling AGENTS.md are shared', async t => {
   const f = await repo(t, { 'AGENTS.md': '# rules', 'CLAUDE.md': '\uFEFF@./AGENTS.md\r\n', 'GEMINI.md': 'AGENTS.md\n', 'api/AGENTS.md': 'r', 'api/CLAUDE.md': '@AGENTS.md',
     'lonely/CLAUDE.md': '@AGENTS.md', 'big/AGENTS.md': 'r', 'big/CLAUDE.md': '@AGENTS.md\n' + 'x'.repeat(70 * 1024) })
@@ -129,6 +119,15 @@ test('personal locations show home-relative paths and counts without plugin sour
   await f.put('opencode/AGENTS.md', 'r', elsewhere)
   const outside = await detectExisting(f.root, { home: f.home, configHome: elsewhere })
   assert.ok(outside.personal.some(p => p.path === '$XDG_CONFIG_HOME/opencode/AGENTS.md'), JSON.stringify(outside.personal))
+})
+
+test('symlinked marker directories listed by Git as single entries are still classified', async t => {
+  const f = await repo(t)
+  const entries = ['.claude', '.agents/skills', '.github/instructions', 'packages/web/.cursor', 'packages/api/.claude/skills', 'docs/.agents']
+  const report = await detectExisting(f.root, { personal: false, list: () => ({ status: 0, stdout: Buffer.from(entries.map(path => path + '\0').join('')) }) })
+  assert.deepEqual(report.items.map(i => [i.path, i.opencode]), [['.agents/skills', 'loaded'], ['.claude', 'loaded'], ['.github/instructions', 'not-loaded'],
+    ['docs/.agents', 'workspace'], ['packages/api/.claude/skills', 'workspace'], ['packages/web/.cursor', 'not-loaded']])
+  assert.match(report.items.find(i => i.path === '.claude')!.note, /符号链接.*skills/)
 })
 
 test('credential values in tool configuration never appear in the report', async t => {

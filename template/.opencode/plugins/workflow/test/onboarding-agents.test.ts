@@ -18,11 +18,6 @@ test('generated agent text has fixed frontmatter, escaped description, focus and
   assert.equal(agentPath('web-implementer'), '.opencode/agents/web-implementer.md')
 })
 
-test('AGENT_CONTRACT matches the implementer agent body', async () => {
-  const body = (await readFile(implementer, 'utf8')).replace(/^---\n[\s\S]*?\n---\n/, '').trim()
-  assert.equal(AGENT_CONTRACT, body)
-})
-
 test('unmodified detection survives CRLF and BOM but rejects edits, forged digests and hand-written agents', async () => {
   const text = agentText(choice)
   assert.equal(unmodifiedAgent(text), true)

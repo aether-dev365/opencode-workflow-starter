@@ -74,7 +74,7 @@ test('选择结构 v2 校验子代理与既有配置决定，拒绝含糊写法'
   assert.equal(config.validateSetupChoices(valid).agents[0].focus, '先读 web/AGENTS.md\n只改 web/')
   const agent = (extra: object) => choices({ agents: [{ ...web, ...extra }] as SetupChoices['agents'] })
   const invalid = [
-    ...['Web', 'w', 'x'.repeat(41), 'web_impl', '-web', 'web-', ...config.RESERVED_AGENT_NAMES, 'code-review', 'security-reviewer'].map(name => agent({ name })),
+    ...['Web', 'w', 'x'.repeat(41), 'web_impl', '-web', 'web-', ...config.RESERVED_AGENT_NAMES, 'code-review', 'security-reviewer', 'con', 'aux', 'nul', 'com1', 'lpt9'].map(name => agent({ name })),
     ...['', ' ', '两行\n说明', '分隔\u2028符', '孤立\ud800代理', 'x'.repeat(201)].map(description => agent({ description })),
     ...['', 'x'.repeat(2001), '响铃\u0007', '回车\r单独', '孤立\udc00代理'].map(focus => agent({ focus })),
     agent({ model: { mode: 'fixed', model: 'bad' } }), agent({ tools: 'all' }),
@@ -133,6 +133,10 @@ test('inspect 报告既有 AI 配置；version 1 档案在记录决定前不就�
   const after = await files.inspectSetup(f.root, { home: f.home })
   assert.equal(after.existing.items[0].decision, 'keep')
   assert.ok(!after.issues.some(x => x.includes('既有 AI 配置')), JSON.stringify(after.issues))
+  assert.ok(!after.unverified.some(x => x.startsWith('迁移 ')), JSON.stringify(after.unverified))
+  await f.put('.opencode/workflow/onboarding.json', JSON.stringify(choices({ existing: { 'CLAUDE.md': 'migrate' } })))
+  const migrated = await files.inspectSetup(f.root, { home: f.home })
+  assert.ok(migrated.unverified.includes('迁移 CLAUDE.md（Claude Code）由 AI 完成，迁移内容是否完整、等价需要你核对'), JSON.stringify(migrated.unverified))
 })
 
 const docs = { name: 'docs-writer', description: '负责文档', focus: '只改 docs/。', model: { mode: 'inherit' as const } }
@@ -184,6 +188,17 @@ test('去掉受管子代理不删除文件，同一轮要求对它作出保留�
   assert.ok(plan.warnings.includes('保留 .opencode/agents/web-implementer.md（OpenCode）：OpenCode 会继续加载，不受向导管理'), JSON.stringify(plan.warnings))
   await f.apply(plan.id)
   assert.ok((await f.read('.opencode/agents/web-implementer.md')).includes(agents.AGENT_CONTRACT))
+})
+
+test('迁移目标可以在同一次计划中预先记为保留，迁移后不再要求决定', async t => {
+  const f = await fixture(t)
+  await f.put('.claude/commands/deploy-check.md', '检查部署前状态\n')
+  const existing = { '.claude': 'migrate', '.opencode/commands/deploy-check.md': 'keep' } as const
+  await f.apply((await f.plan(choices({ existing }))).id)
+  await f.put('.opencode/commands/deploy-check.md', '检查部署前状态：$ARGUMENTS\n')
+  const after = await files.inspectSetup(f.root, { home: f.home })
+  assert.deepEqual(after.existing.undecided, [])
+  assert.equal(after.existing.items.find(item => item.path === '.opencode/commands/deploy-check.md')?.decision, 'keep')
 })
 
 test('预览不改变活动配置；继承保留 JSONC 注释、主模型、权限和代理其他字段', async t => {

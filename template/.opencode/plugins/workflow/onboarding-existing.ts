@@ -58,14 +58,18 @@ function classify(path: string, managed: readonly string[]): Found | null {
     return { path: key, tool: 'OpenCode', opencode: 'loaded', note }
   }
   for (const { tool, marker } of rootMarkers) {
-    const directory = marker.endsWith('/') ? marker : marker + '/'
-    if (path === marker || path.startsWith(directory)) return { path: marker.replace(/\/$/, ''), tool, opencode: 'not-loaded', note: ignored(tool) }
+    const name = marker.replace(/\/$/, '')
+    if (path === name || path.startsWith(name + '/')) return { path: name, tool, opencode: 'not-loaded', note: ignored(tool) }
   }
-  for (let index = 0; index < parts.length - 1; index++) {
+  // 目录标记可能是符号链接：Git 把链接本身列为一项，最后一段同样按目录标记归类。
+  for (let index = 0; index < parts.length; index++) {
     const segment = parts[index], nested = segment === '.opencode' && index > 0
     if (!anyDirectories.has(segment) && !nested) continue
     const tool = nested ? 'OpenCode' : anyDirectories.get(segment)!
-    if ((segment === '.claude' || segment === '.agents') && parts[index + 1] === 'skills' && index + 1 < parts.length - 1) {
+    if ((segment === '.claude' || segment === '.agents') && index === parts.length - 1) {
+      return { path, tool, opencode: index === 0 ? 'loaded' : 'workspace', note: '符号链接；链接目标中的 skills 会被 OpenCode V2 加载，其余不读取' }
+    }
+    if ((segment === '.claude' || segment === '.agents') && parts[index + 1] === 'skills') {
       const key = parts.slice(0, index + 2).join('/')
       return index === 0 ? { path: key, tool, opencode: 'loaded', note: 'OpenCode V2 会把这些技能加载进本项目；同 ID 技能按优先级覆盖' } : { path: key, tool, opencode: 'workspace', note: WORKSPACE }
     }

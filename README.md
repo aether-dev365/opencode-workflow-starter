@@ -68,7 +68,7 @@ flowchart LR
 先给出改动清单，得到确认后再执行；不要覆盖现有配置，不自动推送或发布。
 ```
 
-基础模板合并、依赖准备并实际加载后，运行 **`/workflow-setup`**。AI 会询问模式、模型策略和可选能力；安装器只应用确认过的摘要计划，原生工具核对实际技能读取和有效模型。重新运行同一命令可以恢复或调整选择，不必从头安装。详见 [引导式接入与使用](template/docs/workflow/onboarding.md)。
+基础模板合并、依赖准备并实际加载后，运行 **`/workflow-setup`**。AI 会列出项目中已有的其他 AI 配置并请你决定迁移或保留，再询问模式、子代理、模型策略和可选能力；安装器只应用确认过的摘要计划，原生工具核对实际技能读取和有效模型。重新运行同一命令可以恢复或调整选择，不必从头安装。详见 [引导式接入与使用](template/docs/workflow/onboarding.md)。
 
 完整模式推荐项目级 Superpowers；基础模式不要求外部技能。质量扩展可以只装工具、不装本地 hook；GitHub Actions 依赖质量扩展但不依赖 hook；发布和 MCP 需要项目实际配置，不会根据示例自动启用。
 
@@ -116,7 +116,7 @@ node scripts/workflow/doctor.mjs --root .
 然后：
 
 1. 在项目根目录启动 `opencode`，确认 `workflow.starter` 已加载且为 active。插件目录会被自动发现，**不要再在 plugins 配置里重复登记**。
-2. 运行 `/workflow-setup` 选择模式、子代理模型和可选组件。AI 协助补充根 `AGENTS.md` 的项目概要、真实验证命令、领域规则、`scopes.json`、保护策略与审核路由；先解释并预览，再确认应用。
+2. 运行 `/workflow-setup` 决定既有 AI 配置的迁移或保留，选择模式、子代理及其模型和可选组件。AI 协助补充根 `AGENTS.md` 的项目概要、真实验证命令、领域规则、`scopes.json`、保护策略与审核路由；先解释并预览，再确认应用。
 3. 按 [安装指南](template/docs/workflow/opencode-install.md) 第 5 节做原生冒烟。doctor 的 `native-runtime: unverified` 是静态检查的边界，不代表插件已在原生环境通过。
 
 doctor 对 2.1.4 报 pass，对其他 2.1.x 报 warn（需在该版本做原生冒烟并记录），其余版本报 fail。可用 `WORKFLOW_OPENCODE_BIN` 指定独立安装的 CLI，不必替换系统默认命令。

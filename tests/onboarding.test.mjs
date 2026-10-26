@@ -105,6 +105,11 @@ test('onboarding CLI previews and writes a generated implementation subagent', t
   assert.equal(readFileSync(join(f.root, '.opencode/agents/web-implementer.md'), 'utf8'), plan.agents[0].text)
 })
 
+test('a fresh copy of the template reports no existing AI configuration', t => {
+  const status = fixture(t), report = status.data(status.cli('status')).existing
+  assert.deepEqual([report.complete, report.items, report.shared], [true, [], []])
+})
+
 test('onboarding CLI never echoes unknown arguments or embedded credential values', t => {
   const f = fixture(t), marker = ['private', 'argument', 'marker'].join('-')
   for (const args of [['status', '--api-key=' + marker], ['status', marker], ['apply', '--credential=' + marker]]) {

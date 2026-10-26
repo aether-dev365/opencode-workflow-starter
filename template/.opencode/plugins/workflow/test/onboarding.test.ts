@@ -358,6 +358,28 @@ test('editing a managed subagent file changes the runtime fingerprint', async ()
   } finally { await f.close() }
 })
 
+test('an unapplied plan saved by the version 1 wizard expires instead of breaking status, verify and finish', async () => {
+  const f = await setup('basic')
+  try {
+    const planned = await f.invoke({ action: 'plan', choices: choices() })
+    const state = join(f.root, '.opencode/workflow/.state/onboarding'), saved = JSON.parse(await readFile(join(state, `${planned.id}.json`), 'utf8'))
+    const { agents: _a, existing: _e, ...rest } = saved.plan.request.choices
+    saved.plan.request.choices = { ...rest, version: 1 }
+    const { id: _id, ...plan } = saved.plan
+    saved.plan.id = createHash('sha256').update(JSON.stringify({ ...saved, plan })).digest('hex')
+    await writeFile(join(state, `${saved.plan.id}.json`), JSON.stringify(saved, null, 2) + '\n')
+    await f.ctx.storage.set(`onboarding/plan/${f.root}`, saved.plan.id)
+    for (const action of ['status', 'verify']) {
+      const result = await f.invoke({ action })
+      assert.equal(result.ready, true, JSON.stringify(result.issues))
+      assert.equal(result.pendingPlan, null)
+    }
+    const applied = await f.invoke({ action: 'apply', planID: saved.plan.id })
+    assert.equal(applied.ready, false)
+    assert.match(JSON.stringify(applied.issues), /version 2/)
+  } finally { await f.close() }
+})
+
 test('tool responses whitelist model summaries and never expose agent prompts, request headers or bodies', async () => {
   const f = await setup('basic')
   try {

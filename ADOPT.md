@@ -10,7 +10,7 @@
 
 `/workflow-setup` 使用 [接入向导](template/docs/workflow/onboarding.md) 和 `workflow-onboarding` 技能。完整模式必须先处理 Superpowers 来源、安装范围和当前会话可加载性，再实际加载 brainstorming/writing-plans，进行接入设计与计划；缺失时不得模拟技能。基础模式不要求第三方技能。设置子代理模型不等于授权额外模型调用或自动多代理审核。
 
-确认后的模式、模型策略和组件记录在 `.opencode/workflow/onboarding.json`；待应用计划在被忽略的 `.opencode/workflow/.state/onboarding/`。显示选择、文件、冲突和全局影响后再应用具体摘要计划，输入改变就重新确认。CLI 不证明当前宿主技能已读；完成验收需原生 `workflow_setup verify/finish`。
+确认后的模式、既有 AI 配置的决定、子代理、模型策略和组件记录在 `.opencode/workflow/onboarding.json`；待应用计划在被忽略的 `.opencode/workflow/.state/onboarding/`。显示选择、文件、冲突和全局影响后再应用具体摘要计划，输入改变就重新确认。CLI 不证明当前宿主技能已读；完成验收需原生 `workflow_setup verify/finish`。
 
 ## 1. 调查真实项目
 

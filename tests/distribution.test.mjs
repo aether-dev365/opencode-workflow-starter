@@ -209,6 +209,16 @@ test('the onboarding guide lists every existing AI configuration marker the wiza
   for (const { marker } of EXISTING_MARKERS) assert.ok(guide.includes('`' + marker + '`'), marker)
 })
 
+test('generated subagents keep the implementer collaboration contract and permission denies', async () => {
+  const { AGENT_CONTRACT, agentText } = await import('../template/.opencode/plugins/workflow/onboarding-agents.ts')
+  const [, front, body] = readFileSync('template/.opencode/agents/implementer.md', 'utf8').match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
+  assert.equal(AGENT_CONTRACT, body.trim())
+  const permissions = text => text.split('\n').filter(line => line.startsWith('  - {'))
+  const generated = agentText({ description: '示例', focus: '示例职责。' }).split('\n---\n')[0]
+  assert.equal(permissions(front).length, 3)
+  assert.deepEqual(permissions(generated), permissions(front))
+})
+
 test('the release evidence example covers every unit that routes all paths', () => {
   const routing = JSON.parse(readFileSync('template/.opencode/workflow/review/routing.json', 'utf8'))
   const example = JSON.parse(readFileSync('optional/release/evidence.example.json', 'utf8'))
