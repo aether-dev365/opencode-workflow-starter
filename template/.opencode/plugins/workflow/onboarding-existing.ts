@@ -34,7 +34,7 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
   { tool: 'OpenCode', marker: '.opencode/', where: 'nested' }, { tool: 'OpenCode', marker: 'opencode.json', where: 'nested' }, { tool: 'OpenCode', marker: 'opencode.jsonc', where: 'nested' },
 ]
 
-// 根 .opencode/ 下的模板文件、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
+// 根 .opencode/ 下的模板文件、领域规则 AGENTS.md、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
 const TEMPLATE_FILES = new Set(['LICENSE', 'agents/implementer.md', 'agents/reviewer.md', 'agent/implementer.md', 'agent/reviewer.md', 'commands/review.md', 'commands/workflow-setup.md', '.gitignore', 'bun.lock', 'bun.lockb', 'package-lock.json'])
 const TEMPLATE_PREFIXES = ['plugins/workflow/', 'secret-scan/', 'skills/workflow-onboarding/', 'workflow/', 'node_modules/']
 const POINTER_FILES = ['CLAUDE.md', 'GEMINI.md']
@@ -52,7 +52,7 @@ function classify(path: string, managed: readonly string[]): Found | null {
   const parts = path.split('/')
   if (parts[0] === '.opencode') {
     const rest = parts.slice(1).join('/')
-    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || managed.some(name => rest === `agents/${name}.md`)) return null
+    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || parts.at(-1) === 'AGENTS.md' || managed.some(name => rest === `agents/${name}.md`)) return null
     const key = ['.opencode', ...parts.slice(1, 3)].join('/')
     const note = key === '.opencode/opencode.json' || key === '.opencode/opencode.jsonc' ? '会覆盖根目录 opencode.jsonc 的同名设置，可能改变 shell、权限和代理模型' : 'OpenCode 会加载；不受向导管理'
     return { path: key, tool: 'OpenCode', opencode: 'loaded', note }

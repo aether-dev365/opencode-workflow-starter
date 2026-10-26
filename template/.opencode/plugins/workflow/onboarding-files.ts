@@ -8,6 +8,7 @@ import { applyEdits, modify, parse, parseTree, type ParseError, type Node } from
 import { containedRelative, samePath, pythonCommand, pythonEnv, hookExecutable } from './platform.ts'
 import { loadReleaseConfig } from './release.ts'
 import { SETUP_PROFILE, SUPERPOWERS_SPEC, readSetupChoices, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
+import { detectExisting, type ExistingItem, type ExistingReport } from './onboarding-existing.ts'
 
 export type SetupRequest = { kind: 'superpowers'; scope: 'project' | 'global' }
   | { kind: 'configure'; choices: SetupChoices; source?: string }
@@ -36,6 +37,11 @@ const CI = [
   ['scan-secrets.py', 'scripts/ci/scan-secrets.py'], ['run-quality.py', 'scripts/ci/run-quality.py'],
 ] as const
 const digest = (text: string) => 'sha256:' + createHash('sha256').update(text).digest('hex')
+const keepEffect: Record<ExistingItem['opencode'], string> = {
+  'not-loaded': 'OpenCode V2 不读取，其中的配置在 OpenCode 中不生效',
+  loaded: 'OpenCode 会继续加载，不受向导管理',
+  workspace: '工作目录位于该目录或更深时 OpenCode 会继续加载，不受向导管理',
+}
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value)
 const projectArea = (root: string): Area => ({ anchor: root, prefix: '' })
 const fullPath = (area: Area, name: string) => join(area.anchor, area.prefix, name)
@@ -234,6 +240,14 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
   }
 
   const choices = request.choices
+  // 既有 AI 配置的每一项都要有用户的明确决定；以本次选择中的子代理作为受管名单。
+  const existing = await detectExisting(root, { managedAgents: choices.agents.map(agent => agent.name), decisions: choices.existing, personal: false })
+  if (!existing.complete) throw new Error(existing.issues.join('；'))
+  if (existing.undecided.length) throw new Error(`检测到尚未决定的既有 AI 配置：${existing.undecided.join('、')}；请先评估并取得用户的迁移或保留决定，再重新预览`)
+  for (const item of existing.items) {
+    if (item.decision === 'migrate') plan.manualTasks.push(`迁移 ${item.path}（${item.tool}）：AI 评估后并入 OpenCode 结构，逐项展示差异并经你确认；原文件保留，能共用的改为引用`)
+    else plan.warnings.push(`保留 ${item.path}（${item.tool}）：${keepEffect[item.opencode]}`)
+  }
   const configs: [string, string | null][] = []
   for (const name of CONFIGS) configs.push([name, await observe(project, name)])
   if (configs.every(([, text]) => text === null) && Object.values(choices.models).some(value => value.mode === 'fixed')) configs.push(['opencode.jsonc', '{}\n'])
@@ -498,13 +512,17 @@ export async function applySetup(root: string, id: string, options: { home?: str
   return { applied: changed.length > 0, choices: await readSetupChoices(base), changed, pending: saved.plan.manualTasks }
 }
 
-export async function inspectSetup(root: string): Promise<{
+export async function inspectSetup(root: string, options: { home?: string; configHome?: string } = {}): Promise<{
   choices: SetupChoices | null; issues: string[]; unverified: string[]
   components: Record<string, { selected: boolean; status: 'off' | 'preserved' | 'configured' | 'missing' | 'pending'; message: string }>
+  existing: ExistingReport
 }> {
   const base = await realpath(root), area = projectArea(base), issues: string[] = [], unverified: string[] = []
   let choices: SetupChoices | null = null
   try { choices = await readSetupChoices(base) } catch (error) { issues.push((error as Error).message) }
+  const existing = await detectExisting(base, { managedAgents: choices?.agents.map(agent => agent.name) ?? [], decisions: choices?.existing ?? {}, home: options.home, configHome: options.configHome })
+  issues.push(...existing.issues)
+  if (choices && existing.undecided.length) issues.push(`检测到尚未决定的既有 AI 配置：${existing.undecided.join('、')}；请重新运行 /workflow-setup，评估后记录迁移或保留`)
   const components: Awaited<ReturnType<typeof inspectSetup>>['components'] = {}
   const read = async (name: string) => {
     try { return await textAt(area, name) } catch (error) { issues.push((error as Error).message); return null }
@@ -550,5 +568,5 @@ export async function inspectSetup(root: string): Promise<{
     if (choices.components.release || releaseText !== null) unverified.push('真实发布入口、产物与受控发布流程尚未运行验收')
     if (choices.components.mcp || Object.keys(servers).length) unverified.push('MCP 连通性、服务端只读账号及只读权限尚未验收')
   }
-  return { choices, issues, unverified, components }
+  return { choices, issues, unverified, components, existing }
 }

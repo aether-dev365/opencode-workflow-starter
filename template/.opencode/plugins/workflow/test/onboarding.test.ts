@@ -177,6 +177,11 @@ async function setup(mode?: 'basic' | 'full') {
   if (mode) await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify(choices(mode)))
   const oldXdg = process.env.XDG_CONFIG_HOME
   process.env.XDG_CONFIG_HOME = join(f.root, 'home/.config')
+  // 既有 AI 配置检测走调用方的 Git 配置：屏蔽个人全局 excludes，避免 CLAUDE.md 等规则改变结果。
+  const oldGit = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM }
+  const gitDirectory = await mkdtemp(join(tmpdir(), 'workflow-gitconfig-'))
+  await writeFile(join(gitDirectory, 'gitconfig'), '')
+  Object.assign(process.env, { GIT_CONFIG_GLOBAL: join(gitDirectory, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' })
   const dispose = await (await load())(f.ctx)
   await f.fire('tool.execute.before', before('read', { path: 'AGENTS.md' }))
   await f.fire('session.context', context())
@@ -193,6 +198,8 @@ async function setup(mode?: 'basic' | 'full') {
   return { ...f, invoke, close: async () => {
     await dispose(); await f.close()
     if (oldXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldXdg
+    for (const [key, value] of Object.entries(oldGit)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
+    await rm(gitDirectory, { recursive: true, force: true })
   } }
 }
 
@@ -274,6 +281,20 @@ test('a saved version 1 profile still verifies in basic mode, reports normalized
     const planned = await f.invoke({ action: 'plan', choices: legacy })
     assert.equal(planned.ready, false)
     assert.match(JSON.stringify(planned.issues), /version 2/)
+  } finally { await f.close() }
+})
+
+test('status and verify expose existing AI configuration and stay unready until every item is decided', async () => {
+  const f = await setup('basic')
+  try {
+    await writeFile(join(f.root, 'CLAUDE.md'), '# rules\n')
+    const status = await f.invoke({ action: 'status' })
+    assert.deepEqual([status.ready, status.existing?.undecided], [false, ['CLAUDE.md']])
+    assert.match(JSON.stringify(status.issues), /尚未决定的既有 AI 配置/)
+    await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify({ ...choices(), existing: { 'CLAUDE.md': 'keep' } }))
+    const verified = await f.invoke({ action: 'verify' })
+    assert.equal(verified.ready, true, JSON.stringify(verified.issues))
+    assert.equal(verified.existing.items[0].decision, 'keep')
   } finally { await f.close() }
 })
 

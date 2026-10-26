@@ -24,7 +24,7 @@ async function main() {
   }
   const root = resolve(options.root ?? '.')
   const { planSetup, applySetup, inspectSetup } = await import('../../.opencode/plugins/workflow/onboarding-files.ts')
-  if (action === 'status') return { ...await inspectSetup(root), runtimeVerified: false, next: '在 OpenCode 中运行 /workflow-setup，核对当前会话技能和有效模型' }
+  if (action === 'status') return { ...await inspectSetup(root), runtimeVerified: false, next: '在 OpenCode 中运行 /workflow-setup，评估既有 AI 配置并核对当前会话技能和有效模型' }
   if (action === 'bootstrap') {
     if (!['project', 'global'].includes(options.scope)) throw new Error('必须明确选择 --scope project 或 --scope global；没有选择不会安装')
     return planSetup(root, { kind: 'superpowers', scope: options.scope })

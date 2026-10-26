@@ -91,7 +91,7 @@ OpenCode、Node.js、Python、Git、Gitleaks 及 npm 依赖属于运行环境或
     └── examples/
 ```
 
-上图只展示主要结构；实际以所选版本目录为准。OpenCode 会自动发现这些技能。`skills` 配置中的 HTTP URL 必须是包含 `index.json` 的技能目录服务，不能直接把 GitHub 仓库网页地址填进去。安装前检查同 ID 技能，避免后加载的定义覆盖原有来源。
+上图只展示主要结构；实际以所选版本目录为准。OpenCode 会自动发现这些技能。`skills` 配置中的 HTTP URL 必须是包含 `index.json` 的技能目录服务，不能直接把 GitHub 仓库网页地址填进去。安装前检查同 ID 技能，避免后加载的定义覆盖原有来源。OpenCode V2 还会自动加载项目与个人目录下的 `.claude/skills`、`.agents/skills`；`/workflow-setup` 会列出这些位置。
 
 ## 接入记录与验证
 

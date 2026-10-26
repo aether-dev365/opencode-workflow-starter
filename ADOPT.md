@@ -18,6 +18,8 @@
 
 查明实际源码目录、第三方目录、生成文件及其生成入口、凭据文件的路径（不读其内容）、验证命令、运行平台及资源约束。通过文件和命令自行确定；仅对影响流程或权限而无法确定的决定提问。
 
+检查其他 AI 工具的配置和工作流（标记清单见 [接入向导](template/docs/workflow/onboarding.md) 的“既有 AI 配置”），列入接入清单。OpenCode V2 不读取 `CLAUDE.md`，但会加载 `.claude/skills` 与 `.agents/skills`。bootstrap 只合并模板与现有 AGENTS.md，不迁移其他工具的内容；迁移或保留在 `/workflow-setup` 中逐项决定和记录。
+
 查明当前 OpenCode、Node、Python 和 Git 版本。基础包使用 OpenCode 2.1.4 验收；若目标版本不同，先验证兼容或提出升级计划，不悄悄替换依赖。
 
 先执行 `opencode --version`；设置了 `WORKFLOW_OPENCODE_BIN` 时，同时核对该路径的版本。未安装、不是 V2 或无法识别时，向用户展示检测结果，提供 [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md)、[官方安装入口](https://opencode.ai/v2/docs/) 和 `npm install -g @opencode/cli@2.1.4`，完成安装或修正命令路径并复查后再接入。已有 V1 按指南保留配置并处理迁移，不在 V1 宿主中加载本模板的 V2 插件。
@@ -76,4 +78,4 @@ doctor 的 warn 项要在接入报告中逐项处理或说明：版本未验收�
 
 ## 6. 交付接入报告
 
-采用 [examples/adoption-report.md](examples/adoption-report.md)，记录实际修改、启用能力、命令/工作目录/退出码和必要证据，以及未验证项。保留当前 Git diff 给维护者核对。不要自动推送、发布或创建生产凭据。
+采用 [examples/adoption-report.md](examples/adoption-report.md)，记录实际修改、既有 AI 配置的决定与迁移结果、启用能力、命令/工作目录/退出码和必要证据，以及未验证项。保留当前 Git diff 给维护者核对。不要自动推送、发布或创建生产凭据。

@@ -203,6 +203,12 @@ test('the template review routes the sync unit over every changed path', async (
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('the onboarding guide lists every existing AI configuration marker the wizard detects', async () => {
+  const { EXISTING_MARKERS } = await import('../template/.opencode/plugins/workflow/onboarding-existing.ts')
+  const guide = readFileSync('template/docs/workflow/onboarding.md', 'utf8')
+  for (const { marker } of EXISTING_MARKERS) assert.ok(guide.includes('`' + marker + '`'), marker)
+})
+
 test('the release evidence example covers every unit that routes all paths', () => {
   const routing = JSON.parse(readFileSync('template/.opencode/workflow/review/routing.json', 'utf8'))
   const example = JSON.parse(readFileSync('optional/release/evidence.example.json', 'utf8'))

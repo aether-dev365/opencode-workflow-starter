@@ -64,8 +64,8 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
     } else unverified.push('此操作未运行 doctor；完成接入请调用 finish')
     return {
       ready: issues.length === 0, issues: [...new Set(issues)], unverified: [...new Set(unverified)], choices: installed.choices,
-      pendingPlan, components: installed.components,
-      steps: ['调查项目并逐项询问接入选择', '完整模式先预览安装 Superpowers；授权应用后重载', '真实读取 brainstorming 与 writing-plans，再设计完整配置计划', '预览具体摘要及项目/个人全局影响，申请权限后应用', '重载后核对有效模型与技能，运行 finish 执行 doctor，交付未验证事项'],
+      pendingPlan, components: installed.components, existing: installed.existing,
+      steps: ['评估检测到的既有 AI 配置，逐项取得迁移或保留决定', '调查项目并逐项询问接入选择', '完整模式先预览安装 Superpowers；授权应用后重载', '真实读取 brainstorming 与 writing-plans，再规划子代理并设计完整配置计划', '预览具体摘要、子代理全文及项目/个人全局影响，申请权限后应用', '按决定逐项迁移既有配置，每项先展示差异并取得确认', '重载后核对有效模型与技能，运行 finish 执行 doctor，交付未验证事项'],
       models: { candidates: runtime.models.filter(model => model.enabled && model.capabilities.tools).map(model => ({ providerID: model.providerID, id: model.id, name: model.name, enabled: model.enabled, tools: model.capabilities.tools, variants: model.variants.map(variant => variant.id) })), effective: Object.fromEntries(Object.entries(runtime.agents).map(([role, agent]) => [role, { id: agent.id, model: modelSummary(agent.model) }])), session: modelSummary(runtime.session.model), current: modelSummary(runtime.currentModel) },
       superpowers: { available: !runtime.superpowers.issues.length, issues: runtime.superpowers.issues, read: ledger.reads(sessionID, runtime.fingerprint) },
       ...(doctor ? { doctor } : {}),

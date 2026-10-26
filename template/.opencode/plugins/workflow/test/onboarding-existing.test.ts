@@ -61,7 +61,8 @@ test('root-only markers are ignored in subdirectories and marker files inside a 
 
 test('ignored files, template agent files, managed agents and dependency bookkeeping are not existing configuration', async t => {
   const f = await repo(t, { '.gitignore': 'CLAUDE.local.md\n.claude/settings.local.json\n', 'CLAUDE.local.md': 'private', '.claude/settings.local.json': '{}', '.claude/agents/a.md': 'a',
-    '.opencode/agents/web-implementer.md': 'w', '.opencode/agent/implementer.md': 'i', '.opencode/.gitignore': 'x', '.opencode/bun.lock': 'x', '.opencode/package.json': '{}' })
+    '.opencode/agents/web-implementer.md': 'w', '.opencode/agent/implementer.md': 'i', '.opencode/.gitignore': 'x', '.opencode/bun.lock': 'x', '.opencode/package.json': '{}',
+    '.opencode/agents/AGENTS.md': '领域规则' })
   const managed = await detectExisting(f.root, { personal: false, managedAgents: ['web-implementer'] })
   assert.deepEqual(managed.items.map(i => [i.path, i.files]), [['.claude', 1], ['.opencode/package.json', 1]])
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))

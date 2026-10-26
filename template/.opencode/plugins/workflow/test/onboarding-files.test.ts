@@ -95,6 +95,45 @@ test('读取 version 1 档案时补齐空的子代理与决定，不改写文件
   assert.deepEqual(JSON.parse(await f.read('.opencode/workflow/onboarding.json')), legacy())
 })
 
+test('配置计划要求每个既有 AI 配置都有明确决定，并按决定写入提示与人工任务', async t => {
+  const f = await fixture(t)
+  await f.put('CLAUDE.md', '# rules\n'); await f.put('.cursor/rules/a.mdc', 'a'); await f.put('.claude/skills/s/SKILL.md', 's')
+  await assert.rejects(f.plan(), /尚未决定的既有 AI 配置：\.claude\/skills、\.cursor、CLAUDE\.md/)
+  await assert.rejects(f.plan(choices({ existing: { 'claude.md': 'keep', '.cursor': 'keep', '.claude/skills': 'keep' } })), /尚未决定的既有 AI 配置：CLAUDE\.md/)
+  const existing = { 'CLAUDE.md': 'migrate', '.cursor': 'keep', '.claude/skills': 'keep' } as const
+  const plan = await f.plan(choices({ existing }))
+  assert.ok(plan.manualTasks.includes('迁移 CLAUDE.md（Claude Code）：AI 评估后并入 OpenCode 结构，逐项展示差异并经你确认；原文件保留，能共用的改为引用'), JSON.stringify(plan.manualTasks))
+  assert.ok(plan.warnings.includes('保留 .cursor（Cursor）：OpenCode V2 不读取，其中的配置在 OpenCode 中不生效'), JSON.stringify(plan.warnings))
+  assert.ok(plan.warnings.includes('保留 .claude/skills（Claude Code）：OpenCode 会继续加载，不受向导管理'), JSON.stringify(plan.warnings))
+  await f.apply(plan.id)
+  assert.deepEqual(JSON.parse(await f.read('.opencode/workflow/onboarding.json')).existing, existing)
+})
+
+test('预览后新出现的既有 AI 配置使应用拒绝，活动配置不变', async t => {
+  const f = await fixture(t), plan = await f.plan()
+  await f.put('.windsurfrules', 'rules')
+  await assert.rejects(f.apply(plan.id), /尚未决定的既有 AI 配置：\.windsurfrules/)
+  await absent(join(f.root, '.opencode/workflow/onboarding.json'))
+})
+
+test('既有 AI 配置检测未完成时不生成计划', async t => {
+  const f = await fixture(t)
+  for (let i = 0; i < 101; i++) await f.put(`p${i}/CLAUDE.md`, 'r')
+  await assert.rejects(f.plan(), /既有 AI 配置检测未完成：检测到超过 100 处/)
+})
+
+test('inspect 报告既有 AI 配置；version 1 档案在记录决定前不就绪', async t => {
+  const f = await fixture(t)
+  await f.put('CLAUDE.md', 'r'); await f.put('.opencode/workflow/onboarding.json', JSON.stringify(legacy()))
+  const before = await files.inspectSetup(f.root, { home: f.home })
+  assert.deepEqual(before.existing.undecided, ['CLAUDE.md'])
+  assert.ok(before.issues.includes('检测到尚未决定的既有 AI 配置：CLAUDE.md；请重新运行 /workflow-setup，评估后记录迁移或保留'), JSON.stringify(before.issues))
+  await f.put('.opencode/workflow/onboarding.json', JSON.stringify(choices({ existing: { 'CLAUDE.md': 'keep' } })))
+  const after = await files.inspectSetup(f.root, { home: f.home })
+  assert.equal(after.existing.items[0].decision, 'keep')
+  assert.ok(!after.issues.some(x => x.includes('既有 AI 配置')), JSON.stringify(after.issues))
+})
+
 test('预览不改变活动配置；继承保留 JSONC 注释、主模型、权限和代理其他字段', async t => {
   const f = await fixture(t)
   const before = '{\n // 私有提供商设置保留\n "model": "demo/main",\n "provider": {"demo":{"apiKey":"' + ['synthetic', 'private'].join('-') + '"}},\n "agents": {"implementer":{"model":"demo/old","permissions":[{"action":"read","effect":"allow"}]},"reviewer":{"model":"demo/old","description":"保持"}},\n "permissions": [{"action":"workflow_release","effect":"ask"}],\n}\n'

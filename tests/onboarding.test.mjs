@@ -81,6 +81,20 @@ test('onboarding CLI asks to upgrade version 1 answers instead of filling defaul
   assert.match(JSON.parse(result.stdout).error, /version 2.*agents.*existing/)
 })
 
+test('onboarding CLI lists existing AI configuration and records decisions only through a confirmed plan', t => {
+  const f = fixture(t)
+  f.write('CLAUDE.md', '# rules\n')
+  assert.deepEqual(f.data(f.cli('status')).existing?.undecided, ['CLAUDE.md'])
+  const answers = f.write('.opencode/workflow/.state/onboarding/answers.json', basic), undecided = f.cli('plan', '--answers', answers)
+  assert.equal(undecided.status, 2)
+  assert.match(JSON.parse(undecided.stdout).error, /尚未决定的既有 AI 配置：CLAUDE\.md/)
+  f.write('.opencode/workflow/.state/onboarding/answers.json', { ...basic, existing: { 'CLAUDE.md': 'keep' } })
+  const plan = f.data(f.cli('plan', '--answers', answers))
+  f.data(f.cli('apply', '--plan', plan.id, '--confirm', plan.id))
+  const status = f.data(f.cli('status'))
+  assert.deepEqual([status.existing.items[0].decision, status.existing.undecided], ['keep', []])
+})
+
 test('onboarding CLI never echoes unknown arguments or embedded credential values', t => {
   const f = fixture(t), marker = ['private', 'argument', 'marker'].join('-')
   for (const args of [['status', '--api-key=' + marker], ['status', marker], ['apply', '--credential=' + marker]]) {

@@ -14,6 +14,51 @@
 
 已经接入的项目也使用同一个入口；先展示之前的选择，只处理新增问题或冲突。命令或工具不可见时先检查实际 Location 和插件加载，不把磁盘上有文件当成已经加载。
 
+## 既有 AI 配置
+
+向导先检查项目里是否已有其他 AI 工具的配置和工作流。检测只看 Git 文件清单（已跟踪和未被忽略的文件，被忽略的个人文件不算）中的标记和文件数，不解析各工具的格式；除判断 `CLAUDE.md`、`GEMINI.md` 是否只引用 `AGENTS.md` 外，不读取文件内容。
+
+| 工具 | 标记 | OpenCode V2 |
+| --- | --- | --- |
+| Claude Code | `CLAUDE.md`、`.claude/`、`.mcp.json` | `.claude/skills` 作为技能加载；其余不读取 |
+| Cursor | `.cursor/`、`.cursorrules`、`.cursorignore` | 不读取 |
+| Codex | `.codex/`、`AGENTS.override.md` | 不读取；`AGENTS.md` 本来共用 |
+| Agent Skills（Codex 等） | `.agents/` | `.agents/skills` 作为技能加载 |
+| GitHub Copilot | `.github/copilot-instructions.md`、`.github/instructions/`、`.github/prompts/`、`.github/agents/`、`.github/chatmodes/`、`.vscode/mcp.json` | 不读取 |
+| Gemini CLI | `GEMINI.md`、`.gemini/` | 不读取 |
+| Windsurf | `.windsurfrules`、`.windsurf/` | 不读取 |
+| Cline、Roo Code | `.clinerules`、`.roo/`、`.roomodes` | 不读取 |
+| Aider | `.aider.conf.yml` | 不读取 |
+| Kiro、Continue、Zed、Junie、Amazon Q、Trae、Augment | `.kiro/`、`.continue/`、`.rules`、`.junie/`、`.amazonq/`、`.trae/`、`.augment/`、`.augment-guidelines` | 不读取 |
+| OpenCode（本模板以外） | 根 `.opencode/` 下模板与向导以外的代理、命令、技能、插件等；子目录中的 `.opencode/`、`opencode.json`、`opencode.jsonc` | 加载 |
+
+目录标记和 `CLAUDE.md`、`GEMINI.md`、`AGENTS.override.md` 在任意子目录中识别，其余标记只认项目根。`.claude/skills`、`.agents/skills` 单独列出；子目录中的技能和 OpenCode 配置只在工作目录位于其下时生效。`.opencode/opencode.json(c)` 会覆盖根目录 `opencode.jsonc` 的同名设置，可能改变 shell、权限和代理模型。模板文件、领域规则 `AGENTS.md` 和向导生成的子代理不算既有配置。
+
+同目录有 `AGENTS.md`，并且 `CLAUDE.md` 或 `GEMINI.md` 只写一行 `@AGENTS.md`、是指向它的符号链接，或是 Git 在不支持符号链接的检出中写出的占位文件（内容为 `AGENTS.md`）时，列为共用单一来源，不需要决定。
+
+个人目录中会被 OpenCode 加载进本项目的位置（`~/.claude/skills`、`~/.agents/skills`，以及 OpenCode 个人目录下的规则、代理、命令、技能和插件）只报告条目数，不要求决定，也不写入共享配置。
+
+### 决定与门槛
+
+每个检测项都由用户决定迁移（`migrate`）或保留（`keep`），记录在 `onboarding.json` 的 `existing` 中，键是检测结果里的 path 原样。还有未决定的项时不生成配置计划；已接入的项目出现新的配置，或仍是 version 1 档案时，`verify`、`finish` 不就绪。取消或没有答复的项保持未决定，不由 AI 代填；已记录的决定只展示，不重复询问。
+
+AI 逐项阅读后说明：用途，以及 OpenCode 是否加载；与本工作流的重叠，例如拦截读取 `.env` 的钩子对应路径保护、提交前扫描对应 Gitleaks、格式化钩子对应质量扩展；冲突，例如要求自动提交或推送、跳过测试或 `--no-verify`、指定 PowerShell、`bash -c` 一类写法、写受保护路径、与 Superpowers 或向导技能同 ID 的技能、带写权限或能访问生产的 MCP、向 OpenCode 注入整套工作流的其他插件；最后建议迁移还是保留，并说明理由和迁移去向。可能含凭据的文件（各类 MCP 配置、`.claude/settings*.json`、`.codex/config.toml`、`.gemini/settings.json`、`.aider.conf.yml`）只看结构，不复述凭据值，也不写进被跟踪的文件。
+
+### 迁移
+
+应用配置后，AI 按决定逐项迁移：每项先展示差异或新文件全文，确认后用普通编辑写入，同样受守卫和领域规则约束。原文件默认保留；原工具支持引用或本身读取 `AGENTS.md` 的改为引用，例如 `CLAUDE.md` 只留 `@AGENTS.md`；只有用户逐项明确要求时才删除原文件。
+
+| 原内容 | 迁到哪里 |
+| --- | --- |
+| 规则 | 全局、简短的放根 `AGENTS.md`，其余放领域 `AGENTS.md` 并经 `scopes.json` 映射；去掉工具专属说法，与守卫冲突的条目不迁，列给用户 |
+| 子代理 | 子代理规划中的受管子代理；只读审核类改为审核检查单 |
+| 命令、提示 | `.opencode/commands/<name>.md`，`$ARGUMENTS` 照用；涉及发布或生产的不迁，改为使用受控发布 |
+| 技能 | OpenCode 已加载，通常保留；需要 OpenCode 专用版本时复制到 `.opencode/skills`，其优先级更高 |
+| MCP | `opencode.jsonc` 的 `mcp.servers`（V2 格式），凭据用环境变量引用；有写权限或能访问生产的按只读 MCP 扩展处理 |
+| 钩子、权限 | 工作流已覆盖的不迁；禁止读写一类的规则整理成 `protection.json` 的拟议差异，由用户在 OpenCode 之外修改；其他列为待决定 |
+
+不通过 `instructions` 配置引入其他工具的规则：这些文件不经过领域规则加载和大小检查。迁移后重新运行 `verify`，确认没有未决定的项，并复查保留项是否仍有冲突。
+
 ## 模式
 
 | 选择 | 能力 | 前置条件 |
@@ -59,7 +104,7 @@
 
 ## 预览与批准
 
-应用前应看到：模式、安装范围、模型策略、所有组件、拟修改文件、保留项和待处理项。安装器保存不含既有配置正文的内容摘要计划，用户确认的 id 绑定该计划。
+应用前应看到：模式、安装范围、既有 AI 配置的决定及其影响、模型策略、所有组件、拟修改文件、保留项和待处理项。安装器保存不含既有配置正文的内容摘要计划，用户确认的 id 绑定该计划。
 
 若预览后文件、来源或目标发生变化，应用会拒绝，需重新预览确认。重复应用已完成且未变化的计划不会再次添加插件。状态目录必须被 Git 忽略且不能被跟踪；不能通过符号链接把计划写入其他目录。
 
