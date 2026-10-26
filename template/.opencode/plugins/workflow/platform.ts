@@ -36,14 +36,17 @@ const probeLauncher = (launcher: Command) => spawnSync(launcher.command, [...lau
 let cached: { key: string; value: Command } | undefined
 
 // WORKFLOW_PYTHON 是解释器路径，不拆分参数。其余情况按顺序探测 3.10+ 并按 PATH 缓存：
-// Windows 上 python3 常是应用商店占位程序，macOS 自带的 python3 版本过旧。
-export function pythonCommand({ env = process.env, platform = process.platform, probe }: { env?: NodeJS.ProcessEnv; platform?: Platform; probe?: (launcher: Command) => boolean } = {}): Command {
+// Windows 上 python3 常是应用商店占位程序，macOS 自带的 python3 版本过旧。Windows 上探测和缓存的都是绝对路径。
+export function pythonCommand({ env = process.env, platform = process.platform, probe, exists }: { env?: NodeJS.ProcessEnv; platform?: Platform; probe?: (launcher: Command) => boolean; exists?: (file: string) => boolean } = {}): Command {
   const override = envValue(env, 'WORKFLOW_PYTHON')
-  if (override) return { command: override, args: [] }
+  if (override) return { command: executable(override, { env, platform, exists }), args: [] }
   const candidates = platform === 'win32' ? launchers : posixLaunchers
   const key = `${platform}\0${envValue(env, 'PATH') ?? ''}`
   if (!probe && cached?.key === key) return { ...cached.value, args: [...cached.value.args] }
-  const value = candidates.find(probe ?? probeLauncher)
+  const located = candidates.flatMap(candidate => {
+    try { return [{ ...candidate, command: executable(candidate.command, { env, platform, exists }) }] } catch { return [] }
+  })
+  const value = located.find(probe ?? probeLauncher)
   if (!value) {
     const tried = candidates.map(c => [c.command, ...c.args].join(' ')).join('、')
     const install = platform === 'darwin' ? '请 brew install python@3.12' : '请安装 Python 3.10+'
@@ -74,7 +77,7 @@ export function killTree(child: { pid?: number; kill(signal?: NodeJS.Signals): b
   run: (command: string, args: string[]) => void = (command, args) => { spawnSync(command, args, { windowsHide: true, stdio: 'ignore', timeout: 10_000 }) }): void {
   if (child.pid) {
     try {
-      if (platform === 'win32') run('taskkill', ['/pid', String(child.pid), '/T', '/F'])
+      if (platform === 'win32') run(systemCommand('taskkill.exe'), ['/pid', String(child.pid), '/T', '/F'])
       else process.kill(-child.pid, 'SIGKILL')
     } catch { /* 进程可能已经退出，或 taskkill 不可用。 */ }
   }
@@ -100,16 +103,33 @@ export function hookExecutable(file: string, platform: Platform = process.platfo
 }
 
 // Windows 只按 PATHEXT 查找：npm 在同一目录放有无扩展名的 sh 启动脚本，它不能直接执行。
-export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = (file: string) => launchable(file, platform) }: { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean } = {}): string | undefined {
+// 只查 PATH 中的绝对目录：`.` 一类相对项会指向当前目录。
+type Lookup = { env?: NodeJS.ProcessEnv; platform?: Platform; exists?: (file: string) => boolean }
+export function findExecutable(name: string, { env = process.env, platform = process.platform, exists = (file: string) => launchable(file, platform), pathext }: Lookup & { pathext?: string } = {}): string | undefined {
   const p = platform === 'win32' ? path.win32 : path.posix
-  const pathext = (envValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-  const extensions = platform !== 'win32' || pathext.some(ext => name.toLowerCase().endsWith(ext.toLowerCase())) ? [''] : pathext
+  const known = (pathext ?? envValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const extensions = platform !== 'win32' || known.some(ext => name.toLowerCase().endsWith(ext.toLowerCase())) ? [''] : known
   const first = (base: string) => extensions.map(ext => base + ext).find(exists)
   if (name.includes('/') || (platform === 'win32' && name.includes('\\'))) return first(name)
-  for (const directory of (envValue(env, 'PATH') ?? '').split(p.delimiter).filter(Boolean)) {
+  for (const directory of (envValue(env, 'PATH') ?? '').split(p.delimiter).filter(entry => p.isAbsolute(entry))) {
     const found = first(p.join(directory, name))
     if (found) return found
   }
+}
+
+// Windows 的进程创建（CreateProcess、libuv）先在当前目录或 cwd 中查找不带路径的命令，项目里的同名程序会被执行。
+// 因此 Windows 上先在 PATH 的绝对目录中解析出绝对路径；直接启动只接受 .exe/.com，scripts 时也接受交给 commandLine 的 .bat/.cmd。
+// 找不到时报 ENOENT，不退回按名字启动。带路径的名称是调用方明确给出的，原样返回；其他平台不查当前目录，也原样返回。
+export function executable(name: string, { env = process.env, platform = process.platform, exists, scripts = false }: Lookup & { scripts?: boolean } = {}): string {
+  if (platform !== 'win32' || /[\\/]/.test(name)) return name
+  const found = findExecutable(name, { env, platform, exists, pathext: scripts ? undefined : '.com;.exe' })
+  if (found) return found
+  throw Object.assign(new Error(`找不到 ${name}：请确认它在 PATH 中`), { code: 'ENOENT' })
+}
+
+// cmd.exe、taskkill.exe 等系统程序固定取自 %SystemRoot%\System32。
+export function systemCommand(name: string, env: NodeJS.ProcessEnv = process.env): string {
+  return path.win32.join(envValue(env, 'SYSTEMROOT') ?? 'C:\\Windows', 'System32', name)
 }
 
 // Node 不再直接启动 .cmd/.bat；改经 cmd.exe，/s 去掉最外层引号后按原样执行整行。
@@ -119,7 +139,7 @@ export function commandLine(file: string, args: string[], platform: Platform = p
     if (/["%!]/.test(value)) throw new Error(`参数含有 cmd 无法安全转义的字符：${value}`)
     return /[\s&|<>^()]/.test(value) ? `"${value}"` : value
   }
-  return { command: 'cmd.exe', args: ['/d', '/s', '/c', `"${[file, ...args].map(quote).join(' ')}"`], windowsVerbatimArguments: true }
+  return { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', `"${[file, ...args].map(quote).join(' ')}"`], windowsVerbatimArguments: true }
 }
 
 export function samePath(a: string, b: string, platform: Platform = process.platform): boolean {

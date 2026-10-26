@@ -3,7 +3,7 @@ import { resolve, dirname, join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
-import { commandLine, findExecutable, pythonCommand, pythonEnv, samePath, unsupportedShell } from '../../.opencode/plugins/workflow/platform.ts'
+import { commandLine, executable, findExecutable, pythonCommand, pythonEnv, samePath, unsupportedShell } from '../../.opencode/plugins/workflow/platform.ts'
 
 const install = 'npm --prefix .opencode/plugins/workflow ci --ignore-scripts'
 // 插件模块依赖 jsonc-parser；依赖缺失时仍要输出结构化报告，而不是在导入阶段崩溃。
@@ -28,9 +28,9 @@ const baseline = manifest?.dependencies?.['@opencode/plugin']
 const args = process.argv.slice(2)
 const root = resolve(args.includes('--root') ? args[args.indexOf('--root') + 1] : '.')
 const checks = []
-// Windows 上 npm 安装的 CLI 是 .cmd 启动器，需要经 cmd.exe 执行。
+// Windows 上 npm 安装的 CLI 是 .cmd 启动器，需要经 cmd.exe 执行；PATH 中找不到时不按名字启动，以免执行项目里的同名程序。
 const command = (exe, args, options = {}) => {
-  const invocation = commandLine(findExecutable(exe) ?? exe, args)
+  const invocation = commandLine(findExecutable(exe) ?? executable(exe, { scripts: true }), args)
   return execFileSync(invocation.command, invocation.args, { cwd: root, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: invocation.windowsVerbatimArguments, ...options }).trim()
 }
 const python = (args, options = {}) => {
@@ -155,7 +155,7 @@ async function diagnose() {
     const options = () => ({ timeout: Math.max(1, deadline - Date.now()), maxBuffer: 64 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] })
     try {
       // 不能 trim：文件名可以以空格开头或结尾。
-      const paths = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', ...options() }).split('\0').filter(Boolean)
+      const paths = execFileSync(executable('git'), ['ls-files', '-z'], { cwd: root, encoding: 'utf8', ...options() }).split('\0').filter(Boolean)
       const result = JSON.parse(python([join(root, '.opencode/workflow/checks/policy.py')], { ...options(), input: JSON.stringify({ root, action: 'read', paths }) }))
       if (!Array.isArray(result.denied) || result.denied.some(path => typeof path !== 'string')) throw new Error('凭据规则检查输出无效')
       if (result.denied.length) return { status: 'warn', message: `已跟踪文件命中读取保护（共 ${result.denied.length} 个，最多列出 20 个）：\n${result.denied.slice(0, 20).join('\n')}\n源码误伤请追加精确 allow；真实凭据须移出仓库并轮换` }

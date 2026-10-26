@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { applyEdits, modify, parse, parseTree, type ParseError, type Node } from 'jsonc-parser'
-import { containedRelative, samePath, pythonCommand, pythonEnv, hookExecutable } from './platform.ts'
+import { containedRelative, samePath, pythonCommand, pythonEnv, hookExecutable, executable } from './platform.ts'
 import { loadReleaseConfig } from './release.ts'
 import { SETUP_PROFILE, SUPERPOWERS_SPEC, managedRoles, readSetupChoices, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
 import { agentPath, agentText, unmodifiedAgent } from './onboarding-agents.ts'
@@ -151,7 +151,7 @@ function withoutMarkdownModel(text: string, name: string): string {
 }
 
 function git(root: string, args: string[], absent = false): string | null {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+  const result = spawnSync(executable('git'), args, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10_000 })
   if (absent && result.status === 1 && !result.error) return null
   if (result.error || result.status !== 0) throw new Error('Git 接入预检失败，未应用配置')
   return result.stdout.trim()

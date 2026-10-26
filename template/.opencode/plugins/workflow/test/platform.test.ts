@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync, chmodSync, linkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell, launchable } from '../platform.ts'
+import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell, launchable, executable, systemCommand } from '../platform.ts'
 import * as hookPlatform from '../platform.ts'
 
 test('hook 可执行性使用平台语义，拒绝目录、缺失及共享 inode', () => {
@@ -69,12 +69,16 @@ test('Node checks use a suspended-job Python supervisor on Windows and direct No
   assert.throws(() => hookPlatform.nodeCheckCommand(node, args, { platform: 'win32', env: {}, probe: () => false }), /Python/)
 })
 
-test('Windows tries the py launcher, then python, then python3', () => {
-  const tried: string[] = []
-  const found = pythonCommand({ env: {}, platform: 'win32', probe: c => { tried.push([c.command, ...c.args].join(' ')); return c.command === 'python' } })
-  assert.deepEqual(found, { command: 'python', args: [] })
-  assert.deepEqual(tried, ['py -3', 'python'])
-  assert.throws(() => pythonCommand({ env: {}, platform: 'win32', probe: () => false }), /py -3.*python.*python3.*WORKFLOW_PYTHON/s)
+test('Windows tries the py launcher, then python, then python3, each at its absolute PATH location', () => {
+  const env = { Path: 'C:\\Python312;C:\\Windows' }, files = new Set(['C:\\Windows\\py.exe', 'C:\\Python312\\python.exe'])
+  const exists = (file: string) => files.has(file), tried: string[] = []
+  const found = pythonCommand({ env, platform: 'win32', exists, probe: c => { tried.push([c.command, ...c.args].join(' ')); return c.command.endsWith('python.exe') } })
+  assert.deepEqual(found, { command: 'C:\\Python312\\python.exe', args: [] })
+  assert.deepEqual(tried, ['C:\\Windows\\py.exe -3', 'C:\\Python312\\python.exe'])
+  assert.throws(() => pythonCommand({ env, platform: 'win32', exists, probe: () => false }), /py -3.*python.*python3.*WORKFLOW_PYTHON/s)
+  // 不在 PATH 中的启动器不按名字启动，否则会执行当前目录里的同名程序。
+  assert.throws(() => pythonCommand({ env: {}, platform: 'win32', exists, probe: () => true }), /py -3.*python.*python3/s)
+  assert.deepEqual(pythonCommand({ env: { ...env, WORKFLOW_PYTHON: 'python' }, platform: 'win32', exists, probe: () => false }), { command: 'C:\\Python312\\python.exe', args: [] })
 })
 
 test('Python children always exchange UTF-8', () => {
@@ -90,7 +94,7 @@ test('children are hidden on Windows and own a process group elsewhere', () => {
 test('killTree ends the whole Windows process tree with taskkill', () => {
   const calls: string[][] = []
   killTree({ pid: 42, kill: () => true }, 'win32', (command, args) => { calls.push([command, ...args]) })
-  assert.deepEqual(calls, [['taskkill', '/pid', '42', '/T', '/F']])
+  assert.deepEqual(calls, [[systemCommand('taskkill.exe'), '/pid', '42', '/T', '/F']])
 })
 
 test('killTree still ends the direct child when taskkill is unavailable', () => {
@@ -110,9 +114,29 @@ test('Windows executables are found through PATH and PATHEXT, not extensionless 
   assert.equal(findExecutable('gitleaks', { env: { PATH: '/empty:/opt/bin' }, platform: 'linux', exists: f => f === '/opt/bin/gitleaks' }), '/opt/bin/gitleaks')
 })
 
+test('command lookup skips relative PATH entries, so the working directory is never searched', () => {
+  const files = new Set(['git.exe', 'tools\\git.exe', 'C:\\bin\\git.exe', 'git', 'bin/git', '/usr/bin/git'])
+  const exists = (file: string) => files.has(file)
+  assert.equal(findExecutable('git', { env: { Path: '.;tools;C:\\bin', PATHEXT: '.exe' }, platform: 'win32', exists }), 'C:\\bin\\git.exe')
+  assert.equal(findExecutable('git', { env: { PATH: '.:bin:/usr/bin' }, platform: 'linux', exists }), '/usr/bin/git')
+})
+
+test('Windows starts PATH programs only by absolute path and system programs from System32', () => {
+  const env = { Path: 'C:\\scripts;C:\\Git\\cmd', PATHEXT: '.com;.exe;.bat;.cmd', SystemRoot: 'D:\\Windows' }
+  const files = new Set(['C:\\scripts\\git.cmd', 'C:\\Git\\cmd\\git.exe', 'C:\\scripts\\npm.cmd'])
+  const exists = (file: string) => files.has(file)
+  assert.equal(executable('git', { env, platform: 'win32', exists }), 'C:\\Git\\cmd\\git.exe')
+  assert.equal(executable('git', { env, platform: 'win32', exists, scripts: true }), 'C:\\scripts\\git.cmd')
+  assert.throws(() => executable('npm', { env, platform: 'win32', exists }), (error: NodeJS.ErrnoException) => error.code === 'ENOENT' && /npm.*PATH/.test(error.message))
+  for (const name of ['C:\\tools\\node.exe', 'scripts\\publish.exe', './run']) assert.equal(executable(name, { env, platform: 'win32', exists }), name)
+  assert.equal(executable('git', { env: {}, platform: 'linux', exists }), 'git')
+  assert.equal(systemCommand('cmd.exe', env), 'D:\\Windows\\System32\\cmd.exe')
+  assert.equal(systemCommand('taskkill.exe', {}), 'C:\\Windows\\System32\\taskkill.exe')
+})
+
 test('cmd scripts run through cmd.exe with the whole command line quoted', () => {
   assert.deepEqual(commandLine('C:\\Program Files\\nodejs\\opencode.cmd', ['--version'], 'win32'),
-    { command: 'cmd.exe', args: ['/d', '/s', '/c', '""C:\\Program Files\\nodejs\\opencode.cmd" --version"'], windowsVerbatimArguments: true })
+    { command: systemCommand('cmd.exe'), args: ['/d', '/s', '/c', '""C:\\Program Files\\nodejs\\opencode.cmd" --version"'], windowsVerbatimArguments: true })
   assert.deepEqual(commandLine('C:\\tools\\gitleaks.exe', ['version'], 'win32'), { command: 'C:\\tools\\gitleaks.exe', args: ['version'] })
   assert.deepEqual(commandLine('/usr/bin/opencode.cmd', ['--version'], 'linux'), { command: '/usr/bin/opencode.cmd', args: ['--version'] })
   assert.throws(() => commandLine('C:\\x\\a.cmd', ['say "hi"'], 'win32'), /cmd/)

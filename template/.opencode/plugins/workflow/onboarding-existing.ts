@@ -3,7 +3,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse, type ParseError } from 'jsonc-parser'
-import { childOptions, containedRelative, killTree } from './platform.ts'
+import { childOptions, containedRelative, executable, killTree } from './platform.ts'
 import { decisionKey, type ExistingDecision } from './onboarding-config.ts'
 
 export type ExistingItem = { path: string; tool: string; files: number; opencode: 'loaded' | 'workspace' | 'not-loaded'; note: string; decision: ExistingDecision | null }
@@ -119,7 +119,7 @@ export function listFiles(root: string, { timeout = 20_000, limit = 64 * 1024 * 
     let size = 0, done = false, timer: NodeJS.Timeout | undefined, child: ChildProcess
     const failed = (error: NodeJS.ErrnoException): Listing => ({ status: null, stdout: Buffer.alloc(0), error })
     const finish = (result: Listing) => { if (!done) { done = true; clearTimeout(timer); resolve(result) } }
-    try { child = launch('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, ...childOptions(), stdio: ['ignore', 'pipe', 'ignore'] }) }
+    try { child = launch(executable('git'), ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, ...childOptions(), stdio: ['ignore', 'pipe', 'ignore'] }) }
     catch (error) { return finish(failed(error as NodeJS.ErrnoException)) }
     child.on('error', error => finish(failed(error)))
     const stop = (code: string) => {

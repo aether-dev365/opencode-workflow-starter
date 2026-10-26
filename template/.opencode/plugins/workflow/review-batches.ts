@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { RoutingConfig } from './config.ts'
 import { matchesPattern } from './patterns.ts'
+import { executable } from './platform.ts'
 
 export const REVIEWER = 'reviewer'
 
@@ -17,7 +18,7 @@ export type Batch = { batchId: string; createdAt: number; mode: Mode; base: stri
 export type Submission = { batchId: string; taskId: string; verdict: Verdict; findings?: Finding[]; gaps?: Gap[]; note?: string }
 
 export function git(root: string, args: string[], env = process.env): string {
-  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env, maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).replace(/\n$/, '')
+  return execFileSync(executable('git'), ['-C', root, ...args], { encoding: 'utf8', env, maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).replace(/\n$/, '')
 }
 export function reviewsDir(root: string): string {
   return join(git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']), 'workflow/reviews/batches')

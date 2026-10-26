@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { git, listBatches } from './review-batches.ts'
 import { digest, evidenceDigest, evidenceFile } from './evidence.ts'
 import { patternProblem } from './patterns.ts'
-import { childOptions, killTree } from './platform.ts'
+import { childOptions, executable, killTree } from './platform.ts'
 
 export type ReleaseEntry = { id: string; argv: string[]; artifacts: string[] }
 export type ReleaseConfig = { version: 1; enabled: true; tagPattern: string; scope: { include: string[]; exclude: string[] }; entries: ReleaseEntry[] }
@@ -69,7 +69,9 @@ export async function executeRelease(root: string, entryId: string, signal?: Abo
   if (signal?.aborted) throw new Error('发布已取消')
   const entry = loadReleaseConfig(root)!.entries.find(e => e.id === entryId)!
   return new Promise((done, fail) => {
-    const child = spawn(entry.argv[0], entry.argv.slice(1), { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], ...childOptions() })
+    let command: string
+    try { command = executable(entry.argv[0]) } catch { fail(new Error(launchFailure())); return }
+    const child = spawn(command, entry.argv.slice(1), { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], ...childOptions() })
     let output = '', bytes = 0, stopped = false
     const stop = (reason: string) => {
       if (stopped) return
