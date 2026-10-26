@@ -1,9 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, chmod } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath, symlink, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname, delimiter } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, type ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { detectExisting, listFiles, EXISTING_MARKERS } from '../onboarding-existing.ts'
 
 // 检测走调用方的 Git 配置：屏蔽全局与系统配置及默认的 $XDG_CONFIG_HOME/git/ignore，避免个人 excludes 改变结果。
@@ -59,7 +62,7 @@ test('root-only markers are ignored in subdirectories and marker files inside a 
 test('ignored files, template agent files, managed agents and dependency bookkeeping are not existing configuration', async t => {
   const f = await repo(t, { '.gitignore': 'CLAUDE.local.md\n.claude/settings.local.json\n', 'CLAUDE.local.md': 'private', '.claude/settings.local.json': '{}', '.claude/agents/a.md': 'a',
     '.opencode/agents/web-implementer.md': 'w', '.opencode/agent/implementer.md': 'i', '.opencode/.gitignore': 'x', '.opencode/bun.lock': 'x', '.opencode/package.json': '{}',
-    '.opencode/AGENTS.md': '领域规则', '.opencode/skills/AGENTS.md': '领域规则', '.opencode/plugins/AGENTS.md': '领域规则' })
+    '.opencode/AGENTS.md': '领域规则', '.opencode/skills/AGENTS.md': '领域规则', '.opencode/plugins/AGENTS.md': '领域规则', '.opencode/modes/web/AGENTS.md': '领域规则' })
   const managed = await detectExisting(f.root, { personal: false, managedAgents: ['web-implementer'] })
   assert.deepEqual(managed.items.map(i => [i.path, i.files]), [['.claude', 1], ['.opencode/package.json', 1]])
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))
@@ -131,7 +134,7 @@ test('a non-UTF-8 file name only blocks detection when the reported path itself 
   const f = await repo(t)
   const run = (...names: Buffer[]) => detectExisting(f.root, { personal: false, list: () => ({ status: 0, stdout: Buffer.concat(names.flatMap(name => [name, Buffer.from([0])])) }) })
   const bad = (before: string, after = '') => Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)])
-  const fine = await run(bad('src/a'), bad('.claude/agents/', '.md'), Buffer.from('.claude/commands/c.md'))
+  const fine = await run(bad('src/a'), bad('.claude/agents/', '.md'), Buffer.from('.claude/commands/c.md'), bad('.opencode/', '/.DS_Store'))
   assert.equal(fine.complete, true, fine.issues.join('\n'))
   assert.deepEqual(fine.items.map(i => [i.path, i.files]), [['.claude', 2]])
   const blocked = await run(bad('docs/'), bad('docs/', '/CLAUDE.md'))
@@ -204,24 +207,58 @@ test('listing project files leaves the host event loop running and stops at its 
   await f.put('git', `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'fake.mjs')}"\n`, bin)
   await chmod(join(bin, 'git'), 0o755)
   await f.put('fake.mjs', [
+    "import { writeFileSync } from 'node:fs'",
     "const mode = process.env.WORKFLOW_FAKE_GIT",
-    "if (mode === 'hang') setTimeout(() => {}, 60000)",
+    "if (mode === 'hang') { writeFileSync(process.env.WORKFLOW_FAKE_GIT_PID, String(process.pid)); setTimeout(() => {}, 60000) }",
     "else if (mode === 'large') process.stdout.write(Buffer.alloc(2 * 1024 * 1024, 0x61))",
     "else setTimeout(() => process.stdout.write('CLAUDE.md\\0'), 1000)", ''].join('\n'), bin)
   const path = process.env.PATH
   process.env.PATH = bin + delimiter + path
-  t.after(() => { process.env.PATH = path; delete process.env.WORKFLOW_FAKE_GIT })
+  t.after(() => { process.env.PATH = path; delete process.env.WORKFLOW_FAKE_GIT; delete process.env.WORKFLOW_FAKE_GIT_PID })
   let ticks = 0
   const timer = setInterval(() => ticks++, 10)
   const report = await detectExisting(f.root, { personal: false })
   clearInterval(timer)
   assert.deepEqual(report.items.map(i => i.path), ['CLAUDE.md'])
   assert.ok(ticks > 30, `检测期间事件循环只运行了 ${ticks} 次`)
-  process.env.WORKFLOW_FAKE_GIT = 'hang'
-  const started = Date.now(), hung = await listFiles(f.root, { timeout: 300 })
+  const pidFile = join(dirname(f.root), 'fake-git.pid')
+  Object.assign(process.env, { WORKFLOW_FAKE_GIT: 'hang', WORKFLOW_FAKE_GIT_PID: pidFile })
+  const started = Date.now(), hanging = listFiles(f.root, { timeout: 1000 })
+  let pid = 0
+  for (let attempt = 0; attempt < 100 && !pid; attempt++) { pid = Number(await readFile(pidFile, 'utf8').catch(() => '')); if (!pid) await sleep(20) }
+  const hung = await hanging
   assert.deepEqual([hung.status, hung.error?.code], [null, 'ETIMEDOUT'])
   assert.ok(Date.now() - started < 5000)
+  assert.ok(pid > 0, '假 git 没有写出进程号')
+  const alive = () => { try { process.kill(pid, 0); return true } catch { return false } }
+  for (let attempt = 0; attempt < 100 && alive(); attempt++) await sleep(20)
+  assert.equal(alive(), false, '超时后 git 进程仍在运行')
   process.env.WORKFLOW_FAKE_GIT = 'large'
   const large = await listFiles(f.root, { limit: 1024 * 1024 })
   assert.deepEqual([large.status, large.error?.code], [null, 'ENOBUFS'])
+})
+
+// 以假子进程覆盖各平台都会走到的事件顺序：启动失败、超限后仍有数据、超时。
+function fakeLaunch(stdout: PassThrough | null, kills: number[]) {
+  const child = Object.assign(new EventEmitter(), { stdout, pid: undefined, kill: () => true }) as unknown as ChildProcess
+  return { child, kill: () => { kills.push(1) }, launch: () => child }
+}
+
+test('listing project files reports spawn failures without unhandled errors and stops only once', async () => {
+  // 文件描述符耗尽时 spawn 返回没有 stdout 的子进程，并在下一轮事件循环报告错误。
+  const exhausted = fakeLaunch(null, [])
+  const pending = listFiles('.', { launch: exhausted.launch, kill: exhausted.kill })
+  process.nextTick(() => exhausted.child.emit('error', Object.assign(new Error('spawn git EMFILE'), { code: 'EMFILE' })))
+  assert.deepEqual(await pending.then(result => [result.status, result.error?.code]), [null, 'EMFILE'])
+  const thrown = await listFiles('.', { launch: () => { throw Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' }) } })
+  assert.deepEqual([thrown.status, thrown.error?.code], [null, 'EINVAL'])
+  const kills: number[] = [], flooding = fakeLaunch(new PassThrough(), kills)
+  const large = listFiles('.', { limit: 4, launch: flooding.launch, kill: flooding.kill })
+  for (let chunk = 0; chunk < 3; chunk++) flooding.child.stdout!.emit('data', Buffer.from('CLAUDE.md\0'))
+  flooding.child.emit('close', null)
+  assert.deepEqual(await large.then(result => [result.status, result.error?.code]), [null, 'ENOBUFS'])
+  assert.equal(kills.length, 1)
+  const waits: number[] = [], silent = fakeLaunch(new PassThrough(), waits)
+  const timed = await listFiles('.', { timeout: 50, launch: silent.launch, kill: silent.kill })
+  assert.deepEqual([timed.status, timed.error?.code, waits.length], [null, 'ETIMEDOUT', 1])
 })

@@ -32,7 +32,7 @@
 | Kiro、Continue、Zed、Junie、Amazon Q、Trae、Augment | `.kiro/`、`.continue/`、`.rules`、`.junie/`、`.amazonq/`、`.trae/`、`.augment/`、`.augment-guidelines` | 不读取 |
 | OpenCode（本模板以外） | 根 `.opencode/` 下模板与向导以外的代理、命令、技能、插件等；子目录中的 `.opencode/`、`opencode.json`、`opencode.jsonc` | 加载 |
 
-目录标记和 `CLAUDE.md`、`GEMINI.md`、`AGENTS.override.md` 在任意子目录中识别，其余标记只认项目根。`.claude/skills`、`.agents/skills` 单独列出，目录标记本身是符号链接时整体列为一项；子目录中的技能和 OpenCode 配置只在工作目录位于其下时生效。`.opencode/opencode.json(c)` 会覆盖根目录 `opencode.jsonc` 的同名设置，可能改变 shell、权限和代理模型。模板文件、领域规则 `AGENTS.md` 和向导生成的子代理不算既有配置；但代理、命令目录（`.opencode/` 下的 `agents`、`agent`、`modes`、`mode`、`commands`、`command`）中的 `AGENTS.md` 会被 OpenCode 加载为代理或命令，照常列出。
+目录标记和 `CLAUDE.md`、`GEMINI.md`、`AGENTS.override.md` 在任意子目录中识别，其余标记只认项目根。`.claude/skills`、`.agents/skills` 单独列出，目录标记本身是符号链接时整体列为一项；子目录中的技能和 OpenCode 配置只在工作目录位于其下时生效。`.opencode/opencode.json(c)` 会覆盖根目录 `opencode.jsonc` 的同名设置，可能改变 shell、权限和代理模型。模板文件、领域规则 `AGENTS.md` 和向导生成的子代理不算既有配置；但 `.opencode/` 下 `agents`、`agent`、`commands`、`command` 目录（含子目录）和 `modes`、`mode` 目录本身中的 `AGENTS.md` 会被 OpenCode 加载为代理或命令，照常列出。
 
 同目录有 `AGENTS.md`，并且 `CLAUDE.md` 或 `GEMINI.md` 只写一行 `@AGENTS.md`、是指向它的符号链接，或是 Git 在不支持符号链接的检出中写出的占位文件（内容为 `AGENTS.md`）时，列为共用单一来源，不需要决定。
 

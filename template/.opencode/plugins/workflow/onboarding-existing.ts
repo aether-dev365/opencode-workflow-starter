@@ -1,5 +1,5 @@
 import { lstat, open, readFile, readdir, readlink, stat } from 'node:fs/promises'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse, type ParseError } from 'jsonc-parser'
@@ -37,7 +37,9 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
 
 // 根 .opencode/ 下的模板文件、领域规则 AGENTS.md、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
 // 代理、命令目录中的每个 .md 都会被 OpenCode 加载，AGENTS.md 也不例外。
+// OpenCode 2.1.4 递归加载 agent(s)、command(s) 目录，mode(s) 只加载目录本身的文件。
 const LOADED_AS = new Map([['agents', '代理'], ['agent', '代理'], ['modes', '代理'], ['mode', '代理'], ['commands', '命令'], ['command', '命令']])
+const loader = (parts: string[]) => ['modes', 'mode'].includes(parts[1]) && parts.length !== 3 ? undefined : LOADED_AS.get(parts[1])
 const SYSTEM_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
 const TEMPLATE_FILES = new Set(['LICENSE', 'agents/implementer.md', 'agents/reviewer.md', 'agent/implementer.md', 'agent/reviewer.md', 'commands/review.md', 'commands/workflow-setup.md', '.gitignore', 'bun.lock', 'bun.lockb', 'package-lock.json'])
 const TEMPLATE_PREFIXES = ['plugins/workflow/', 'secret-scan/', 'skills/workflow-onboarding/', 'workflow/', 'node_modules/']
@@ -57,11 +59,11 @@ type Found = { path: string; tool: string; opencode: ExistingItem['opencode']; n
 function classify(path: string, managed: readonly string[]): Found | null {
   const parts = path.split('/')
   if (parts[0] === '.opencode') {
-    const rest = parts.slice(1).join('/'), rules = parts.at(-1) === 'AGENTS.md', loader = LOADED_AS.get(parts[1])
-    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || rules && !loader || managed.some(name => rest === `agents/${name}.md`)) return null
+    const rest = parts.slice(1).join('/'), rules = parts.at(-1) === 'AGENTS.md', loaded = loader(parts)
+    if (TEMPLATE_FILES.has(rest) || TEMPLATE_PREFIXES.some(prefix => rest.startsWith(prefix)) || rules && !loaded || managed.some(name => rest === `agents/${name}.md`)) return null
     const key = ['.opencode', ...parts.slice(1, 3)].join('/')
     const note = key === '.opencode/opencode.json' || key === '.opencode/opencode.jsonc' ? '会覆盖根目录 opencode.jsonc 的同名设置，可能改变 shell、权限和代理模型'
-      : rules ? `OpenCode 会把其中的 AGENTS.md 加载为${loader}；领域规则不要放在代理、命令目录中` : 'OpenCode 会加载；不受向导管理'
+      : rules ? `OpenCode 会把其中的 AGENTS.md 加载为${loaded}；领域规则不要放在代理、命令目录中` : 'OpenCode 会加载；不受向导管理'
     return { path: key, tool: 'OpenCode', opencode: 'loaded', note }
   }
   for (const { tool, marker } of rootMarkers) {
@@ -101,24 +103,32 @@ async function references(file: string): Promise<boolean> {
     const handle = await open(file, 'r')
     try {
       const bytes = await handle.readFile()
-      const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : 'utf-8'
-      const text = new TextDecoder(encoding).decode(bytes).replaceAll('\r\n', '\n').trim()
+      // UTF-16BE 先交换字节再按 UTF-16LE 解码：不是所有运行时的 TextDecoder 都支持 utf-16be。
+      const big = bytes[0] === 0xfe && bytes[1] === 0xff, little = bytes[0] === 0xff && bytes[1] === 0xfe
+      const text = new TextDecoder(big || little ? 'utf-16le' : 'utf-8').decode(big ? Buffer.from(bytes).swap16() : bytes).replaceAll('\r\n', '\n').trim()
       return ['@AGENTS.md', '@./AGENTS.md', 'AGENTS.md'].includes(text)
     } finally { await handle.close() }
   } catch { return false }
 }
 
-// 异步运行，避免未被忽略的大目录让宿主卡住；超时或超过上限时终止进程树并立即返回。
-export function listFiles(root: string, { timeout = 20_000, limit = 64 * 1024 * 1024 } = {}): Promise<Listing> {
+// 异步运行，避免未被忽略的大目录让宿主卡住；超时或超过上限时终止进程树并立即返回，只终止一次。
+// 文件描述符耗尽时 spawn 返回没有 stdout 的子进程并随后报告错误，所以先登记错误处理。
+export function listFiles(root: string, { timeout = 20_000, limit = 64 * 1024 * 1024, launch = spawn as (command: string, args: string[], options: SpawnOptions) => ChildProcess, kill = killTree as (child: ChildProcess) => void } = {}): Promise<Listing> {
   return new Promise(resolve => {
     const chunks: Buffer[] = []
-    let size = 0, done = false, timer: NodeJS.Timeout | undefined
+    let size = 0, done = false, timer: NodeJS.Timeout | undefined, child: ChildProcess
+    const failed = (error: NodeJS.ErrnoException): Listing => ({ status: null, stdout: Buffer.alloc(0), error })
     const finish = (result: Listing) => { if (!done) { done = true; clearTimeout(timer); resolve(result) } }
-    const child = spawn('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, ...childOptions(), stdio: ['ignore', 'pipe', 'ignore'] })
-    const stop = (code: string) => { killTree(child); finish({ status: null, stdout: Buffer.alloc(0), error: Object.assign(new Error(`git ls-files ${code}`), { code }) }) }
+    try { child = launch('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, ...childOptions(), stdio: ['ignore', 'pipe', 'ignore'] }) }
+    catch (error) { return finish(failed(error as NodeJS.ErrnoException)) }
+    child.on('error', error => finish(failed(error)))
+    const stop = (code: string) => {
+      if (done) return
+      finish(failed(Object.assign(new Error(`git ls-files ${code}`), { code })))
+      child.stdout?.destroy(); kill(child)
+    }
     timer = setTimeout(() => stop('ETIMEDOUT'), timeout)
-    child.stdout.on('data', (chunk: Buffer) => { size += chunk.length; if (size > limit) stop('ENOBUFS'); else chunks.push(chunk) })
-    child.on('error', error => finish({ status: null, stdout: Buffer.alloc(0), error }))
+    child.stdout?.on('data', (chunk: Buffer) => { if (done) return; size += chunk.length; if (size > limit) stop('ENOBUFS'); else chunks.push(chunk) })
     child.on('close', status => finish({ status, stdout: Buffer.concat(chunks) }))
   })
 }
@@ -179,7 +189,7 @@ export async function detectExisting(root: string, options: ExistingOptions = {}
     const bytes = result.stdout.subarray(start, end)
     if (!bytes.length) continue
     try { paths.push(strict.decode(bytes)) } catch {
-      const path = lossy.decode(bytes), match = classify(path, managed)
+      const path = lossy.decode(bytes), match = system(path.slice(path.lastIndexOf('/') + 1)) ? null : classify(path, managed)
       if (match?.path.includes('�')) undecodable.push(path); else if (match) paths.push(path)
     }
   }
