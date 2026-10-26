@@ -223,12 +223,13 @@ test('listing project files leaves the host event loop running and stops at its 
   assert.ok(ticks > 30, `检测期间事件循环只运行了 ${ticks} 次`)
   const pidFile = join(dirname(f.root), 'fake-git.pid')
   Object.assign(process.env, { WORKFLOW_FAKE_GIT: 'hang', WORKFLOW_FAKE_GIT_PID: pidFile })
-  const started = Date.now(), hanging = listFiles(f.root, { timeout: 1000 })
+  // 留足启动时间：慢的 runner 上假 git 要先写出进程号，才能核对超时后它已终止。
+  const started = Date.now(), hanging = listFiles(f.root, { timeout: 3000 })
   let pid = 0
-  for (let attempt = 0; attempt < 100 && !pid; attempt++) { pid = Number(await readFile(pidFile, 'utf8').catch(() => '')); if (!pid) await sleep(20) }
+  for (let attempt = 0; attempt < 150 && !pid; attempt++) { pid = Number(await readFile(pidFile, 'utf8').catch(() => '')); if (!pid) await sleep(20) }
   const hung = await hanging
   assert.deepEqual([hung.status, hung.error?.code], [null, 'ETIMEDOUT'])
-  assert.ok(Date.now() - started < 5000)
+  assert.ok(Date.now() - started < 10000)
   assert.ok(pid > 0, '假 git 没有写出进程号')
   const alive = () => { try { process.kill(pid, 0); return true } catch { return false } }
   for (let attempt = 0; attempt < 100 && alive(); attempt++) await sleep(20)

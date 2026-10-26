@@ -220,6 +220,21 @@ test('受管子代理文件无法读取时报告相对路径和原因，不回�
   }
 })
 
+test('预览和核对读取项目文件出错时只报告相对路径和错误码', async t => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const f = await fixture(t)
+  await f.put('opencode.jsonc', '{}\n'); await chmod(join(f.root, 'opencode.jsonc'), 0o000)
+  const refused = await f.plan().then(() => null, (error: Error) => error.message)
+  await chmod(join(f.root, 'opencode.jsonc'), 0o644)
+  assert.equal(refused, '无法读取 opencode.jsonc（EACCES）')
+  await f.apply((await f.plan()).id)
+  await chmod(join(f.root, '.opencode/workflow'), 0o600)
+  const inspect = await files.inspectSetup(f.root, { home: f.home })
+  await chmod(join(f.root, '.opencode/workflow'), 0o755)
+  assert.ok(inspect.issues.includes('无法读取接入配置 .opencode/workflow/onboarding.json（EACCES）'), JSON.stringify(inspect.issues))
+  assert.equal(JSON.stringify(inspect.issues).includes(f.root), false, JSON.stringify(inspect.issues))
+})
+
 test('迁移目标可以在同一次计划中预先记为保留，迁移后不再要求决定', async t => {
   const f = await fixture(t)
   await f.put('.claude/commands/deploy-check.md', '检查部署前状态\n')

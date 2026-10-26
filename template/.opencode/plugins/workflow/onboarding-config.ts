@@ -104,7 +104,12 @@ export async function readSetupChoices(root: string): Promise<SetupChoices | nul
       if (stat.isFile() && stat.nlink !== 1) throw new Error(`接入配置不允许共享 inode（硬链接）：${SETUP_PROFILE}`)
       if (file !== join(base, SETUP_PROFILE) && !stat.isDirectory()) throw new Error(`接入配置父路径不是目录：${SETUP_PROFILE}`)
       if (file === join(base, SETUP_PROFILE) && !stat.isFile()) throw new Error(`接入配置不是常规文件：${SETUP_PROFILE}`)
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return null
+      // 系统错误只报相对路径和错误码：原始信息含绝对路径。
+      throw code ? new Error(`无法读取接入配置 ${SETUP_PROFILE}（${code}）`) : error
+    }
   }
   let value: unknown
   try { value = JSON.parse(await readFile(file, 'utf8')) } catch { throw new Error('接入选择 JSON 无效，请人工检查 onboarding.json') }
