@@ -7,15 +7,17 @@ import { spawnSync } from 'node:child_process'
 import { applyEdits, modify, parse, parseTree, type ParseError, type Node } from 'jsonc-parser'
 import { containedRelative, samePath, pythonCommand, pythonEnv, hookExecutable } from './platform.ts'
 import { loadReleaseConfig } from './release.ts'
-import { SETUP_PROFILE, SUPERPOWERS_SPEC, readSetupChoices, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
+import { SETUP_PROFILE, SUPERPOWERS_SPEC, readSetupChoices, validateSetupChoices, type ModelChoice, type SetupChoices } from './onboarding-config.ts'
+import { agentPath, agentText, unmodifiedAgent } from './onboarding-agents.ts'
 import { detectExisting, type ExistingItem, type ExistingReport } from './onboarding-existing.ts'
 
 export type SetupRequest = { kind: 'superpowers'; scope: 'project' | 'global' }
   | { kind: 'configure'; choices: SetupChoices; source?: string }
+export type AgentPreview = { name: string; path: string; operation: 'create' | 'update' | 'keep'; text: string }
 export type SetupPlan = {
   id: string; request: SetupRequest
   changes: { scope: 'project' | 'global'; path: string; before: string | null; after: string; operation: 'create' | 'update' | 'keep' }[]
-  warnings: string[]; manualTasks: string[]
+  warnings: string[]; manualTasks: string[]; agents: AgentPreview[]
 }
 
 type Area = { anchor: string; prefix: string }
@@ -178,7 +180,7 @@ function requestValue(value: SetupRequest): SetupRequest {
 
 async function build(root: string, request: SetupRequest, global: Area, id: string): Promise<Built> {
   const project = projectArea(root)
-  const plan: SetupPlan = { id, request, changes: [], warnings: [], manualTasks: [] }
+  const plan: SetupPlan = { id, request, changes: [], warnings: [], manualTasks: [], agents: [] }
   const observations: Observation[] = [], writes: Write[] = []
   const observe = async (area: Area, name: string) => {
     const text = await textAt(area, name)
@@ -248,17 +250,19 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
     if (item.decision === 'migrate') plan.manualTasks.push(`迁移 ${item.path}（${item.tool}）：AI 评估后并入 OpenCode 结构，逐项展示差异并经你确认；原文件保留，能共用的改为引用`)
     else plan.warnings.push(`保留 ${item.path}（${item.tool}）：${keepEffect[item.opencode]}`)
   }
+  const roles: [string, ModelChoice][] = [['implementer', choices.models.implementer], ['reviewer', choices.models.reviewer], ...choices.agents.map(agent => [agent.name, agent.model] as [string, ModelChoice])]
+  const generated = new Set(choices.agents.map(agent => agent.name))
   const configs: [string, string | null][] = []
   for (const name of CONFIGS) configs.push([name, await observe(project, name)])
-  if (configs.every(([, text]) => text === null) && Object.values(choices.models).some(value => value.mode === 'fixed')) configs.push(['opencode.jsonc', '{}\n'])
+  if (configs.every(([, text]) => text === null) && roles.some(([, value]) => value.mode === 'fixed')) configs.push(['opencode.jsonc', '{}\n'])
   for (const [name, before] of configs) {
     if (before === null) continue
     const value = jsonConfig(before, name)
     if (value.agents !== undefined && !object(value.agents)) throw new Error(`代理配置无法安全合并，请人工处理：${name}`)
     let after = before
-    for (const agent of ['implementer', 'reviewer'] as const) {
+    for (const [agent, choice] of roles) {
       if (value.agents?.[agent] !== undefined && !object(value.agents[agent])) throw new Error(`代理配置无法安全合并，请人工处理：${name}`)
-      const choice = choices.models[agent]
+      if (generated.has(agent) && Object.keys(value.agents?.[agent] ?? {}).some(key => key !== 'model')) throw new Error(`已有同名代理配置，无法安全生成子代理，请人工合并：${agent}`)
       if (choice.mode === 'fixed') after = editJson(after, ['agents', agent, 'model'], choice.model)
       else if (Object.hasOwn(value.agents?.[agent] ?? {}, 'model')) after = editJson(after, ['agents', agent, 'model'], undefined)
     }
@@ -268,6 +272,18 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
   for (const directory of ['agents', 'agent']) for (const agent of ['implementer', 'reviewer']) {
     const name = `.opencode/${directory}/${agent}.md`, before = await observe(project, name)
     if (before !== null) await change('project', name, withoutMarkdownModel(before, name), before)
+  }
+  // 子代理文件只在不存在、内容相同或仍是未修改的生成文件时写入；其他情况保留用户内容，整个计划拒绝。
+  for (const agent of choices.agents) {
+    for (const directory of ['agent', 'modes', 'mode']) {
+      const name = `.opencode/${directory}/${agent.name}.md`
+      if (await observe(project, name) !== null) throw new Error(`已有同名代理文件：${name}；请人工合并或改名`)
+    }
+    const path = agentPath(agent.name), text = agentText(agent), before = await observe(project, path)
+    const same = before !== null && before.replaceAll('\r\n', '\n') === text
+    if (before !== null && !same && !unmodifiedAgent(before)) throw new Error(`子代理文件冲突：${path} 已存在且不是向导生成的原文；保留原文件，请人工合并或改名`)
+    await change('project', path, same ? before : text, before)
+    plan.agents.push({ name: agent.name, path, operation: plan.changes.at(-1)!.operation, text })
   }
 
   const quality = choices.components.quality !== 'off', ci = choices.components.ci

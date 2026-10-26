@@ -4,11 +4,12 @@
 
 ## [未发布]
 
-**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项。项目中有其他 AI 工具配置时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。
+**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项。项目中有其他 AI 工具配置时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新，新增了 `onboarding-existing.ts`、`onboarding-agents.ts`。
 
 ### 新增
 
 - `/workflow-setup` 检测项目中其他 AI 工具的配置（Claude Code、Cursor、Codex、GitHub Copilot、Gemini CLI 等，以及本模板以外的 OpenCode 配置），列出每一处及其在 OpenCode 中是否生效；AI 阅读评估后给出迁移或保留建议，由用户逐项决定并记录在 `onboarding.json`，有未决定的项时不生成配置计划。迁移由 AI 展示差异、经确认后完成，原文件保留，能共用的改为引用。检测只看文件清单和标记，不读取凭据。
+- `/workflow-setup` 新增子代理规划：AI 按项目领域和结构建议新增的实现类子代理，由用户勾选；向导按与 implementer 相同的权限边界生成代理文件并预览全文，为其选择继承或固定模型，并在宿主中核对实际加载与有效模型。人工修改过的生成文件、手写的同名代理不会被覆盖；去掉某个子代理时不删除文件。
 - 质量扩展新增关联检查（第五项）：在 `quality.json` 的 `sync` 登记触发路径和关联目标，改动命中触发路径而关联目标没有改动时，在提交后和 CI 中报告；改名或删除使登记匹配不到文件时报告登记失效。只报告、不拦截；CI 中同步提醒不使 CI 失败，登记失效和未完成使 CI 失败，汇总变为五项。
 - 基础模板的 `/review` 默认增加文档与约束同步审核单元 `sync`：覆盖全部改动路径，核对行为、接口、配置与权限的变化是否同步到文档、变更记录、示例配置和其他约束文件，并对照质量扩展的关联登记；遗漏类问题定为不阻断的 P2/P3，结论仍为 pass。reviewer 说明同时写明 pass 可以附带 `blocking: false` 的发现。
 

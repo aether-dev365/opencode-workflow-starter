@@ -13,6 +13,7 @@ import type { SetupChoices } from '../onboarding-config.ts'
 
 import * as config from '../onboarding-config.ts'
 import * as files from '../onboarding-files.ts'
+import * as agents from '../onboarding-agents.ts'
 const suite = fileURLToPath(new URL('../../../../..', import.meta.url))
 const choices = (extra: Partial<SetupChoices> = {}): SetupChoices => ({
   version: 2, mode: 'basic', superpowers: 'none',
@@ -132,6 +133,57 @@ test('inspect 报告既有 AI 配置；version 1 档案在记录决定前不就�
   const after = await files.inspectSetup(f.root, { home: f.home })
   assert.equal(after.existing.items[0].decision, 'keep')
   assert.ok(!after.issues.some(x => x.includes('既有 AI 配置')), JSON.stringify(after.issues))
+})
+
+const docs = { name: 'docs-writer', description: '负责文档', focus: '只改 docs/。', model: { mode: 'inherit' as const } }
+
+test('新增子代理按模板生成，固定模型写入项目配置并保留注释，继承不写 model', async t => {
+  const f = await fixture(t)
+  await f.put('opencode.jsonc', '// 保留注释\n{ "agents": { "implementer": {} } }\n')
+  const selected = choices({ agents: [{ ...web, model: { mode: 'fixed', model: 'fake/fixture' } }, docs] })
+  const plan = await f.plan(selected)
+  assert.deepEqual(plan.agents.map(a => [a.name, a.path, a.operation]), [['web-implementer', '.opencode/agents/web-implementer.md', 'create'], ['docs-writer', '.opencode/agents/docs-writer.md', 'create']])
+  assert.equal(plan.agents[0].text, agents.agentText(web))
+  await f.apply(plan.id)
+  assert.equal(await f.read('.opencode/agents/web-implementer.md'), plan.agents[0].text)
+  const text = await f.read('opencode.jsonc'), value = parse(text)
+  assert.ok(text.startsWith('// 保留注释'))
+  assert.deepEqual([value.agents['web-implementer'].model, value.agents['docs-writer']], ['fake/fixture', undefined])
+  assert.deepEqual(JSON.parse(await f.read('.opencode/workflow/onboarding.json')).agents, selected.agents)
+})
+
+test('受管子代理未修改时可以更新；人工修改、手写同名文件或同名代理配置时拒绝且不写入', async t => {
+  const f = await fixture(t), renamed = { ...web, description: '负责 web 前端与样式' }, api = { ...web, name: 'api-implementer' }
+  await f.apply((await f.plan(choices({ agents: [web] }))).id)
+  assert.equal((await f.plan(choices({ agents: [web] }))).agents[0].operation, 'keep')
+  assert.equal((await f.plan(choices({ agents: [renamed] }))).agents[0].operation, 'update')
+  const generated = await f.read('.opencode/agents/web-implementer.md')
+  await f.put('.opencode/agents/web-implementer.md', '\uFEFF' + generated.replaceAll('\n', '\r\n'))
+  assert.equal((await f.plan(choices({ agents: [web] }))).agents[0].operation, 'keep')
+  assert.equal((await f.plan(choices({ agents: [renamed] }))).agents[0].operation, 'update')
+  await f.put('.opencode/agents/web-implementer.md', generated.replace('只改分配文件', '可以改任意文件'))
+  await assert.rejects(f.plan(choices({ agents: [renamed] })), /子代理文件冲突：\.opencode\/agents\/web-implementer\.md/)
+  await f.put('.opencode/agents/web-implementer.md', generated)
+  await f.put('.opencode/agents/api-implementer.md', '---\ndescription: 手写\nmode: subagent\n---\n手写说明\n')
+  await assert.rejects(f.plan(choices({ agents: [web, api] })), /子代理文件冲突：\.opencode\/agents\/api-implementer\.md/)
+  await rm(join(f.root, '.opencode/agents/api-implementer.md'))
+  await f.put('.opencode/agent/api-implementer.md', '---\nmode: subagent\n---\nx\n')
+  await assert.rejects(f.plan(choices({ agents: [web, api], existing: { '.opencode/agent/api-implementer.md': 'keep' } })), /已有同名代理文件/)
+  await rm(join(f.root, '.opencode/agent'), { recursive: true })
+  await f.put('opencode.jsonc', '{ "agents": { "api-implementer": { "prompt": "x" } } }\n')
+  await assert.rejects(f.plan(choices({ agents: [web, api] })), /已有同名代理配置/)
+  await f.put('opencode.jsonc', '{ "agents": { "api-implementer": { "model": "fake/fixture" } } }\n')
+  assert.equal((await f.plan(choices({ agents: [web, api] }))).agents[1].operation, 'create')
+})
+
+test('去掉受管子代理不删除文件，同一轮要求对它作出保留或迁移的决定', async t => {
+  const f = await fixture(t)
+  await f.apply((await f.plan(choices({ agents: [web] }))).id)
+  await assert.rejects(f.plan(choices()), /尚未决定的既有 AI 配置：\.opencode\/agents\/web-implementer\.md/)
+  const plan = await f.plan(choices({ existing: { '.opencode/agents/web-implementer.md': 'keep' } }))
+  assert.ok(plan.warnings.includes('保留 .opencode/agents/web-implementer.md（OpenCode）：OpenCode 会继续加载，不受向导管理'), JSON.stringify(plan.warnings))
+  await f.apply(plan.id)
+  assert.ok((await f.read('.opencode/agents/web-implementer.md')).includes(agents.AGENT_CONTRACT))
 })
 
 test('预览不改变活动配置；继承保留 JSONC 注释、主模型、权限和代理其他字段', async t => {
@@ -324,7 +376,7 @@ test('只有 scope=global 的安装会改 home，全局影响必须在预览标�
 
 test('改写已有配置时保留文件开头的 BOM', async t => {
   const f = await fixture(t)
-  await f.put('opencode.jsonc', '﻿{\n  "plugins": []\n}\n')
+  await f.put('opencode.jsonc', '\uFEFF{\n  "plugins": []\n}\n')
   const plan = await files.planSetup(f.root, { kind: 'superpowers', scope: 'project' }, { home: f.home })
   await f.apply(plan.id)
   const bytes = await readFile(join(f.root, 'opencode.jsonc'))
@@ -783,12 +835,12 @@ test('简单块映射根节点之前的空白与缩进注释保留，模型删�
   assert.deepEqual((await config.readSetupChoices(f.root))?.models.reviewer, { mode: 'inherit' })
 })
 
-for (const [label, opening] of [['BOM', '﻿---\n'], ['分隔行尾随空白', '--- \t\r\n']] as const) test(`OpenCode 接受的${label} frontmatter 也删除模型`, async t => {
+for (const [label, opening] of [['BOM', '\uFEFF---\n'], ['分隔行尾随空白', '--- \t\r\n']] as const) test(`OpenCode 接受的${label} frontmatter 也删除模型`, async t => {
   const f = await fixture(t)
   const original = `${opening}description: 审核\nmodel: demo/old\n---\n审核正文。\n`
   await f.put('.opencode/agents/reviewer.md', original)
   await f.apply((await f.plan()).id)
-  const bom = /^﻿/
+  const bom = /^\uFEFF/
   assert.equal((await f.read('.opencode/agents/reviewer.md')).replace(bom, ''), original.replace(bom, '').replace('model: demo/old\n', ''))
 })
 

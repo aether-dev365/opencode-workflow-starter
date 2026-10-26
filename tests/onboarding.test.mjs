@@ -95,6 +95,16 @@ test('onboarding CLI lists existing AI configuration and records decisions only 
   assert.deepEqual([status.existing.items[0].decision, status.existing.undecided], ['keep', []])
 })
 
+test('onboarding CLI previews and writes a generated implementation subagent', t => {
+  const f = fixture(t), agent = { name: 'web-implementer', description: '负责 web 前端', focus: '先读 web/AGENTS.md。', model: { mode: 'inherit' } }
+  const answers = f.write('.opencode/workflow/.state/onboarding/answers.json', { ...basic, agents: [agent] })
+  const plan = f.data(f.cli('plan', '--answers', answers))
+  assert.equal(plan.agents?.[0]?.operation, 'create')
+  assert.ok(plan.agents[0].text.includes('主代理负责最终集成和提交。'))
+  f.data(f.cli('apply', '--plan', plan.id, '--confirm', plan.id))
+  assert.equal(readFileSync(join(f.root, '.opencode/agents/web-implementer.md'), 'utf8'), plan.agents[0].text)
+})
+
 test('onboarding CLI never echoes unknown arguments or embedded credential values', t => {
   const f = fixture(t), marker = ['private', 'argument', 'marker'].join('-')
   for (const args of [['status', '--api-key=' + marker], ['status', marker], ['apply', '--credential=' + marker]]) {

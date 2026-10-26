@@ -29,7 +29,7 @@
 列出拟新增、合并及保持现有的文件。明确目录映射、保护路径与允许例外、实际命令、审核分区、角色、所需扩展及尚未确定项。
 
 - 根规则保持简短，领域正文只写一份。跨目录路径通过 scopes.json 引用正文。写法见 [领域规则范本](examples/domain-AGENTS.md)：只写现行规则和原因，指向手册时写明何时阅读。每个规则文件（含根 AGENTS.md）超过 20000 个字符时 doctor 提示精简；超过 40000 个字符时插件拒绝本检出内的全部修改，只允许修改各目录 AGENTS.md、.opencode/workflow/**（不含 protection.json）和 opencode.jsonc。
-- 默认 implementer 可先保留一个，确有独立领域时才拆角色。使用操作者可用模型，不复制他人供应商名称或账号配置。通过向导为 implementer/reviewer 明确选择动态继承或固定模型，解释切换主模型后的差别和费用；核对最终有效配置，不写空 model、不删除代理权限。明确继承会记录选择；没有选择记录时 reviewer 未指定仍由 doctor 提示。
+- 新增的实现类子代理由 `/workflow-setup` 的子代理规划按项目建议、由用户选择；reviewer 唯一。使用操作者可用模型，不复制他人供应商名称或账号配置。通过向导为 implementer、reviewer 和新增子代理明确选择动态继承或固定模型，解释切换主模型后的差别和费用；核对最终有效配置，不写空 model、不删除代理权限。明确继承会记录选择；没有选择记录时 reviewer 未指定仍由 doctor 提示。
 - 保护规则采用顺序最后命中；原生权限末尾必须与保护规则生成的块一致。检查真实凭据仍拒绝，示例例外不过宽。合并时保留模板中 `workflow_setup`、`workflow_release` 和 shell 运行接入 CLI apply 的 ask 规则。
 - opencode.jsonc 保留 `"shell": "bash"`：守卫只解析 bash 语法；Windows 上它解析为 Git Bash。shell 不是 Bash（如 PowerShell、cmd、WSL 启动器）时，插件拒绝执行 shell 命令并给出提示。
 - 核对项目实际的验证和构建命令能否在守卫下直接运行：守卫只放行支持清单内的首命令和能静态分析的写法，规则见 [守卫说明](template/.opencode/workflow/checks/README.md)。被拒绝的命令在接入报告中列明，由用户决定处理方式。
