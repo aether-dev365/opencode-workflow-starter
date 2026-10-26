@@ -7,7 +7,7 @@ import { start, runCase, put, until } from './fixtures/native-harness.mjs'
 import { superpowersDirectory, verifySuperpowers } from '../scripts/fetch-superpowers.mjs'
 import { SUPERPOWERS_SOURCE, SUPERPOWERS_SPEC } from '../template/.opencode/plugins/workflow/onboarding-source.ts'
 
-const choices = mode => ({ version: 1, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, components: { quality: 'off', ci: false, release: false, mcp: false } })
+const choices = mode => ({ version: 2, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } })
 async function setupFixture({ mode, superpowers = false } = {}) {
   if (superpowers) assert.ok(verifySuperpowers(), '先运行 node scripts/fetch-superpowers.mjs 准备固定来源；缺失不能跳过验收')
   const h = await start({ prepare: directory => {

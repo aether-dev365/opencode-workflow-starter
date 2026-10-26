@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { essentialEnv } from './fixtures/env.mjs'
 import { SUPERPOWERS_SPEC } from '../template/.opencode/plugins/workflow/onboarding-source.ts'
 
-const basic = { version: 1, mode: 'basic', superpowers: 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, components: { quality: 'off', ci: false, release: false, mcp: false } }
+const basic = { version: 2, mode: 'basic', superpowers: 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } }
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), 'workflow-onboarding-cli-')), root = join(temp, '接入 project'), home = join(temp, 'home')
   mkdirSync(home)
@@ -71,6 +71,14 @@ test('onboarding CLI records basic choices without installing Superpowers or cla
   const status = f.data(f.cli('status'))
   assert.deepEqual(status.choices, basic)
   assert.equal(status.runtimeVerified, false)
+})
+
+test('onboarding CLI asks to upgrade version 1 answers instead of filling defaults', t => {
+  const f = fixture(t), { agents, existing, ...rest } = basic
+  const answers = f.write('.opencode/workflow/.state/onboarding/answers.json', { ...rest, version: 1 })
+  const result = f.cli('plan', '--answers', answers)
+  assert.equal(result.status, 2)
+  assert.match(JSON.parse(result.stdout).error, /version 2.*agents.*existing/)
 })
 
 test('onboarding CLI never echoes unknown arguments or embedded credential values', t => {

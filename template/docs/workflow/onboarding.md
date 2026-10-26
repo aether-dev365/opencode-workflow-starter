@@ -80,13 +80,15 @@ bootstrap 只生成 Superpowers 计划，不立即安装。全局范围必须显
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "basic",
   "superpowers": "none",
   "models": {
     "implementer": { "mode": "inherit" },
     "reviewer": { "mode": "inherit" }
   },
+  "agents": [],
+  "existing": {},
   "components": {
     "quality": "off",
     "ci": false,
@@ -95,6 +97,8 @@ bootstrap 只生成 Superpowers 计划，不立即安装。全局范围必须显
   }
 }
 ```
+
+version 1 的旧档案照常读取；生成计划必须使用 version 2，没有新增子代理和既有 AI 配置时分别写 `[]` 与 `{}`。
 
 把实际答案保存到被忽略的 `.opencode/workflow/.state/onboarding/answers.json`，文件必须是独立的 UTF-8 JSON 常规文件，最多 64 KiB；无效内容不会在错误信息中回显。然后预览；选择质量/CI 时增加 `--source`，指向完整套件目录，而不是只复制后的模板目录。
 

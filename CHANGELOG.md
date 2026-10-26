@@ -4,7 +4,7 @@
 
 ## [未发布]
 
-**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。
+**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项。
 
 ### 新增
 

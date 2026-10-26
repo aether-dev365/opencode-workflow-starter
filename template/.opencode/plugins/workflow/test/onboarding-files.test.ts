@@ -15,10 +15,12 @@ import * as config from '../onboarding-config.ts'
 import * as files from '../onboarding-files.ts'
 const suite = fileURLToPath(new URL('../../../../..', import.meta.url))
 const choices = (extra: Partial<SetupChoices> = {}): SetupChoices => ({
-  version: 1, mode: 'basic', superpowers: 'none',
-  models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } },
+  version: 2, mode: 'basic', superpowers: 'none',
+  models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {},
   components: { quality: 'off', ci: false, release: false, mcp: false }, ...extra,
 })
+const web = { name: 'web-implementer', description: '负责 web 前端', focus: '先读 web/AGENTS.md。', model: { mode: 'inherit' as const } }
+const legacy = () => { const { agents: _a, existing: _e, ...rest } = choices(); return { ...rest, version: 1 as const } }
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'workflow-onboarding-')))
@@ -64,6 +66,33 @@ test('没有明确选择、非法依赖或未知字段时拒绝，不能静默�
   }
   assert.deepEqual(config.validateSetupChoices(choices()), choices())
   assert.deepEqual(config.validateSetupChoices(choices({ mode: 'full', superpowers: 'existing' })).mode, 'full')
+})
+
+test('选择结构 v2 校验子代理与既有配置决定，拒绝含糊写法', () => {
+  const valid = choices({ agents: [{ ...web, focus: '先读 web/AGENTS.md\r\n只改 web/' }], existing: { 'CLAUDE.md': 'migrate', '文档 目录/.cursor': 'keep' } })
+  assert.equal(config.validateSetupChoices(valid).agents[0].focus, '先读 web/AGENTS.md\n只改 web/')
+  const agent = (extra: object) => choices({ agents: [{ ...web, ...extra }] as SetupChoices['agents'] })
+  const invalid = [
+    ...['Web', 'w', 'x'.repeat(41), 'web_impl', '-web', 'web-', ...config.RESERVED_AGENT_NAMES, 'code-review', 'security-reviewer'].map(name => agent({ name })),
+    ...['', ' ', '两行\n说明', '分隔\u2028符', '孤立\ud800代理', 'x'.repeat(201)].map(description => agent({ description })),
+    ...['', 'x'.repeat(2001), '响铃\u0007', '回车\r单独', '孤立\udc00代理'].map(focus => agent({ focus })),
+    agent({ model: { mode: 'fixed', model: 'bad' } }), agent({ tools: 'all' }),
+    choices({ agents: Array.from({ length: 9 }, (_, i) => ({ ...web, name: `agent-${i}` })) }), choices({ agents: [web, web] }),
+    ...['./CLAUDE.md', '.cursor/', '/CLAUDE.md', '~/.claude/skills', 'a\\b', 'a/../b', 'a//b', '', 'x'.repeat(513)].map(key => choices({ existing: { [key]: 'keep' } })),
+    choices({ existing: { 'CLAUDE.md': 'delete' } as never }),
+    choices({ existing: Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`p${i}/CLAUDE.md`, 'keep'])) }),
+  ]
+  for (const value of invalid) assert.throws(() => config.validateSetupChoices(value), Error, JSON.stringify(value).slice(0, 120))
+  assert.throws(() => config.validateSetupChoices(legacy()), /version 2.*agents.*existing/)
+  assert.deepEqual(config.validateSetupChoices(legacy(), { legacy: true }), { ...legacy(), agents: [], existing: {} })
+  assert.throws(() => config.validateSetupChoices({ ...legacy(), agents: [] }, { legacy: true }))
+})
+
+test('读取 version 1 档案时补齐空的子代理与决定，不改写文件', async t => {
+  const f = await fixture(t)
+  await f.put('.opencode/workflow/onboarding.json', JSON.stringify(legacy()))
+  assert.deepEqual(await config.readSetupChoices(f.root), { ...legacy(), agents: [], existing: {} })
+  assert.deepEqual(JSON.parse(await f.read('.opencode/workflow/onboarding.json')), legacy())
 })
 
 test('预览不改变活动配置；继承保留 JSONC 注释、主模型、权限和代理其他字段', async t => {

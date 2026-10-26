@@ -13,7 +13,7 @@ import { SUPERPOWERS_SPEC } from '../onboarding-source.ts'
 import { verifySuperpowers, SkillEvidence, checkModels, runSetupDoctor, probeSetupRuntime, type SourceSnapshot } from '../onboarding-runtime.ts'
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
-const choices = (mode: 'basic' | 'full' = 'basic'): SetupChoices => ({ version: 1, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, components: { quality: 'off', ci: false, release: false, mcp: false } })
+const choices = (mode: 'basic' | 'full' = 'basic'): SetupChoices => ({ version: 2, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } })
 function trustedSource(root = join(process.cwd(), 'example', 'superpowers')) {
   const files = { 'index.js': 'entry\n', '.opencode/plugins/superpowers.js': 'plugin\n', 'package.json': '{"name":"superpowers"}\n' }
   const bodies = { brainstorming: '\n# Brainstorming\nComplete body.\n', 'writing-plans': '\n# Writing plans\nComplete plan.\n', 'using-superpowers': '\n# Using skills\n' }
@@ -260,6 +260,20 @@ test('basic mode does not require Superpowers and status never creates default c
     assert.equal(result.ready, true, JSON.stringify(result))
     assert.ok(result.unverified.some((x: string) => /付费|调用/.test(x)))
     assert.deepEqual(result.choices, choices())
+  } finally { await f.close() }
+})
+
+test('a saved version 1 profile still verifies in basic mode, reports normalized choices and cannot be planned', async () => {
+  const f = await setup()
+  try {
+    const { agents: _a, existing: _e, ...rest } = choices(), legacy = { ...rest, version: 1 }
+    await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify(legacy))
+    const verified = await f.invoke({ action: 'verify' })
+    assert.equal(verified.ready, true, JSON.stringify(verified.issues))
+    assert.deepEqual(verified.choices, { ...legacy, agents: [], existing: {} })
+    const planned = await f.invoke({ action: 'plan', choices: legacy })
+    assert.equal(planned.ready, false)
+    assert.match(JSON.stringify(planned.issues), /version 2/)
   } finally { await f.close() }
 })
 
