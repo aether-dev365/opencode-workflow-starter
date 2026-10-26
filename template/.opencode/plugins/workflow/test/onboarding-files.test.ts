@@ -74,8 +74,8 @@ test('选择结构 v2 校验子代理与既有配置决定，拒绝含糊写法'
   assert.equal(config.validateSetupChoices(valid).agents[0].focus, '先读 web/AGENTS.md\n只改 web/')
   const agent = (extra: object) => choices({ agents: [{ ...web, ...extra }] as SetupChoices['agents'] })
   const invalid = [
-    ...['Web', 'w', 'x'.repeat(41), 'web_impl', '-web', 'web-', ...config.RESERVED_AGENT_NAMES, 'code-review', 'security-reviewer', 'con', 'aux', 'nul', 'com1', 'lpt9'].map(name => agent({ name })),
-    ...['', ' ', '两行\n说明', '分隔\u2028符', '孤立\ud800代理', 'x'.repeat(201)].map(description => agent({ description })),
+    ...['Web', 'w', 'x'.repeat(41), 'web_impl', '-web', 'web-', ...config.RESERVED_AGENT_NAMES, 'code-review', 'security-reviewer', 'con', 'aux', 'nul', 'com1', 'lpt9', 'constructor'].map(name => agent({ name })),
+    ...['', ' ', '两行\n说明', '分隔\u2028符', '孤立\ud800代理', '非字符\uFFFE', '非字符\uFFFF', 'x'.repeat(201)].map(description => agent({ description })),
     ...['', 'x'.repeat(2001), '响铃\u0007', '回车\r单独', '孤立\udc00代理'].map(focus => agent({ focus })),
     agent({ model: { mode: 'fixed', model: 'bad' } }), agent({ tools: 'all' }),
     choices({ agents: Array.from({ length: 9 }, (_, i) => ({ ...web, name: `agent-${i}` })) }), choices({ agents: [web, web] }),
@@ -171,9 +171,11 @@ test('受管子代理未修改时可以更新；人工修改、手写同名文�
   await f.put('.opencode/agents/api-implementer.md', '---\ndescription: 手写\nmode: subagent\n---\n手写说明\n')
   await assert.rejects(f.plan(choices({ agents: [web, api] })), /子代理文件冲突：\.opencode\/agents\/api-implementer\.md/)
   await rm(join(f.root, '.opencode/agents/api-implementer.md'))
-  await f.put('.opencode/agent/api-implementer.md', '---\nmode: subagent\n---\nx\n')
-  await assert.rejects(f.plan(choices({ agents: [web, api], existing: { '.opencode/agent/api-implementer.md': 'keep' } })), /已有同名代理文件/)
-  await rm(join(f.root, '.opencode/agent'), { recursive: true })
+  for (const directory of ['agent', 'modes', 'mode']) {
+    await f.put(`.opencode/${directory}/api-implementer.md`, '---\nmode: subagent\n---\nx\n')
+    await assert.rejects(f.plan(choices({ agents: [web, api], existing: { [`.opencode/${directory}/api-implementer.md`]: 'keep' } })), new RegExp(`已有同名代理文件：\\.opencode/${directory}/`))
+    await rm(join(f.root, `.opencode/${directory}`), { recursive: true })
+  }
   await f.put('opencode.jsonc', '{ "agents": { "api-implementer": { "prompt": "x" } } }\n')
   await assert.rejects(f.plan(choices({ agents: [web, api] })), /已有同名代理配置/)
   await f.put('opencode.jsonc', '{ "agents": { "api-implementer": { "model": "fake/fixture" } } }\n')
@@ -188,6 +190,16 @@ test('去掉受管子代理不删除文件，同一轮要求对它作出保留�
   assert.ok(plan.warnings.includes('保留 .opencode/agents/web-implementer.md（OpenCode）：OpenCode 会继续加载，不受向导管理'), JSON.stringify(plan.warnings))
   await f.apply(plan.id)
   assert.ok((await f.read('.opencode/agents/web-implementer.md')).includes(agents.AGENT_CONTRACT))
+})
+
+test('受管子代理文件被人工修改后，核对时列为待你核对', async t => {
+  const f = await fixture(t)
+  await f.apply((await f.plan(choices({ agents: [web] }))).id)
+  assert.deepEqual((await files.inspectSetup(f.root, { home: f.home })).unverified.filter(line => line.includes('web-implementer')), [])
+  const generated = await f.read('.opencode/agents/web-implementer.md')
+  await f.put('.opencode/agents/web-implementer.md', generated.replace("  - { action: subagent, resource: '*', effect: deny }\n", ''))
+  const inspect = await files.inspectSetup(f.root, { home: f.home })
+  assert.ok(inspect.unverified.includes('子代理 web-implementer 的代理文件 .opencode/agents/web-implementer.md 已被人工修改，权限和协作边界不再由向导保证，需要你核对'), JSON.stringify(inspect.unverified))
 })
 
 test('迁移目标可以在同一次计划中预先记为保留，迁移后不再要求决定', async t => {

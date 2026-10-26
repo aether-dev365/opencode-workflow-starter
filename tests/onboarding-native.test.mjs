@@ -216,6 +216,9 @@ test('guided setup generates an implementation subagent that OpenCode loads with
         return found?.mode === 'subagent' && (model.mode === 'fixed' ? found.model?.id === 'gpt-fixture' : !found.model) && found
       }, 'generated subagent effective')
       assert.equal(loaded.description, agent.description)
+      for (const action of ['subagent', '*-prod_*', 'workflow_release']) {
+        assert.equal(loaded.permissions.findLast(rule => rule.action === action && rule.resource === '*')?.effect, 'deny', action)
+      }
       for (const line of ['只改 web/ 下的文件。', '\n---\n', '主代理负责最终集成和提交。']) assert.ok(loaded.system.includes(line), line)
       const verified = setupResults(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'verify' } }]])).at(-1)
       assert.equal(verified?.ready, true, JSON.stringify(verified?.issues))

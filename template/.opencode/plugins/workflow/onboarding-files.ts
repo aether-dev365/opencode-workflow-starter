@@ -550,6 +550,11 @@ export async function inspectSetup(root: string, options: { home?: string; confi
   const read = async (name: string) => {
     try { return await textAt(area, name) } catch (error) { issues.push((error as Error).message); return null }
   }
+  // 摘要不成立说明受管子代理文件被人工修改过，权限和协作边界需要用户自己核对。
+  for (const agent of choices?.agents ?? []) {
+    const path = agentPath(agent.name), text = await read(path)
+    if (text !== null && !unmodifiedAgent(text)) unverified.push(`子代理 ${agent.name} 的代理文件 ${path} 已被人工修改，权限和协作边界不再由向导保证，需要你核对`)
+  }
   const configs: Record<string, any>[] = []
   for (const name of CONFIGS) {
     const text = await read(name)

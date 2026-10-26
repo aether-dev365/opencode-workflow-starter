@@ -36,8 +36,10 @@ function agent(value: unknown): AgentChoice {
   if (RESERVED_AGENT_NAMES.includes(name) || name.split('-').some(part => part === 'review' || part === 'reviewer')) throw new Error(`子代理名称不能占用内置代理或套件角色，也不能包含 review、reviewer 段；需要更多审核视角时增加检查单：${name}`)
   // Windows 把这些主干名当作设备，<名称>.md 无法创建，也无法被 Git for Windows 检出。
   if (/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/.test(name)) throw new Error(`子代理名称是 Windows 保留的设备名，代理文件无法在 Windows 上使用：${name}`)
+  // 配置按代理名称查找，constructor 会命中对象的内置属性。
+  if (name === 'constructor') throw new Error('子代理名称不能是 constructor：它与配置对象的内置属性同名，无法安全合并')
   const text = typeof description === 'string' ? description.trim() : ''
-  if (!text || length(text) > 200 || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text) || malformed(text)) throw new Error(`子代理 ${name} 的 description 必须是 1–200 个字符的一行文字，不含控制字符`)
+  if (!text || length(text) > 200 || /[\u0000-\u001f\u007f-\u009f\u2028\u2029\ufffe\uffff]/.test(text) || malformed(text)) throw new Error(`子代理 ${name} 的 description 必须是 1–200 个字符的一行文字，不含控制字符和非字符 U+FFFE、U+FFFF`)
   const body = typeof focus === 'string' ? focus.replaceAll('\r\n', '\n') : ''
   if (!body.trim() || length(body) > 2000 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(body) || malformed(body)) throw new Error(`子代理 ${name} 的 focus 必须是 1–2000 个字符，除换行和制表符外不含控制字符`)
   return { name, description: text, focus: body, model: model(value.model) }
