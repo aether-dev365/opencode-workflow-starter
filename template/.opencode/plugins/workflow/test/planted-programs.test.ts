@@ -4,14 +4,15 @@ import path from 'node:path'
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { commandLine, pythonCommand } from '../platform.ts'
+import { commandLine, pythonCommand, samePath } from '../platform.ts'
 import { git } from '../review-batches.ts'
 import { listFiles } from '../onboarding-existing.ts'
 
 // 进程创建会在当前目录里查找不带路径的命令：Windows 总是先查，macOS 和 Linux 在 PATH 有空项时也查。
 // 在项目根放冒充 git、Python、node 的程序：Windows 上是只输出主机名的 hostname.exe 副本，其他平台是只输出 planted 的脚本。
 test('same-named programs planted in the project directory are never run', async t => {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'workflow-planted-'))), previous = { cwd: process.cwd(), PATH: process.env.PATH }
+  // Windows runner 的临时目录是 8.3 短路径（RUNNER~1），git 返回长路径：用 native realpath 取长路径。
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'workflow-planted-'))), previous = { cwd: process.cwd(), PATH: process.env.PATH }
   t.after(() => {
     process.chdir(previous.cwd); process.env.PATH = previous.PATH
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
@@ -28,7 +29,8 @@ test('same-named programs planted in the project directory are never run', async
   // PATH 开头的空项指向当前目录，常见于 PATH=$X:$PATH 而 X 为空。
   if (!windows) process.env.PATH = path.delimiter + previous.PATH
   process.chdir(root)
-  assert.equal(path.resolve(git(root, ['rev-parse', '--show-toplevel'])).toLowerCase(), root.toLowerCase())
+  const toplevel = git(root, ['rev-parse', '--show-toplevel'])
+  assert.ok(samePath(toplevel, root), toplevel)
   const listing = await listFiles(root)
   assert.equal(listing.status, 0)
   assert.ok(listing.stdout.toString('utf8').split('\0').includes(names[0]), listing.stdout.toString('utf8'))
