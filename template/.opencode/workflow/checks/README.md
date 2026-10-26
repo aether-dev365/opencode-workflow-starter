@@ -10,7 +10,7 @@
 
 插件每次只启动一个检查进程：`run-checks.py` 的输入为上述事件加 `checks` 名称列表，inspect-paths 的结果放在输出的 `inspect` 中；守卫按 pre-guard-paths、pre-secret-scan、pre-bash-pipefail 的顺序运行，前一个改写的 input 交给下一个，遇到第一个拒绝即停止。各脚本仍可单独运行，协议不变。
 
-守卫和插件启动 Git、Gitleaks 和 Python 启动器时，只在 PATH 的绝对目录中查找，不查当前目录和 `.` 一类相对项；Windows 默认会先查当前目录，项目里放置的同名程序因此不会被执行。`taskkill.exe`、`cmd.exe` 固定取自 `%SystemRoot%\System32`。这些工具要以绝对路径登记在 PATH 中。
+守卫和插件启动 Git、Gitleaks 和 Python 启动器时，只在 PATH 的绝对目录中查找，不查当前目录、PATH 的空项和 `.` 一类相对项：Windows 默认会先查当前目录，macOS 和 Linux 在 PATH 有空项时也会查，项目根里放置的同名程序因此不会被执行。`taskkill.exe`、`cmd.exe` 固定取自 `%SystemRoot%\System32`，经 `cmd.exe` 启动的 `.cmd` 启动器也不再先查当前目录。这些工具要以绝对路径登记在 PATH 中。PATH 里本身位于项目内的目录（例如激活的 `.venv`、经 npm 脚本启动时的 `node_modules/.bin`）仍会被查找，其中的同名程序不在这项保护范围内。
 
 保护规则来自 `protection.json`，按顺序最后命中生效，路径中只有 `*`、`?` 为通配符。插件还在原生权限边界检查规范化后的路径。shell 解析覆盖字面路径、cd、常见写命令、数据 heredoc 和部分命令替换；不是执行任意程序的系统沙盒。
 

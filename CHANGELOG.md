@@ -4,7 +4,7 @@
 
 ## [未发布]
 
-**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项；升级前预览但未应用的计划视为过期，需要重新预览。项目中有其他 AI 工具的配置，或有本模板以外的 OpenCode 配置（包括自行添加的代理、命令、技能、插件和子目录中的 `opencode.json(c)`）时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新（新增了 `onboarding-existing.ts`、`onboarding-agents.ts`），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md`、`.opencode/commands/workflow-setup.md`、`docs/workflow/onboarding.md`、`docs/workflow/development.md`、`scripts/workflow/doctor.mjs`、`scripts/workflow/onboarding.mjs`：只更新插件时，向导缺少评估、迁移和子代理规划步骤，主代理也不会把任务派给生成的子代理；doctor 与插件版本不配套时 `onboarding` 检查出错。Windows 上不再执行项目目录中同名程序的修复分布在插件目录、`scripts/workflow/doctor.mjs`、`.opencode/workflow/checks/` 和 `scripts/quality/` 中，需要一起更新；只更新 doctor 而不更新插件时 doctor 无法启动。
+**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项；升级前预览但未应用的计划视为过期，需要重新预览。项目中有其他 AI 工具的配置，或有本模板以外的 OpenCode 配置（包括自行添加的代理、命令、技能、插件和子目录中的 `opencode.json(c)`）时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新（新增了 `onboarding-existing.ts`、`onboarding-agents.ts`），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md`、`.opencode/commands/workflow-setup.md`、`docs/workflow/onboarding.md`、`docs/workflow/development.md`、`scripts/workflow/doctor.mjs`、`scripts/workflow/onboarding.mjs`：只更新插件时，向导缺少评估、迁移和子代理规划步骤，主代理也不会把任务派给生成的子代理；doctor 与插件版本不配套时 `onboarding` 检查出错。不再执行项目目录中同名程序的修复分布在插件目录、`scripts/workflow/doctor.mjs`、`.opencode/workflow/checks/` 和 `scripts/quality/` 中，需要一起更新；只更新 doctor 而不更新插件时 doctor 无法启动。
 
 ### 新增
 
@@ -20,7 +20,7 @@
 
 ### 修复
 
-- Windows 上插件、doctor、提交前凭据扫描和质量扩展不再执行项目目录里与 Git、Gitleaks、Python 启动器同名的程序：这些程序只在 PATH 的绝对目录中查找，`cmd.exe`、`taskkill.exe` 固定取自 `%SystemRoot%\System32`，找不到时按缺少命令处理。此前 Windows 的进程创建会先查当前目录，代理在项目根写入 `py.exe` 就能替换守卫的解释器，写入 `git.exe` 或 `gitleaks.exe` 能让凭据扫描失效。PATH 中 `.` 一类相对项也不再被查找。
+- 插件、doctor、提交前凭据扫描和质量扩展不再执行项目目录里与 Git、Gitleaks、Python 启动器同名的程序：这些程序只在 PATH 的绝对目录中查找，`cmd.exe`、`taskkill.exe` 固定取自 `%SystemRoot%\System32`，找不到时按缺少命令处理。此前 Windows 的进程创建总会先查当前目录，macOS 和 Linux 在 PATH 有空项时也会查；代理在项目根写入 `py.exe` 就能替换守卫的解释器，写入假的 `git` 能让带凭据的提交通过扫描。经 `cmd.exe` 启动的 `.cmd` 启动器也不再先查当前目录。发布入口的第一项不再在项目目录中查找，项目内的程序要写成带路径的形式（例如 `./scripts/publish`）。
 - 质量扩展的注释审核、跳过测试检查、链接检查和格式检查在共用模块缺失或版本不配套时报告“未完成：质量扩展文件不完整（异常类型）”并以 2 退出，提交后报告给出重跑提示；此前未捕获的导入错误以 1 退出，共用模块版本不配套时 CI 汇总把注释审核记为提醒并放行，其余三项误报为有发现。用低于 3.10 的 Python 直接运行这些检查时，报告“未完成：需要 Python 3.10 或更高版本”并以 2 退出，不再显示 traceback。
 - 链接检查和格式检查的 `--help` 改为说明各自的用途，格式检查同时说明 `--fix` 与 `--hook`；此前显示的是行级检查的描述。
 - 链接检查和格式检查的 `--range` 两端找不到共同历史时，提示没有共同历史并说明浅克隆需先补全历史，不再只说“git 命令失败”。
