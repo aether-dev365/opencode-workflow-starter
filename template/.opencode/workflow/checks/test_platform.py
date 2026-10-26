@@ -72,10 +72,19 @@ class Platform(unittest.TestCase):
         self.assertIsNone(find('missing'))
         self.assertEqual(hooklib.program('git', os_name='nt', env=env, exists=files.__contains__), 'C:\\bin\\git.exe')
         self.assertIsNone(hooklib.program('git', os_name='nt', env={}, exists=files.__contains__))
-        posix = {'git', 'bin/git', '/usr/bin/git'}
+        # 启动 Git 只认 .com/.exe：经 cmd.exe 执行时，代理可控的参数会被 cmd 解释。
+        wrapped = files | {'C:\\scripts\\git.cmd'}
+        self.assertEqual(hooklib.program('git', os_name='nt', env={**env, 'Path': 'C:\\scripts;C:\\bin'}, exists=wrapped.__contains__), 'C:\\bin\\git.exe')
+        # 带引号的 PATH 项按其中的目录查找，与系统一致。
+        self.assertEqual(find_quoted := hooklib.find_program('git', os_name='nt', env={'Path': '"C:\\bin"', 'PATHEXT': '.exe'}, exists=files.__contains__), 'C:\\bin\\git.exe', find_quoted)
+        # macOS 和 Linux 的 PATH 空项同样指向当前目录；没有 PATH 时与 shutil.which 一样用默认路径。
+        posix = {'git', 'bin/git', '/usr/bin/git', '/bin/git'}
         self.assertEqual(hooklib.find_program('git', os_name='posix', env={'PATH': '.:bin:/usr/bin'}, exists=posix.__contains__), '/usr/bin/git')
-        self.assertEqual(hooklib.program('git', os_name='posix', env={}, exists=posix.__contains__), 'git')
+        self.assertEqual(hooklib.program('git', os_name='posix', env={'PATH': ':/usr/bin'}, exists=posix.__contains__), '/usr/bin/git')
+        self.assertIsNone(hooklib.program('git', os_name='posix', env={'PATH': '::.'}, exists=posix.__contains__))
+        self.assertIn(hooklib.find_program('git', os_name='posix', env={}, exists=posix.__contains__), {'/bin/git', '/usr/bin/git'})
         self.assertEqual(hooklib.system_command('taskkill.exe', env={'SystemRoot': 'D:\\Windows'}), 'D:\\Windows\\System32\\taskkill.exe')
+        self.assertEqual(hooklib.system_command('taskkill.exe', env={'windir': 'E:\\WINNT'}), 'E:\\WINNT\\System32\\taskkill.exe')
         self.assertEqual(hooklib.system_command('cmd.exe', env={}), 'C:\\Windows\\System32\\cmd.exe')
 
     def test_install_command_uses_the_python_launcher_on_windows(self):

@@ -509,13 +509,17 @@ class SecretScanTest(unittest.TestCase):
         self.assert_blocked(self.hook("git commit -F - <<'EOF'\nsafe message\nEOF"))
 
     def test_programs_planted_in_the_project_are_not_run(self):
-        # Windows 的 CreateProcess 先在当前目录查找 git、gitleaks：用 hostname.exe 的副本冒充，它只输出主机名。
-        # 其他平台不查当前目录，这里不做任何事。
-        if os.name != 'nt':
-            return
-        hostname = Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe'
-        for name in ('git.exe', 'gitleaks.exe'):
-            shutil.copyfile(hostname, self.root / name)
+        # 进程创建会在当前目录查找不带路径的 git、gitleaks：Windows 总是先查，macOS 和 Linux 在 PATH 有空项时也查。
+        # Windows 上用只输出主机名的 hostname.exe 副本冒充，其他平台用只输出 planted 的脚本，并在 PATH 前加一个空项。
+        if os.name == 'nt':
+            hostname = Path(os.environ.get('SystemRoot', 'C:\\Windows')) / 'System32' / 'hostname.exe'
+            for name in ('git.exe', 'gitleaks.exe'):
+                shutil.copyfile(hostname, self.root / name)
+        else:
+            for name in ('git', 'gitleaks'):
+                (self.root / name).write_text('#!/bin/sh\necho planted\n')
+                (self.root / name).chmod(0o755)
+            self.env['PATH'] = os.pathsep + self.env['PATH']
         self.stage('safe.txt', 'safe\n')
         self.assert_allowed(self.hook())
         self.stage('settings.conf', PAYLOAD)
