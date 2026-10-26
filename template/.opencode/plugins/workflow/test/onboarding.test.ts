@@ -178,12 +178,19 @@ async function setup(mode?: 'basic' | 'full') {
   if (mode) await writeFile(join(f.root, '.opencode/workflow/onboarding.json'), JSON.stringify(choices(mode)))
   // 既有 AI 配置检测走调用方的 Git 配置和主目录：屏蔽个人全局 excludes 与个人技能目录，避免改变结果。
   const old = Object.fromEntries(['XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'HOME', 'USERPROFILE'].map(key => [key, process.env[key]]))
-  const isolated = await mkdtemp(join(tmpdir(), 'workflow-isolated-'))
+  const isolated = await realpath(await mkdtemp(join(tmpdir(), 'workflow-isolated-')))
+  const restore = async () => {
+    for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
+    await rm(isolated, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
   await writeFile(join(isolated, 'gitconfig'), '')
   Object.assign(process.env, { XDG_CONFIG_HOME: join(f.root, 'home/.config'), GIT_CONFIG_GLOBAL: join(isolated, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1', HOME: isolated, USERPROFILE: isolated })
-  const dispose = await (await load())(f.ctx)
-  await f.fire('tool.execute.before', before('read', { path: 'AGENTS.md' }))
-  await f.fire('session.context', context())
+  let dispose: () => Promise<void>
+  try {
+    dispose = await (await load())(f.ctx)
+    await f.fire('tool.execute.before', before('read', { path: 'AGENTS.md' }))
+    await f.fire('session.context', context())
+  } catch (error) { try { await f.close() } finally { await restore() } throw error }
   f.onPermission(async input => {
     const event = { ...input, effect: 'allow', message: '' }
     await f.fire('permission.evaluate', event)
@@ -194,12 +201,7 @@ async function setup(mode?: 'basic' | 'full') {
     const result = await f.tools.get('workflow_setup').execute(input, call)
     return JSON.parse(typeof result.content === 'string' ? result.content : result.content.map((p: any) => p.text ?? '').join(''))
   }
-  return { ...f, invoke, close: async () => {
-    try { await dispose(); await f.close() } finally {
-      for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
-      await rm(isolated, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-    }
-  } }
+  return { ...f, invoke, close: async () => { try { await dispose(); await f.close() } finally { await restore() } } }
 }
 
 test('registration is lazy and legacy plugin initializes without optional probe domains', async () => {

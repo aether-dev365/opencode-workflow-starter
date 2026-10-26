@@ -75,7 +75,7 @@ async function textAt(area: Area, name: string): Promise<string | null> {
     const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
     try {
       const bytes = await handle.readFile()
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { throw new Error(`${name} 不是有效的 UTF-8 文本`) }
     } finally { await handle.close() }
   } catch (error) { if (missing(error)) return null; throw error }
 }
@@ -547,8 +547,12 @@ export async function inspectSetup(root: string, options: { home?: string; confi
   if (choices && existing.undecided.length) issues.push(`检测到尚未决定的既有 AI 配置：${existing.undecided.join('、')}；请重新运行 /workflow-setup，评估后记录迁移或保留`)
   for (const item of existing.items) if (item.decision === 'migrate') unverified.push(`迁移 ${item.path}（${item.tool}）由 AI 完成，迁移内容是否完整、等价需要你核对`)
   const components: Awaited<ReturnType<typeof inspectSetup>>['components'] = {}
+  // 系统错误只报相对路径和错误码：原始信息含绝对路径。
   const read = async (name: string) => {
-    try { return await textAt(area, name) } catch (error) { issues.push((error as Error).message); return null }
+    try { return await textAt(area, name) } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      issues.push(code ? `无法读取 ${name}（${code}）` : (error as Error).message); return null
+    }
   }
   // 摘要不成立说明受管子代理文件被人工修改过，权限和协作边界需要用户自己核对。
   for (const agent of choices?.agents ?? []) {

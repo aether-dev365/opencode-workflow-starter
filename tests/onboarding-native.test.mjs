@@ -222,6 +222,10 @@ test('guided setup generates an implementation subagent that OpenCode loads with
       const verified = setupResults(await runCase(h, [[{ name: 'workflow_setup', input: { action: 'verify' } }]])).at(-1)
       assert.equal(verified?.ready, true, JSON.stringify(verified?.issues))
     }
+    // 禁止规则实际生效：宿主不向生成的子代理提供派发子代理和发布工具。
+    const offered = new Set((await runCase(h, [[{ name: 'read', input: { path: 'AGENTS.md' } }]], { agent: 'web-implementer' })).requests.flatMap(request => (request.tools ?? []).map(tool => tool.function.name)))
+    assert.ok(offered.has('read'), [...offered].join(', '))
+    for (const name of ['subagent', 'workflow_release']) assert.equal(offered.has(name), false, name)
     assert.deepEqual(h.model.failures, [])
   } finally { await h.close() }
 })

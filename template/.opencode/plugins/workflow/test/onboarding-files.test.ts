@@ -32,11 +32,12 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: gitConfig }
   const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   git('init', '-q')
-  const old = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM }
-  Object.assign(process.env, { XDG_CONFIG_HOME: join(home, '.config'), GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1' })
+  // 个人目录指向夹具：既有 AI 配置检测会读取主目录下的个人技能。
+  const old = Object.fromEntries(['XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'HOME', 'USERPROFILE'].map(key => [key, process.env[key]]))
+  Object.assign(process.env, { XDG_CONFIG_HOME: join(home, '.config'), GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1', HOME: home, USERPROFILE: home })
   t.after(async () => {
     for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
-    await rm(base, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   })
   const put = async (name: string, text: string, where = root) => {
     await mkdir(dirname(join(where, name)), { recursive: true }); await writeFile(join(where, name), text)
@@ -202,6 +203,23 @@ test('受管子代理文件被人工修改后，核对时列为待你核对', as
   assert.ok(inspect.unverified.includes('子代理 web-implementer 的代理文件 .opencode/agents/web-implementer.md 已被人工修改，权限和协作边界不再由向导保证，需要你核对'), JSON.stringify(inspect.unverified))
 })
 
+test('受管子代理文件无法读取时报告相对路径和原因，不回显原始错误', async t => {
+  const f = await fixture(t), path = '.opencode/agents/web-implementer.md'
+  await f.apply((await f.plan(choices({ agents: [web] }))).id)
+  const generated = await f.read(path)
+  await writeFile(join(f.root, path), Buffer.from('\uFEFF' + generated, 'utf16le'))
+  let inspect = await files.inspectSetup(f.root, { home: f.home })
+  assert.ok(inspect.issues.includes(`${path} 不是有效的 UTF-8 文本`), JSON.stringify(inspect.issues))
+  // 系统错误的原始信息含绝对路径；Windows 和 root 用户无法用权限位制造 EACCES。
+  if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+    await writeFile(join(f.root, path), generated); await chmod(join(f.root, path), 0o000)
+    inspect = await files.inspectSetup(f.root, { home: f.home })
+    await chmod(join(f.root, path), 0o644)
+    assert.ok(inspect.issues.includes(`无法读取 ${path}（EACCES）`), JSON.stringify(inspect.issues))
+    assert.equal(JSON.stringify(inspect.issues).includes(f.root), false)
+  }
+})
+
 test('迁移目标可以在同一次计划中预先记为保留，迁移后不再要求决定', async t => {
   const f = await fixture(t)
   await f.put('.claude/commands/deploy-check.md', '检查部署前状态\n')
@@ -323,6 +341,7 @@ test('质量复制全部常规 py 与 example，CI 只复制四个白名单文�
   await absent(join(f.root, '.github/workflows/ci.yml')); await absent(join(f.root, 'node_modules'))
   const inspect = await files.inspectSetup(f.root)
   assert.equal(inspect.components.quality.status, 'configured'); assert.equal(inspect.components.ci.status, 'configured')
+  assert.deepEqual(inspect.existing.personal, [])
   assert.ok(inspect.unverified.some(message => /远端.*CI|GitHub/.test(message)))
 })
 
