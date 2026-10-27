@@ -78,6 +78,17 @@ test('a separately installed copy passes doctor without source checkout configur
     assert.match(JSON.parse(leakScan.stdout).reason, /疑似凭据[\s\S]*leak\.txt/)
     assert.ok(!(leakScan.stdout + leakScan.stderr).includes(secret))
     run('npm', ['--prefix', '.opencode/plugins/workflow', 'run', 'typecheck'])
+    // 插件测试随模板复制给接入方，ADOPT 第 4 节要求运行；依赖套件源码的用例在那里跳过，不读取项目之外的文件。
+    const plugin = spawnSync(process.execPath, ['--experimental-strip-types', '--test', '--test-reporter=tap', '--test-timeout=120000', '--test-force-exit', 'test/onboarding-files.test.ts'],
+      { cwd: join(root, '.opencode/plugins/workflow'), env, encoding: 'utf8', timeout: 300000 })
+    const count = name => Number(plugin.stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1])
+    assert.equal(plugin.status, 0, plugin.stdout + plugin.stderr)
+    assert.equal(count('fail'), 0)
+    assert.ok(count('pass') > 0)
+    const reasons = [...plugin.stdout.matchAll(/ # SKIP (.*)$/gm)].map(match => match[1])
+    assert.ok(reasons.length > 0)
+    assert.equal(reasons.length, count('skipped'))
+    assert.deepEqual([...new Set(reasons)], ['需要套件源码（ADOPT.md、optional/），接入方项目中跳过'])
   // Windows 上杀毒软件或索引服务可能短暂占用刚安装的依赖，删除失败时重试。
   } finally { rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
 })

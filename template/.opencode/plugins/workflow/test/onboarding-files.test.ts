@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import fsPromises from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { constants, existsSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { parse } from 'jsonc-parser'
 import type { SetupChoices } from '../onboarding-config.ts'
@@ -15,6 +15,10 @@ import * as config from '../onboarding-config.ts'
 import * as files from '../onboarding-files.ts'
 import * as agents from '../onboarding-agents.ts'
 const suite = fileURLToPath(new URL('../../../../..', import.meta.url))
+// 本文件随模板复制给接入方，在那里向上五层是项目的上一级目录：依赖套件源码的用例只在套件检出中运行。
+const inSuite = join(suite, 'template/.opencode/plugins/workflow/test') === dirname(fileURLToPath(import.meta.url))
+  && ['ADOPT.md', 'optional/quality', 'optional/ci'].every(name => existsSync(join(suite, name)))
+const fromSuite = { skip: inSuite ? false : '需要套件源码（ADOPT.md、optional/），接入方项目中跳过' }
 const choices = (extra: Partial<SetupChoices> = {}): SetupChoices => ({
   version: 2, mode: 'basic', superpowers: 'none',
   models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {},
@@ -317,7 +321,7 @@ test('重复应用没有额外活动修改，应用后用户修改不能被旧�
   await assert.rejects(f.apply(plan.id), /改变|过期/)
 })
 
-test('源改变或目标改变都在首次活动写入之前拒绝', async t => {
+test('源改变或目标改变都在首次活动写入之前拒绝', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   const selected = choices({ components: { quality: 'checks', ci: true, release: false, mcp: false } })
   const plan = await f.plan(selected, source)
@@ -331,19 +335,19 @@ test('源改变或目标改变都在首次活动写入之前拒绝', async t => 
   await absent(join(f.root, config.SETUP_PROFILE))
 })
 
-test('同名不同内容完整预检，质量或 CI 冲突不得先写 profile', async t => {
+test('同名不同内容完整预检，质量或 CI 冲突不得先写 profile', fromSuite, async t => {
   const f = await fixture(t)
   await f.put('scripts/ci/run-quality.py', '# custom CI\n')
   await assert.rejects(f.plan(choices({ components: { quality: 'checks', ci: true, release: false, mcp: false } }), suite), /冲突.*run-quality|run-quality.*冲突/)
   await absent(join(f.root, config.SETUP_PROFILE)); await absent(join(f.root, 'scripts/quality/run-hook.py'))
 })
 
-test('就绪白名单与套件质量扩展的实际文件一致', async () => {
+test('就绪白名单与套件质量扩展的实际文件一致', fromSuite, async () => {
   const actual = (await readdir(join(suite, 'optional/quality'))).filter(name => name.endsWith('.py') || name === 'quality.example.json').sort()
   assert.deepEqual([...files.QUALITY].sort(), actual)
 })
 
-test('质量复制全部常规 py 与 example，CI 只复制四个白名单文件', async t => {
+test('质量复制全部常规 py 与 example，CI 只复制四个白名单文件', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   await writeFile(join(source, 'optional/quality/extra.py'), '# additional module\n')
   await writeFile(join(source, 'optional/ci/do-not-copy.py'), '# excluded\n')
@@ -360,7 +364,7 @@ test('质量复制全部常规 py 与 example，CI 只复制四个白名单文�
   assert.ok(inspect.unverified.some(message => /远端.*CI|GitHub/.test(message)))
 })
 
-test('完整已有质量文件无需来源即可保留，但不冒充执行验收', async t => {
+test('完整已有质量文件无需来源即可保留，但不冒充执行验收', fromSuite, async t => {
   const f = await fixture(t)
   const selected = choices({ components: { quality: 'checks', ci: true, release: false, mcp: false } })
   await f.apply((await f.plan(selected, suite)).id)
@@ -371,7 +375,7 @@ test('完整已有质量文件无需来源即可保留，但不冒充执行验�
   assert.ok(result.pending.some(message => /验收|验证/.test(message)))
 })
 
-test('可选依赖缺失必须指定完整套件来源，不接受单独 quality 目录', async t => {
+test('可选依赖缺失必须指定完整套件来源，不接受单独 quality 目录', fromSuite, async t => {
   const f = await fixture(t)
   const value = choices({ components: { quality: 'checks', ci: false, release: false, mcp: false } })
   await assert.rejects(f.plan(value), /source|来源|套件/)
@@ -379,7 +383,7 @@ test('可选依赖缺失必须指定完整套件来源，不接受单独 quality
   await absent(join(f.root, config.SETUP_PROFILE))
 })
 
-test('源文件和源目录的符号链接被拒绝', async t => {
+test('源文件和源目录的符号链接被拒绝', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   await rm(join(source, 'optional/quality/run-hook.py'))
   try { await symlink(join(suite, 'optional/quality/run-hook.py'), join(source, 'optional/quality/run-hook.py')) }
@@ -387,7 +391,7 @@ test('源文件和源目录的符号链接被拒绝', async t => {
   await assert.rejects(f.plan(choices({ components: { quality: 'checks', ci: false, release: false, mcp: false } }), source), /链接/)
 })
 
-test('预览后父目录变成链接拒绝，不能写入外部或 profile', async t => {
+test('预览后父目录变成链接拒绝，不能写入外部或 profile', fromSuite, async t => {
   const f = await fixture(t)
   const plan = await f.plan(choices({ components: { quality: 'checks', ci: false, release: false, mcp: false } }), suite)
   const outside = join(f.base, 'outside'); await mkdir(outside)
@@ -513,7 +517,7 @@ test('已有不同 Superpowers 来源不追加、不覆盖，另一个范围也�
   await absent(join(f.root, 'opencode.jsonc'))
 })
 
-test('quality=hook 才安装真实 hook；重复应用保留；checks 不安装', async t => {
+test('quality=hook 才安装真实 hook；重复应用保留；checks 不安装', fromSuite, async t => {
   const f = await fixture(t)
   await f.apply((await f.plan(choices({ components: { quality: 'checks', ci: false, release: false, mcp: false } }), suite)).id)
   await absent(join(f.root, '.git/hooks/post-commit'))
@@ -526,7 +530,7 @@ test('quality=hook 才安装真实 hook；重复应用保留；checks 不安装'
   assert.deepEqual((await f.apply(plan.id)).changed, [])
 })
 
-test('已有外来 hook 或 hooksPath 冲突时全量拒绝，不能只凭安装器退出零', async t => {
+test('已有外来 hook 或 hooksPath 冲突时全量拒绝，不能只凭安装器退出零', fromSuite, async t => {
   const f = await fixture(t), value = choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } })
   await f.put('.git/hooks/post-commit', '#!/bin/sh\necho custom\n')
   await assert.rejects(f.plan(value, suite), /hook|冲突/)
@@ -564,7 +568,7 @@ test('实际启用的发布与 MCP 配置可列 configured，远端与只读权�
   assert.ok(inspect.unverified.some(message => /业务测试/.test(message)))
 })
 
-test('off 不卸载已有能力，状态必须 preserved 而不是已禁用', async t => {
+test('off 不卸载已有能力，状态必须 preserved 而不是已禁用', fromSuite, async t => {
   const f = await fixture(t)
   await f.apply((await f.plan(choices({ components: { quality: 'checks', ci: true, release: false, mcp: false } }), suite)).id)
   const before = await f.read('scripts/quality/run-hook.py')
@@ -593,7 +597,7 @@ test('计划来源定位只能存入真正被 Git 忽略且未跟踪的状态目
   await absent(join(f.root, '.opencode/workflow/.state'))
 })
 
-test('安装器退出零但没有安装实际 hook 时拒绝，撤销已复制文件且不写 profile', async t => {
+test('安装器退出零但没有安装实际 hook 时拒绝，撤销已复制文件且不写 profile', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   const installer = await readFile(join(source, 'optional/quality/install-hooks.py'), 'utf8')
   await writeFile(join(source, 'optional/quality/install-hooks.py'), installer.replace('sys.exit(main(sys.argv[1:]))', 'sys.exit(0)'))
@@ -603,7 +607,7 @@ test('安装器退出零但没有安装实际 hook 时拒绝，撤销已复制�
   await absent(join(f.root, '.git/hooks/post-commit'))
 })
 
-test('源目录新增文件、源目录换成链接与目标文件链接均使原计划失效', async t => {
+test('源目录新增文件、源目录换成链接与目标文件链接均使原计划失效', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   const value = choices({ components: { quality: 'checks', ci: false, release: false, mcp: false } })
   const first = await f.plan(value, source)
@@ -674,7 +678,7 @@ test('项目配置硬链接不得写穿个人全局配置，预览与应用均�
   await absent(join(f.root, config.SETUP_PROFILE))
 })
 
-test('共享 inode 的 profile、计划、进度和 hook 同样拒绝，不覆盖外部硬链接', async t => {
+test('共享 inode 的 profile、计划、进度和 hook 同样拒绝，不覆盖外部硬链接', fromSuite, async t => {
   const f = await fixture(t), plan = await f.plan(), name = `.opencode/workflow/.state/onboarding/${plan.id}.json`
   const outside = join(f.base, 'shared-plan')
   await link(join(f.root, name), outside)
@@ -746,7 +750,7 @@ test('保存计划部分写入失败也清理临时文件，不留下半份状�
   await absent(join(f.root, config.SETUP_PROFILE))
 })
 
-test('keep hook 不重跑已修改安装器，保留原 hook 正文和权限', async t => {
+test('keep hook 不重跑已修改安装器，保留原 hook 正文和权限', fromSuite, async t => {
   const f = await fixture(t), value = choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } })
   await f.apply((await f.plan(value, suite)).id)
   const hook = await f.read('.git/hooks/post-commit'), mode = (await lstat(join(f.root, '.git/hooks/post-commit'))).mode
@@ -759,7 +763,7 @@ test('keep hook 不重跑已修改安装器，保留原 hook 正文和权限', a
   assert.equal((await lstat(join(f.root, '.git/hooks/post-commit'))).mode, mode)
 })
 
-test('安装器留下非预期半份 hook 后失败时移除新 hook，并撤销本轮配置和质量文件', async t => {
+test('安装器留下非预期半份 hook 后失败时移除新 hook，并撤销本轮配置和质量文件', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base)
   const installerPath = join(source, 'optional/quality/install-hooks.py'), installer = await readFile(installerPath, 'utf8')
   await writeFile(installerPath, installer.replace("hook.write_bytes(dispatcher(relative).encode('utf-8'))", "hook.write_bytes(b'#!/bin/sh\\n# incomplete hook\\n')\n        raise OSError('synthetic write failure')"))
@@ -815,7 +819,7 @@ test('JSON 与 YAML 流式映射及复杂键 frontmatter 明确拒绝，不留�
   }
 })
 
-test('hook 去掉 POSIX 执行位后 inspect 不能继续 configured，Windows 保持原生可执行语义', async t => {
+test('hook 去掉 POSIX 执行位后 inspect 不能继续 configured，Windows 保持原生可执行语义', fromSuite, async t => {
   const f = await fixture(t)
   await f.apply((await f.plan(choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } }), suite)).id)
   await chmod(join(f.root, '.git/hooks/post-commit'), 0o600)
@@ -828,7 +832,7 @@ test('hook 去掉 POSIX 执行位后 inspect 不能继续 configured，Windows �
   }
 })
 
-test('原计划重放须核对实际 hook 可执行性，不只核对正文', async t => {
+test('原计划重放须核对实际 hook 可执行性，不只核对正文', fromSuite, async t => {
   const f = await fixture(t), plan = await f.plan(choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } }), suite)
   await f.apply(plan.id)
   await chmod(join(f.root, '.git/hooks/post-commit'), 0o600)
@@ -836,7 +840,7 @@ test('原计划重放须核对实际 hook 可执行性，不只核对正文', as
   else await assert.rejects(f.apply(plan.id), /可执行|执行属性|改变|过期/)
 })
 
-test('新预览显式列出执行属性修复，并用实际安装器恢复 hook 可执行性', async t => {
+test('新预览显式列出执行属性修复，并用实际安装器恢复 hook 可执行性', fromSuite, async t => {
   const f = await fixture(t), value = choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } })
   await f.apply((await f.plan(value, suite)).id)
   await chmod(join(f.root, '.git/hooks/post-commit'), 0o600)
@@ -847,7 +851,7 @@ test('新预览显式列出执行属性修复，并用实际安装器恢复 hook
   assert.equal((await files.inspectSetup(f.root)).components.quality.status, 'configured')
 })
 
-test('修复执行属性的安装器写坏已有 hook 后失败，恢复原 hook 正文及原 mode', async t => {
+test('修复执行属性的安装器写坏已有 hook 后失败，恢复原 hook 正文及原 mode', fromSuite, async t => {
   const f = await fixture(t), value = choices({ components: { quality: 'hook', ci: false, release: false, mcp: false } })
   await f.apply((await f.plan(value, suite)).id)
   const hook = await f.read('.git/hooks/post-commit')
@@ -861,7 +865,7 @@ test('修复执行属性的安装器写坏已有 hook 后失败，恢复原 hook
   assert.equal((await lstat(join(f.root, '.git/hooks/post-commit'))).mode, mode)
 })
 
-test('安装器退出零且正文正确但未设置执行属性时不能接受为成功', async t => {
+test('安装器退出零且正文正确但未设置执行属性时不能接受为成功', fromSuite, async t => {
   const f = await fixture(t), source = await sourceCopy(f.base), installerPath = join(source, 'optional/quality/install-hooks.py')
   const installer = await readFile(installerPath, 'utf8')
   await writeFile(installerPath, installer.replace('hook.chmod(hook.stat().st_mode | 0o111)', 'hook.chmod(0o600)'))

@@ -66,6 +66,8 @@ npm --prefix .opencode/plugins/workflow test
 
 Windows 原生环境在 PowerShell 中执行时，把 `python3` 换成 `py -3`，守卫测试改为 `py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`。不要在 PowerShell 中调用 `bash`：那里的 `bash` 通常是 WSL 启动器。
 
+插件测试中依赖套件源码的用例（可选组件的复制与安装）在接入方项目中跳过，跳过原因写明需要套件源码。
+
 doctor 不修改项目文件；失败需处理，不能通过删除保护配置消除错误。没有实际执行的项目构建、平台验收和原生插件运行标为未验证。
 
 doctor 的 warn 项要在接入报告中逐项处理或说明：版本未验收、已跟踪文件命中凭据规则、已跟踪文件过多而未完成凭据扫描、未设置 shell、没有明确选择记录的 reviewer 未指定模型、继承策略冲突或代理文件中 model 为空、规则文件过长、接入档案记录的子代理缺少代理文件。状态为 unverified 的项（如当前会话技能/模型、原生运行、插件早于 doctor 时的规则大小）在报告中标为未验证；配置写入不等于真实加载。2.1.x 补丁版本告警不等于已通过原生验收；suite 的固定 CLI 可在套件目录运行 `node scripts/fetch-opencode.mjs` 获取。
