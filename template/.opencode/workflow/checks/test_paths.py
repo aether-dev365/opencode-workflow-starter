@@ -429,6 +429,9 @@ class PathGuards(unittest.TestCase):
             'git clean -fdx SRC', 'git clean -fdx build missing', 'git --icase-pathspecs clean -fdx build',
             'git -c core.quotepath=off clean -fd build', 'GIT_ICASE_PATHSPECS=1 git clean -fdx build',
             'export GIT_ICASE_PATHSPECS=1; git clean -fdx build',
+            # 试运行可以被后面的 --no-dry-run（含缩写）取反，--end-of-options 之后的 -n 只是路径。
+            'git clean -fdx -n --no-dry-run src', 'git clean -fdx -n --no-dry src',
+            'git clean -fdx --end-of-options -n src', 'git clean -fdx --end-of-options src',
         ]:
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'deny')
@@ -437,7 +440,11 @@ class PathGuards(unittest.TestCase):
         for command in ['git clean -fdx build', 'git clean -fd build', 'git clean -fdx -- build',
                         'git clean -fdx -e keep build', 'git clean -fdx build -e keep.txt', 'git clean -fdx build/../build',
                         'git clean -n', 'git clean -ndx', 'git clean --dry-run -d src', 'git clean -fn lib',
-                        'git commit -m clean', 'git log --grep clean']:
+                        # --no-dry-run 之后的 -n 重新开启试运行（最后一个生效）。
+                        'git clean -fdx --no-dry-run -n src',
+                        # clean 只是别的子命令的参数，不是 git clean。
+                        'git commit -m clean', 'git log --grep clean',
+                        'git --no-pager log --grep clean', 'git -c core.quotepath=off grep clean']:
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'allow')
 

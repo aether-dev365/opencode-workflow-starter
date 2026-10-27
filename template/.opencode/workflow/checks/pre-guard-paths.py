@@ -4,7 +4,8 @@ import errno
 import os
 from pathlib import Path
 from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
-                     tool_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir, brief)
+                     tool_path, windows_path, has_hidden_shell_eval, static_command_words, find_roots,
+                     path_exists, path_is_dir, brief, git_clean_pathspec_problem)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -77,7 +78,7 @@ def check_event(event):
             targets = [Path(cwd) / w for w in words[1:] if not w.startswith('-')]
         elif words[0] == 'find' and any(w in ['-delete', '-exec', '-execdir'] for w in words):
             targets = [Path(cwd) / w for w in find_roots(words)]
-        elif words[0] == 'git' and len(words) > 1 and (words[1] == 'clean' or (words[1].startswith('-') and 'clean' in words)):
+        elif words[0] == 'git' and git_subcommand(words) == 'clean':
             targets = git_clean_targets(words, cwd, segment, env)
         for absolute in targets:
             selected = policy_for(str(absolute))
@@ -116,25 +117,44 @@ def check_event(event):
     return volatile
 
 
+def git_subcommand(words):
+    """git 的子命令：跳过全局选项（及 -c 的独立参数）后的第一个位置参数。`git -c x=y clean …` 的子命令是 clean，
+    `git --no-pager log --grep clean` 的是 log。"""
+    rest = iter(words[1:])
+    for word in rest:
+        if word == '-c':
+            next(rest, None)
+        elif word.startswith('-'):
+            continue
+        else:
+            return word
+    return None
+
+
 def git_clean_paths(words):
-    """git clean 的路径参数；试运行（-n、--dry-run）返回 []。-e、--exclude 的值是排除规则，没有路径时清理当前目录。
-    git 的选项可以写在路径之后，长选项可以缩写，短选项可以合写（-fdxe 规则）。"""
+    """git clean 的路径参数；只在确定是试运行时返回 []。-e/--exclude 的值是排除规则，没有路径时清理当前目录。
+    选项可写在路径之后，长选项可缩写、可用 --[no-] 取反（最后一个生效），短选项可合写（-fdxe 规则）；
+    `--` 或 `--end-of-options` 之后都是路径。"""
+    start = words.index('clean') + 1
     paths, dry_run, options = [], False, True
-    rest = iter(words[2:])
+    rest = iter(words[start:])
     for word in rest:
         if not options or word == '-' or not word.startswith('-'):
             paths.append(word)
-        elif word == '--':
+        elif word in ('--', '--end-of-options'):
             options = False
         elif word.startswith('--'):
             name = word[2:].split('=', 1)[0]
-            if name and 'dry-run'.startswith(name):
-                dry_run = True
-            elif name and 'exclude'.startswith(name) and '=' not in word:
+            negated = name.startswith('no-')
+            base = name[3:] if negated else name
+            if base and 'dry-run'.startswith(base):
+                dry_run = not negated
+            elif base and 'exclude'.startswith(base) and '=' not in word:
                 next(rest, None)
         else:
             for index, flag in enumerate(word[1:], 2):
-                dry_run = dry_run or flag == 'n'
+                if flag == 'n':
+                    dry_run = True
                 if flag == 'e':
                     if index == len(word):
                         next(rest, None)
@@ -152,10 +172,10 @@ def git_clean_targets(words, cwd, segment, env):
         raise ValueError('GIT_ICASE_PATHSPECS 使 git clean 的路径不区分大小写，无法确认清理范围')
     targets = []
     for path in git_clean_paths(words):
-        # 引号里的通配由 git 展开，: 开头的是 pathspec 写法（:/、:(top)、:(icase)、:!排除）。
-        if path.startswith(':') or any(c in path for c in '*?[\\'):
-            raise ValueError(f'git clean 的路径只支持字面文件或目录，不支持通配和以 : 开头的写法：{brief(path)}')
-        absolute = Path(os.path.normpath(Path(cwd) / path))
+        problem = git_clean_pathspec_problem(path)
+        if problem:
+            raise ValueError(f'{problem}：{brief(path)}')
+        absolute = Path(os.path.normpath(os.path.join(cwd, windows_path(path))))
         if not path_exists(absolute):
             raise ValueError(f'git clean 的路径不存在，无法确认清理范围：{brief(path)}')
         targets.append(absolute)

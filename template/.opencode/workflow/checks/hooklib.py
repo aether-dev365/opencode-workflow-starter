@@ -335,6 +335,17 @@ def _resolve(cur, tok):
     return os.path.normpath(os.path.join(cur, tok))
 
 
+def git_clean_pathspec_problem(path, os_name=None):
+    """git clean 的路径里无法静态确认清理范围的写法：引号里的通配由 git 展开，`:` 开头是 pathspec 写法
+    （:/、:(top)、:(icase)、:!排除）。POSIX 上 `\\` 是 pathspec 的转义字符，也拒绝；Windows 上 `\\` 是目录分隔符，不算通配。"""
+    if path.startswith(':'):
+        return 'git clean 的路径不支持以 : 开头的 pathspec 写法，请写明字面目录'
+    wildcards = '*?[' if (os_name or os.name) == 'nt' else '*?[\\'
+    if any(c in path for c in wildcards):
+        return 'git clean 的路径不支持通配，请写明字面文件或目录'
+    return None
+
+
 def physical_path(path, os_name=None):
     """按 POSIX 内核的方式解析绝对路径中的 `..`：先跟随前面各段的符号链接，再回到上一级；最后一段不跟随，由
     check_path 的真实路径检查覆盖。字面合并会把 `LINK/../x` 当作与 LINK 同级的 x，内核打开的却是链接目标上一级里的 x。

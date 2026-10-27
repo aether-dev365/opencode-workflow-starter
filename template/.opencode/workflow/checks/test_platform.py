@@ -42,6 +42,15 @@ class Platform(unittest.TestCase):
                 with self.subTest(value=value, os_name='posix'):
                     self.assertEqual(hooklib.tool_path('/repo', value, 'posix'), expected)
 
+    def test_git_clean_backslash_is_a_separator_only_on_windows(self):
+        # POSIX 上 `\` 是 git pathspec 的转义字符，拒绝；Windows 上是目录分隔符，不算通配。
+        self.assertIsNone(hooklib.git_clean_pathspec_problem('build\\out', 'nt'))
+        self.assertIsNotNone(hooklib.git_clean_pathspec_problem('build\\out', 'posix'))
+        for os_name in ['nt', 'posix']:
+            self.assertIsNotNone(hooklib.git_clean_pathspec_problem('bu*ld', os_name))
+            self.assertIsNotNone(hooklib.git_clean_pathspec_problem(':/', os_name))
+            self.assertIsNone(hooklib.git_clean_pathspec_problem('build/out', os_name))
+
     def test_parent_segments_are_found_with_platform_separators(self):
         # Windows 的 `\` 是分隔符，POSIX 上是名字里的普通字符。
         self.assertEqual(hooklib.physical_path('C:\\repo\\L\\..\\x', 'nt'), 'C:\\repo\\x')
