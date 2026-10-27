@@ -31,8 +31,10 @@ description: 从空目录开始新项目、恢复未完成的新项目流程时�
 
 ## 阶段检查单
 
+各阶段的完成标志以流程文档“阶段总览”为准，未达到时不进入下一阶段。
+
 0. **准备**：在 OpenCode 之外完成（新建目录、`git init`、复制整个模板、`setup.mjs`、启动 opencode）。工具或插件缺失时按流程文档的准备阶段处理，不编造结果。
-1. **最小接入与基线提交**：加载 `workflow-onboarding` 技能跑第一轮 `/workflow-setup`，finish 通过后回到本技能。给向导的新项目建议：子代理先不新增（`agents: []`）；质量、CI、发布、MCP 先都不选，说明第二轮再处理；用户坚持时照常处理。完整模式在 Superpowers 实际可用、本会话读取 brainstorming 和 writing-plans 之前不往下走。复制前改名保存的 `.gitignore`、`.gitattributes` 等，把其中的条目并入模板的同名文件后删除改名的文件。然后列出要提交的文件，用户确认后分两次工具调用暂存和提交到当前分支（main 或 master）。
+1. **最小接入与基线提交**：加载 `workflow-onboarding` 技能跑第一轮 `/workflow-setup`，finish 通过后回到本技能。给向导的新项目建议：子代理先不新增（`agents: []`）；质量、CI、发布、MCP 先都不选，说明第二轮再处理；用户坚持时照常处理。完整模式在 Superpowers 实际可用、本会话读取 brainstorming 和 writing-plans 之前不进入第 2 阶段。复制前改名保存的 `.gitignore`、`.gitattributes` 等，把其中的条目并入模板的同名文件后删除改名的文件。然后列出要提交的文件，用户确认后分两次工具调用暂存和提交到当前分支（main 或 master）。
 2. **设计**：新建分支（例如 `project-start`），在主检出中进行，不用工作树。完整模式按 brainstorming 产出设计，writing-plans 的计划只覆盖骨架；基础模式按流程文档的六项设计清单逐项确认，设计记录默认写到 `docs/design.md`。设计确认后在项目概要写入初稿：用途、技术栈、设计记录位置及何时阅读。
 3. **搭骨架**：按设计选定的落地方式（子目录脚手架、手写骨架、用户在终端运行）实施，遵守流程文档“骨架落地方式”的共同规则；安装依赖；全部验证命令实际通过，测试至少实际执行一个用例。
 4. **项目规则**：补全项目概要和验证命令入口；询问提交格式，写进 `docs/workflow/development.md`；领域 `AGENTS.md` 与 `scopes.json`、审核分区、pipefail、`.gitignore`；保护规则给出拟议差异；运行 doctor。

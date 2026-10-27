@@ -39,7 +39,7 @@ body:
       options:
         - 插件（领域规则、权限、/review）
         - 守卫（路径保护、凭据扫描、pipefail）
-        - 接入（/workflow-setup、setup.mjs、doctor）
+        - 接入（/workflow-setup、/workflow-new、setup.mjs、doctor）
         - 可选扩展（质量、CI、发布、保护、MCP）
         - 文档
         - 其他
