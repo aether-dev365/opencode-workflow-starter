@@ -40,9 +40,11 @@ test('工具路径与 OpenCode FileAccess.resolve 的解析相同', () => {
   assert.equal(typeof hookPlatform.toolPath, 'function')
   const windows = { platform: 'win32' as const, env: { OPENCODE_TEST_HOME: 'C:/Users/example' } }
   for (const [value, expected] of [['~/x', 'C:\\Users\\example\\x'], ['~', 'C:\\Users\\example'], ['~\\x', 'C:\\repo\\~\\x'],
+    ['~//x', 'C:\\Users\\example\\x'], ['~/\\x', 'C:\\Users\\example\\x'], ['~/a//b', 'C:\\Users\\example\\a\\b'],
     ['/d/data/../x', 'D:\\x'], ['src/missing/..', 'C:\\repo\\src'], ['', 'C:\\repo']]) assert.equal(hookPlatform.toolPath('C:\\repo', value, windows), expected, value)
   const posix = { platform: 'linux' as const, env: { OPENCODE_TEST_HOME: '/home/example' } }
   for (const [value, expected] of [['~/x', '/home/example/x'], ['~', '/home/example'], ['~user/x', '/repo/~user/x'],
+    ['~//x', '/home/example/x'], ['~/a//b', '/home/example/a/b'],
     ['/c/x', '/c/x'], ['src/missing/..', '/repo/src'], ['', '/repo']]) assert.equal(hookPlatform.toolPath('/repo', value, posix), expected, value)
 })
 

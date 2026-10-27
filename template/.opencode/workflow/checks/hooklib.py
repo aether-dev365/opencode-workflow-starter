@@ -186,7 +186,8 @@ def tool_path(directory, value, os_name=None):
     if value == '~':
         value = opencode_home()
     elif value.startswith('~/'):
-        value = module.join(opencode_home(), value[2:])
+        # Node 的 path.join 把 `~/` 之后的部分当相对片段拼接；posixpath.join 遇到以分隔符开头的片段会丢掉主目录，先去掉它。
+        value = module.join(opencode_home(), value[2:].lstrip('\\/' if module is ntpath else '/'))
     return module.normpath(module.join(directory, value))
 
 

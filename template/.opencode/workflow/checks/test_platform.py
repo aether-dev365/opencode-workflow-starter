@@ -33,11 +33,13 @@ class Platform(unittest.TestCase):
         # 与 OpenCode FileAccess.resolve 相同（插件 platform.ts 的 toolPath 用同一组例子）：盘符写法、`~` 与 `~/`、字面合并 `..`。
         with mock.patch.dict(os.environ, {'OPENCODE_TEST_HOME': 'C:/Users/example'}):
             for value, expected in [('~/x', 'C:\\Users\\example\\x'), ('~', 'C:\\Users\\example'), ('~\\x', 'C:\\repo\\~\\x'),
+                                    ('~//x', 'C:\\Users\\example\\x'), ('~/\\x', 'C:\\Users\\example\\x'), ('~/a//b', 'C:\\Users\\example\\a\\b'),
                                     ('/d/data/../x', 'D:\\x'), ('src/missing/..', 'C:\\repo\\src'), ('', 'C:\\repo')]:
                 with self.subTest(value=value, os_name='nt'):
                     self.assertEqual(hooklib.tool_path('C:\\repo', value, 'nt'), expected)
         with mock.patch.dict(os.environ, {'OPENCODE_TEST_HOME': '/home/example'}):
             for value, expected in [('~/x', '/home/example/x'), ('~', '/home/example'), ('~user/x', '/repo/~user/x'),
+                                    ('~//x', '/home/example/x'), ('~/a//b', '/home/example/a/b'),
                                     ('/c/x', '/c/x'), ('src/missing/..', '/repo/src'), ('', '/repo')]:
                 with self.subTest(value=value, os_name='posix'):
                     self.assertEqual(hooklib.tool_path('/repo', value, 'posix'), expected)
