@@ -4,7 +4,7 @@ import errno
 import os
 from pathlib import Path
 from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
-                     windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_is_dir)
+                     windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -70,17 +70,16 @@ def check_event(event):
         except ValueError as error:
             raise ValueError(reason) from error
 
-    def deletes(words, cwd):
+    def deletes(words, cwd, segment, env):
         """递归删除类命令：目标逐个检查，返回是否有删除目标。"""
         targets = []
         if words[0] == 'rm' and any(w == '--recursive' or (w.startswith('-') and ('r' in w or 'R' in w)) for w in words[1:]):
-            targets = [w for w in words[1:] if not w.startswith('-')]
+            targets = [Path(cwd) / w for w in words[1:] if not w.startswith('-')]
         elif words[0] == 'find' and any(w in ['-delete', '-exec', '-execdir'] for w in words):
-            targets = find_roots(words)
-        elif words[0] == 'git' and 'clean' in words and any(w.startswith('-') and ('x' in w or 'X' in w) for w in words):
-            targets = [w for w in words[words.index('clean') + 1:] if not w.startswith('-')] or ['.']
-        for target in targets:
-            absolute = Path(cwd) / target
+            targets = [Path(cwd) / w for w in find_roots(words)]
+        elif words[0] == 'git' and len(words) > 1 and (words[1] == 'clean' or (words[1].startswith('-') and 'clean' in words)):
+            targets = git_clean_targets(words, cwd, segment, env)
+        for absolute in targets:
             selected = policy_for(str(absolute))
             # 删除目录会编辑其内容；check 对全部写候选统一使用子项探针。
             check(str(absolute), 'edit', selected)
@@ -90,31 +89,77 @@ def check_event(event):
                     check(str(entry), 'read', selected, real=real)
         return bool(targets)
 
-    def nested_deletes(segment, cwd):
+    def nested_deletes(segment, cwd, env):
         """命令替换、进程替换与反引号里的递归删除同样检查；内层 cd 只影响内层。返回是否有删除目标。"""
         inners = []
         lifted, _ = _lift_substitutions(segment, inners)
         found = False
         for inner in inners + _backtick_commands(lifted):
-            for part, local, _ in command_states(inner, cwd, {}):
+            for part, local, variables in command_states(inner, cwd, env):
                 words = command_words(part)
                 if words:
-                    found = deletes(words, local) or found
-                found = nested_deletes(part, local) or found
+                    found = deletes(words, local, part, variables) or found
+                found = nested_deletes(part, local, variables) or found
         return found
 
     volatile = False
-    for segment, local, _ in command_states('\n'.join(_command_lines(command.splitlines(), literal=True)), cwd, {}):
+    for segment, local, variables in command_states('\n'.join(_command_lines(command.splitlines(), literal=True)), cwd, {}):
         words = command_words(segment)
-        volatile = nested_deletes(segment, local) or volatile
+        volatile = nested_deletes(segment, local, variables) or volatile
         if words:
-            volatile = deletes(words, local) or volatile
+            volatile = deletes(words, local, segment, variables) or volatile
     candidate_event = {**event, 'paths': []}
     for path in candidates_from(candidate_event, include_readonly=True)[0]:
         check(path, 'read')
     for path in candidates_from(candidate_event)[0]:
         check(path, 'edit')
     return volatile
+
+
+def git_clean_paths(words):
+    """git clean 的路径参数；试运行（-n、--dry-run）返回 []。-e、--exclude 的值是排除规则，没有路径时清理当前目录。
+    git 的选项可以写在路径之后，长选项可以缩写，短选项可以合写（-fdxe 规则）。"""
+    paths, dry_run, options = [], False, True
+    rest = iter(words[2:])
+    for word in rest:
+        if not options or word == '-' or not word.startswith('-'):
+            paths.append(word)
+        elif word == '--':
+            options = False
+        elif word.startswith('--'):
+            name = word[2:].split('=', 1)[0]
+            if name and 'dry-run'.startswith(name):
+                dry_run = True
+            elif name and 'exclude'.startswith(name) and '=' not in word:
+                next(rest, None)
+        else:
+            for index, flag in enumerate(word[1:], 2):
+                dry_run = dry_run or flag == 'n'
+                if flag == 'e':
+                    if index == len(word):
+                        next(rest, None)
+                    break
+    return [] if dry_run else paths or ['.']
+
+
+def git_clean_targets(words, cwd, segment, env):
+    """git clean 会删除的路径：只接受字面且存在的文件或目录，按 git 的方式字面合并 ..；无法确认匹配范围时拒绝。"""
+    if words[1] != 'clean':
+        raise ValueError('git 带全局选项时无法确认 clean 的清理范围，请直接写 git clean …')
+    if 'GIT_ICASE_PATHSPECS' in segment or any(
+            str(source.get('GIT_ICASE_PATHSPECS', '')).strip().lower() not in ('', '0', 'false', 'no', 'off')
+            for source in (env, os.environ)):
+        raise ValueError('GIT_ICASE_PATHSPECS 使 git clean 的路径不区分大小写，无法确认清理范围')
+    targets = []
+    for path in git_clean_paths(words):
+        # 引号里的通配由 git 展开，: 开头的是 pathspec 写法（:/、:(top)、:(icase)、:!排除）。
+        if path.startswith(':') or any(c in path for c in '*?[\\'):
+            raise ValueError(f'git clean 的路径只支持字面文件或目录，不支持通配和以 : 开头的写法：{brief(path)}')
+        absolute = Path(os.path.normpath(Path(cwd) / path))
+        if not path_exists(absolute):
+            raise ValueError(f'git clean 的路径不存在，无法确认清理范围：{brief(path)}')
+        targets.append(absolute)
+    return targets
 
 
 def walk_with_real_paths(top):

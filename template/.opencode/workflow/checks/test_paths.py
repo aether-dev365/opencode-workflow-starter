@@ -365,6 +365,34 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command, credentials=False):
                 self.assertEqual(self.guard(command=command), 'deny')
 
+    def test_git_clean_paths_follow_git_pathspec_rules(self):
+        # git 按字面合并 ..，自己展开引号里的通配，并支持 :/、:(top)、:(icase)、:! 等 pathspec 写法；
+        # -e 的值是排除规则而不是路径；不带 -x 时同样删除未被忽略的未跟踪文件。
+        from unittest.mock import patch
+        for name in ['src', 'lib', 'build']:
+            (self.root / name).mkdir()
+        (self.root / 'src/.env').write_text('synthetic')
+        (self.root / 'lib/prod.env.local').write_text('synthetic')
+        for command in [
+            'git clean -fdx src/missing/..', 'git clean -fdx :/', "git clean -fdx ':(top)src'",
+            "git clean -fdx ':(icase)SRC'", "git clean -fdx ':!README.md'", "git clean -fdx 's*'",
+            "git clean -fdx 'sr?'", "git clean -fdx 'sr[c]'", 'git clean -fdx -e foo', 'git clean -fdx --exclude foo',
+            'git clean -fdx --exc foo', 'git clean -fdxe foo', 'git clean -fd lib', 'git clean -f lib',
+            'git clean -fdx SRC', 'git clean -fdx build missing', 'git --icase-pathspecs clean -fdx build',
+            'git -c core.quotepath=off clean -fd build', 'GIT_ICASE_PATHSPECS=1 git clean -fdx build',
+            'export GIT_ICASE_PATHSPECS=1; git clean -fdx build',
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'deny')
+        with patch.dict('os.environ', {'GIT_ICASE_PATHSPECS': '1'}):
+            self.assertEqual(self.guard(command='git clean -fdx build'), 'deny')
+        for command in ['git clean -fdx build', 'git clean -fd build', 'git clean -fdx -- build',
+                        'git clean -fdx -e keep build', 'git clean -fdx build -e keep.txt', 'git clean -fdx build/../build',
+                        'git clean -n', 'git clean -ndx', 'git clean --dry-run -d src', 'git clean -fn lib',
+                        'git commit -m clean', 'git log --grep clean']:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'allow')
+
     def test_directory_switching_requires_a_direct_literal_cd(self):
         (self.root / '.env').unlink()
         (self.root / 'build/lib').mkdir(parents=True)

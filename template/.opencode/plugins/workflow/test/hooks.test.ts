@@ -117,6 +117,23 @@ test('cd 失败以及管道、后台中的 cd 不改变后续命令的目录', a
   } finally { await f.close() }
 })
 
+test('git clean 的路径按 git 的 pathspec 规则检查', async () => {
+  // git 按字面合并 ..，并支持 :/、:(top) 等写法；不带 -x 时同样删除未被忽略的未跟踪文件。
+  const f = await fixture()
+  try {
+    await writeFile(join(f.root, 'src/.env'), 'SYNTHETIC=value\n')
+    await mkdir(join(f.root, 'build'))
+    await (await load())(f.ctx)
+    const allowed = before('shell', { command: 'git clean -fdx build', workdir: f.root })
+    await assert.rejects(f.fire('tool.execute.before', allowed), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', allowed)
+    for (const command of ['git clean -fdx src/missing/..', 'git clean -fdx :/', "git clean -fdx ':(top)src'", 'git clean -fdx -e foo', 'git clean -fd src']) {
+      await assert.rejects(f.fire('tool.execute.before', before('shell', { command, workdir: f.root })), /文件保护检查拒绝/, command)
+    }
+  } finally { await f.close() }
+})
+
 test('长提交说明和内联脚本的参数不被当作已有路径', async () => {
   // 名字超过文件系统上限的参数不可能是已有文件；整条路径超过系统上限时无法检查而拒绝，原因不整段回显参数。
   const f = await fixture()
