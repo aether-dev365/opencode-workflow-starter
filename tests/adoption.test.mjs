@@ -49,6 +49,22 @@ test('a separately installed copy passes doctor without source checkout configur
       assert.equal(updated.ok, ok)
       assert.equal(result.status, ok ? 0 : 1)
     }
+    // 新项目的第一个提交包含整个模板；没有 HEAD 时扫描照样检查暂存内容。
+    const scan = () => spawnSync(python.command, [...python.args, '.opencode/workflow/checks/pre-secret-scan.py'], {
+      cwd: root, env: { ...env, PATH: scannerPath }, encoding: 'utf8', timeout: 120000,
+      input: JSON.stringify({ version: 1, phase: 'before', directory: root, tool: 'shell', input: { command: 'git commit -m baseline' }, paths: [], sessionId: 'adoption', callId: 'baseline' }),
+    })
+    run('git', ['add', '-A'])
+    const baselineScan = scan()
+    assert.equal(baselineScan.status, 0, baselineScan.stderr)
+    assert.equal(JSON.parse(baselineScan.stdout).decision, 'allow')
+    const secret = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+    writeFileSync(join(root, 'leak.txt'), `access_token = "${secret}"\n`)
+    run('git', ['add', 'leak.txt'])
+    const leakScan = scan()
+    assert.equal(leakScan.status, 2, leakScan.stderr)
+    assert.equal(JSON.parse(leakScan.stdout).decision, 'deny')
+    assert.ok(!(leakScan.stdout + leakScan.stderr).includes(secret))
     run('npm', ['--prefix', '.opencode/plugins/workflow', 'run', 'typecheck'])
   // Windows 上杀毒软件或索引服务可能短暂占用刚安装的依赖，删除失败时重试。
   } finally { rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
