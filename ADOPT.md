@@ -56,7 +56,7 @@
 
 ```bash
 node scripts/workflow/setup.mjs
-node scripts/workflow/doctor.mjs --root . --json
+node scripts/workflow/doctor.mjs --json
 bash .opencode/workflow/checks/run-tests.sh
 npm --prefix .opencode/plugins/workflow run typecheck
 npm --prefix .opencode/plugins/workflow test

@@ -181,6 +181,6 @@ node scripts/workflow/onboarding.mjs apply --plan <实际摘要> --confirm <实�
 - **处理问题**：复现、定位原因、补失败测试，再修复和验证。不要把所有问题都直接改成“重装”。
 - **正式审核**：由用户触发 `/review`。Superpowers 的阶段自检不替代结构化审核结论，不授予发布许可。
 - **调整安装或模型**：再次运行 `/workflow-setup`，查看既有选择与真实生效状态。
-- **排查守卫或依赖**：运行 `node scripts/workflow/doctor.mjs --root . --json`。静态 pass 不证明当前宿主已加载；unverified 应有对应的后续验收。
+- **排查守卫或依赖**：运行 `node scripts/workflow/doctor.mjs --json`。静态 pass 不证明当前宿主已加载；unverified 应有对应的后续验收。
 
 最终交付应分别列出“已配置、已加载、已验证、未验证”。项目构建和业务测试、远端 CI、模型实际调用、发布和服务端权限，没有真实证据就不能填通过。向导的入口检查不是模型思维或任意外部脚本的沙箱。

@@ -85,6 +85,21 @@ test('保护配置的硬链接同样只读', async () => {
   } finally { await f.close() }
 })
 
+test('文档中由模型运行的 doctor 命令不触及保护配置', async () => {
+  // 修改类命令的参数解析到项目根时按保护配置拒绝（如 rm -rf .）；doctor 默认检查当前目录，文档不写 --root .。
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    // 首次修改该领域先注入规则，再重试。
+    await assert.rejects(f.fire('tool.execute.before', before('shell', { command: 'node scripts/workflow/doctor.mjs', workdir: f.root })), /上下文/)
+    await f.fire('session.context', context())
+    for (const command of ['node scripts/workflow/doctor.mjs', 'node scripts/workflow/doctor.mjs --json']) {
+      await f.fire('tool.execute.before', before('shell', { command, workdir: f.root }))
+    }
+    await assert.rejects(f.fire('tool.execute.before', before('shell', { command: 'node scripts/workflow/doctor.mjs --root .', workdir: f.root })), /^Error: 保护配置.*OpenCode 之外/)
+  } finally { await f.close() }
+})
+
 test('unseen scopes deny once then inject; compaction and child sessions reset visibility', async () => {
   const f = await fixture()
   try {

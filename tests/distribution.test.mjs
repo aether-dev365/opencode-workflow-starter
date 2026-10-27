@@ -93,6 +93,13 @@ test('the suite entrypoints route brand-new projects to /workflow-new', () => {
   assert.ok(readFileSync('CHANGELOG.md', 'utf8').split('\n## [1.1.0]')[0].includes('/workflow-new'))
 })
 
+// 插件把解析到项目根的修改类参数按保护配置拒绝，模型照文档运行 doctor --root . 会被拦下；doctor 默认检查当前目录。
+test('doctor commands the model runs from the docs do not pass --root', () => {
+  for (const path of [...files('template').filter(p => p.endsWith('.md')), 'ADOPT.md']) {
+    for (const [command] of readFileSync(path, 'utf8').matchAll(/doctor\.mjs[^`\n]*/g)) assert.doesNotMatch(command, /--root/, `${path}: ${command}`)
+  }
+})
+
 test('tracked text files contain no local home paths or IPv4 addresses', () => {
   for (const path of tracked()) assert.deepEqual(leaks(readFileSync(path, 'utf8')), [], path)
 })

@@ -120,7 +120,7 @@ opencode --version
 ```powershell
 npm --prefix .opencode\plugins\workflow ci --ignore-scripts
 py -3 .opencode\secret-scan\install.py
-node scripts\workflow\doctor.mjs --root .
+node scripts\workflow\doctor.mjs
 ```
 
 常见问题：
@@ -180,7 +180,7 @@ node scripts/workflow/setup.mjs
 ```bash
 npm --prefix .opencode/plugins/workflow ci --ignore-scripts
 python3 .opencode/secret-scan/install.py
-node scripts/workflow/doctor.mjs --root .
+node scripts/workflow/doctor.mjs
 ```
 
 doctor 的 `opencode-version` 通过只证明 CLI 版本符合基线；`native-runtime: unverified` 仍需在实际 Location 验证 `workflow.starter` 已加载，并完成领域规则加载、路径保护、提交扫描和手动 `/review` 的原生冒烟。验证方式及证据要求见 [测试说明](testing.md) 和 [开发协作说明](development.md)。

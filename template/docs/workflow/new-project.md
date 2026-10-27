@@ -88,7 +88,7 @@ opencode
 - pipefail：内置识别以外的测试命令前缀登记到 `.opencode/workflow/pipefail.json`。
 - `.gitignore`：补充构建产物、依赖目录、缓存和本地配置。
 - 保护规则：生成目录、第三方目录、新的凭据文件形式，由模型给出 `.opencode/workflow/protection.json` 的拟议差异和理由，你在 OpenCode 之外修改；之后模型运行 `node scripts/workflow/doctor.mjs --print-permissions`，用输出更新 `opencode.jsonc` 末尾的权限块。没有需要新增的规则时说明理由。
-- 运行 `node scripts/workflow/doctor.mjs --root .`：fail 必须处理，warn 逐项处理或说明。
+- 运行 `node scripts/workflow/doctor.mjs`：fail 必须处理，warn 逐项处理或说明。
 
 完成后经你确认提交。
 
