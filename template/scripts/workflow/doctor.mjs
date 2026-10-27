@@ -78,7 +78,7 @@ async function diagnose() {
   if (config) await check('rule-size', () => {
     const limit = requirePlugin().SCOPE_TEXT_LIMIT
     if (!Number.isInteger(limit)) return { status: 'unverified', message: '插件没有导出规则上限（插件早于本脚本），未检查规则大小；更新 .opencode/plugins/workflow 后重试。' }
-    // 按解析后的路径去重（./AGENTS.md 与 AGENTS.md 是同一份），显示时保留配置里的写法。
+    // 按解析后的路径去重（带不带 ./ 前缀是同一份文件），显示时保留配置里的写法。
     const files = new Map()
     for (const { instruction } of config.scopes) if (!files.has(resolve(root, instruction))) files.set(resolve(root, instruction), instruction)
     const long = [...files].map(([file, path]) => [path, readFileSync(file, 'utf8').length])

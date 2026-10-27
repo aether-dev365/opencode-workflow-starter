@@ -68,7 +68,7 @@ test('ignored files, template agent files, managed agents and dependency bookkee
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))
 })
 
-test('AGENTS.md inside OpenCode agent, mode or command directories is reported because OpenCode loads it as an agent or command', async t => {
+test('an AGENTS rules file inside OpenCode agent, mode or command directories is reported because OpenCode loads it as an agent or command', async t => {
   const f = await repo(t, { '.opencode/agents/AGENTS.md': '领域规则', '.opencode/mode/AGENTS.md': '领域规则', '.opencode/commands/AGENTS.md': '领域规则', '.opencode/agent/web/AGENTS.md': '领域规则' })
   const report = await detectExisting(f.root, { personal: false })
   assert.deepEqual(report.items.map(i => [i.path, i.opencode]), [['.opencode/agent/web', 'loaded'], ['.opencode/agents/AGENTS.md', 'loaded'],
@@ -85,7 +85,7 @@ test('operating system bookkeeping files neither create nor count toward an item
   assert.deepEqual(report.personal.map(p => [p.path, p.entries]), [['~/.agents/skills', 1]])
 })
 
-test('CLAUDE.md and GEMINI.md that only reference a sibling AGENTS.md are shared', async t => {
+test('Claude Code and Gemini CLI rule files that only reference the sibling AGENTS rules file are shared', async t => {
   const f = await repo(t, { 'AGENTS.md': '# rules', 'CLAUDE.md': '\uFEFF@./AGENTS.md\r\n', 'GEMINI.md': 'AGENTS.md\n', 'api/AGENTS.md': 'r', 'api/CLAUDE.md': '@AGENTS.md',
     'lonely/CLAUDE.md': '@AGENTS.md', 'big/AGENTS.md': 'r', 'big/CLAUDE.md': '@AGENTS.md\n' + 'x'.repeat(70 * 1024), 'le/AGENTS.md': 'r', 'be/AGENTS.md': 'r' })
   // PowerShell 5.1 的重定向写出带 BOM 的 UTF-16。
@@ -97,7 +97,7 @@ test('CLAUDE.md and GEMINI.md that only reference a sibling AGENTS.md are shared
   assert.match(report.items.find(i => i.path === 'lonely/CLAUDE.md')!.note, /引用的 AGENTS\.md 不存在/)
 })
 
-test('a CLAUDE.md symlink to the sibling AGENTS.md is shared but other links are not followed', async t => {
+test('a Claude Code rules symlink to the sibling AGENTS rules file is shared but other links are not followed', async t => {
   const f = await repo(t, { 'AGENTS.md': '# rules', 'other/AGENTS.md': 'r', 'win/AGENTS.md': 'r' })
   // Windows 上 Node 把相对目标中的 / 写成 \，readlink 原样返回。
   try { await symlink('AGENTS.md', join(f.root, 'CLAUDE.md')); await symlink('../AGENTS.md', join(f.root, 'other/CLAUDE.md')); await symlink('.\\AGENTS.md', join(f.root, 'win/GEMINI.md')) }

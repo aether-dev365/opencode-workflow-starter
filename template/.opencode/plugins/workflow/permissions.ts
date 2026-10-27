@@ -31,7 +31,7 @@ export async function registerPathPermissions(ctx: Plugin.Context): Promise<() =
       try { session = await ctx.session.get({ sessionID: event.sessionID }); agent = session.agent }
       catch (error) { event.effect = 'deny'; event.message = `无法确认会话代理：${(error as Error).message}`; return }
     }
-    // reviewer.md 被 OpenCode 忽略时，配置里的同名代理会退回默认的全部允许；只读在这里强制，不依赖代理文件。
+    // reviewer 的代理文件被 OpenCode 忽略时，配置里的同名代理会退回默认的全部允许；只读在这里强制，不依赖代理文件。
     if (agent === REVIEWER && !REVIEWER_ACTIONS.has(event.action)) {
       event.effect = 'deny'; event.message = `审核员只读：只允许 read、glob、grep 和 workflow_review_submit，已拒绝 ${event.action}`; return
     }

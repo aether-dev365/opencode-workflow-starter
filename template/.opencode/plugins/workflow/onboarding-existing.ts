@@ -35,8 +35,8 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
   { tool: 'OpenCode', marker: '.opencode/', where: 'nested' }, { tool: 'OpenCode', marker: 'opencode.json', where: 'nested' }, { tool: 'OpenCode', marker: 'opencode.jsonc', where: 'nested' },
 ]
 
-// 根 .opencode/ 下的模板文件、领域规则 AGENTS.md、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
-// 代理、命令目录中的每个 .md 都会被 OpenCode 加载，AGENTS.md 也不例外。
+// 根 .opencode/ 下的模板文件、领域规则文件、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
+// 代理、命令目录中的每个 Markdown 文件都会被 OpenCode 加载，AGENTS 规则文件也不例外。
 // OpenCode 2.1.4 递归加载 agent(s)、command(s) 目录，mode(s) 只加载目录本身的文件。
 const LOADED_AS = new Map([['agents', '代理'], ['agent', '代理'], ['modes', '代理'], ['mode', '代理'], ['commands', '命令'], ['command', '命令']])
 const loader = (parts: string[]) => ['modes', 'mode'].includes(parts[1]) && parts.length !== 3 ? undefined : LOADED_AS.get(parts[1])
@@ -93,7 +93,7 @@ function classify(path: string, managed: readonly string[]): Found | null {
   return null
 }
 
-// 只引用 AGENTS.md：@ 引用、指向它的符号链接（只读链接目标），或不支持符号链接的检出中 Git 写出的占位文件。
+// 只引用同目录的 AGENTS 规则文件：@ 引用、指向它的符号链接（只读链接目标），或不支持符号链接的检出中 Git 写出的占位文件。
 // 带 BOM 的 UTF-16 按 UTF-16 解码：PowerShell 5.1 的重定向写出这种文件。
 async function references(file: string): Promise<boolean> {
   try {

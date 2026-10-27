@@ -105,7 +105,7 @@ export function runInstructions(batch: Batch): string {
     `- ${t.id}: .opencode/workflow/review/checklists/${t.checklist}; ${batch.reviewDir}/units/${t.id.replaceAll(':', '-')}/`).join('\n') +
     '\nreviewer 用 workflow_review_submit 提交；全部有结论后 close。有阻断时修复后按同一累计 base 重新 run。'
 }
-// reviewer.md 缺失或 frontmatter 有错时 OpenCode 会静默忽略它；没有审核说明的 reviewer 不能开始审核或提交结论。
+// reviewer 的代理文件缺失或 frontmatter 有错时 OpenCode 会静默忽略它；没有审核说明的 reviewer 不能开始审核或提交结论。
 async function assertReviewerLoaded(ctx: Plugin.Context, root: string): Promise<void> {
   let system: unknown, cause: unknown
   try { system = (await ctx.agent.get({ agentID: REVIEWER, location: { directory: root } })).data.system } catch (error) { cause = error }

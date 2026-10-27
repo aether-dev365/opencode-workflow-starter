@@ -34,7 +34,7 @@ function agent(value: unknown): AgentChoice {
   const { name, description, focus } = value
   if (typeof name !== 'string' || name.length < 2 || name.length > 40 || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) throw new Error('子代理名称只能使用小写字母、数字和连字符，长度 2–40')
   if (RESERVED_AGENT_NAMES.includes(name) || name.split('-').some(part => part === 'review' || part === 'reviewer')) throw new Error(`子代理名称不能占用内置代理或套件角色，也不能包含 review、reviewer 段；需要更多审核视角时增加检查单：${name}`)
-  // Windows 把这些主干名当作设备，<名称>.md 无法创建，也无法被 Git for Windows 检出。
+  // Windows 把这些主干名当作设备，同名的代理文件无法创建，也无法被 Git for Windows 检出。
   if (/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/.test(name)) throw new Error(`子代理名称是 Windows 保留的设备名，代理文件无法在 Windows 上使用：${name}`)
   // 配置按代理名称查找，constructor 会命中对象的内置属性。
   if (name === 'constructor') throw new Error('子代理名称不能是 constructor：它与配置对象的内置属性同名，无法安全合并')

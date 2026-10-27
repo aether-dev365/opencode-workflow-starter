@@ -96,7 +96,7 @@ async function main() {
   }
   const problem = pin(scanner ? dirname(scanner) : fallback)
   if (problem && scanner && !samePath(dirname(scanner), fallback)) {
-    // PATH 上是其他版本：固定版本装到 ~/.local/bin，由用户决定卸载旧版本还是调整 PATH 顺序。
+    // PATH 上是其他版本：固定版本装到 ~/.local/bin，卸载旧版本还是调整 PATH 顺序交给用户。
     const pinned = pin(fallback)
     console.log(pinned ? `fail ${pinned}` : `fail PATH 上的 ${scanner} 不是固定版本，提交扫描会先用它并因版本不符拒绝提交；卸载它，或把 ${fallback} 放到 PATH 中它所在目录之前`)
   } else if (problem) console.log(`fail ${problem}`)

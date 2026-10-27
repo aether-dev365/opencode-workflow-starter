@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { AgentChoice } from './onboarding-config.ts'
 
-// 与模板 implementer.md 的正文相同，由测试核对；生成的子代理沿用同一协作边界。
+// 与模板 implementer 代理文件的正文相同，由测试核对；生成的子代理沿用同一协作边界。
 export const AGENT_CONTRACT = [
   '先读根规则、相关领域规则和任务卡。核对绝对 Location、基线、写入范围、接口与资源安排；缺影响行为的决定时报告主代理。',
   '只改分配文件，不与其他写入者同时改共享文件。实现和验证真实行为，交付修改列表、验收场景、命令/工作目录/退出码、联动影响及未完成项。已批准设计直接执行。',

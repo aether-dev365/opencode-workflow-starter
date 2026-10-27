@@ -354,6 +354,27 @@ test('quality README copy instructions produce a passing standalone test suite',
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+// 接入方启用质量扩展后可以对整个项目运行注释审核，模板和随附脚本自己的注释不应出现在报告里。
+test('the template and optional scripts pass the comment review they ship with', async () => {
+  const { pythonCommand } = await import('../template/.opencode/plugins/workflow/platform.ts')
+  const temp = mkdtempSync(join(tmpdir(), 'workflow-comments-'))
+  const root = join(temp, 'repo')
+  try {
+    cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
+    for (const [from, to] of [['optional/quality', 'scripts/quality'], ['optional/ci', 'scripts/ci']]) {
+      for (const name of readdirSync(from).filter(name => name.endsWith('.py'))) cpSync(join(from, name), join(root, to, name))
+    }
+    const config = join(temp, 'empty-gitconfig')
+    writeFileSync(config, '')
+    const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: config, PYTHONDONTWRITEBYTECODE: '1', PYTHONIOENCODING: 'utf-8' }
+    execFileSync('git', ['init', '-q'], { cwd: root, env })
+    const python = pythonCommand()
+    const result = spawnSync(python.command, [...python.args, 'scripts/quality/review-comments.py', '--all'], { cwd: root, env, encoding: 'utf8', timeout: 120000 })
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}${result.error ? '\n' + result.error.message : ''}`)
+    assert.ok(Number(result.stdout.match(/注释审核：检查了 (\d+) 个文件，0 处需复核/)?.[1]) > 0, result.stdout)
+  } finally { rmSync(temp, { recursive: true, force: true }) }
+})
+
 test('quality documentation describes snapshot and format boundaries', () => {
   const readme = readFileSync('optional/quality/README.md', 'utf8')
   for (const text of ['注释审核', '跳过测试检查', '链接检查', '格式检查', '--all --fix', '--staged', '--range', '--hook', '工作区', '快照', '.cmd', '.bat', '只读', '手动', '不会自动暂存', 'ignoreTargets']) {
