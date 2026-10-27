@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFile, readFile, mkdir, rm, link } from 'node:fs/promises'
+import { writeFile, readFile, mkdir, rm, link, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fixture, before, context, load } from './fixture.ts'
@@ -140,6 +140,22 @@ test('grep 的 path、shell 的 workdir 和原生工具路径按 OpenCode 的方
     else process.env.OPENCODE_TEST_HOME = previous
     await f.close()
   }
+})
+
+test('符号链接之后的 .. 按内核的方式解析', async t => {
+  // 内核先跟随 L 再回到上一级：L/../protection.json 指向保护配置，字面合并却得到项目根下的 protection.json。
+  const f = await fixture()
+  try {
+    await mkdir(join(f.root, '.opencode/workflow/sub'))
+    try { await symlink(join(f.root, '.opencode/workflow/sub'), join(f.root, 'L'), 'dir') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('需要创建符号链接的权限'); throw error }
+    await (await load())(f.ctx)
+    const allowed = before('shell', { command: 'echo x > notes.txt', workdir: f.root })
+    await assert.rejects(f.fire('tool.execute.before', allowed), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', allowed)
+    await assert.rejects(f.fire('tool.execute.before', before('shell', { command: 'echo x > L/../protection.json', workdir: f.root })), /保护配置/)
+  } finally { await f.close() }
 })
 
 test('git clean 的路径按 git 的 pathspec 规则检查', async () => {

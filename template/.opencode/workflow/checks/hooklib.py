@@ -329,6 +329,32 @@ def _resolve(cur, tok):
     return os.path.normpath(os.path.join(cur, tok))
 
 
+def physical_path(path):
+    """按 POSIX 内核的方式解析绝对路径中的 `..`：先跟随前面各段的符号链接，再回到上一级；最后一段不跟随，由
+    check_path 的真实路径检查覆盖。字面合并会把 `LINK/../x` 当作与 LINK 同级的 x，内核打开的却是链接目标上一级里的 x。
+    不含 `..` 段或不是绝对路径时原样返回。Windows 按字面合并 `..`，这里同样计算，只是多检查一个候选。"""
+    drive, rest = os.path.splitdrive(path)
+    parts = re.split(r'[\\/]', rest) if os.name == 'nt' else rest.split('/')
+    if '..' not in parts or not os.path.isabs(path):
+        return path
+    current = drive + os.sep
+    for part in parts[:-1]:
+        if part in ('', '.'):
+            continue
+        current = os.path.dirname(current) if part == '..' else os.path.realpath(os.path.join(current, part))
+    return os.path.join(current, parts[-1])
+
+
+def _shell_paths(cur, tok):
+    """shell 命令中的路径候选：字面合并的路径；含 `..` 段时另加按内核方式解析的路径（见 physical_path）。"""
+    lexical = _resolve(cur, tok)
+    raw = windows_path(_dequote(tok.replace("\\", "/")))
+    if not raw or raw.startswith(("-", "$", "~")) or not (is_absolute(raw) or cur):
+        return [lexical]
+    physical = physical_path(raw if is_absolute(raw) else os.path.join(cur, raw))
+    return list(dict.fromkeys([lexical, os.path.normpath(physical)]))
+
+
 def _cd(cur, target):
     target = os.path.expanduser(windows_path(_dequote(target.replace("\\", "/"))))
     if os.environ.get('CDPATH') and not is_absolute(target) and target.split('/')[0] not in {'.', '..'}:
@@ -479,10 +505,16 @@ def command_states(text, cwd, env):
         cwd, frozen = state
         results.append((segment, cwd, dict(frozen)))
         if words[:1] == ['cd']:
-            moved = (_cd(cwd, words[1]), frozen)
+            target = _cd(cwd, words[1])
+            moved = [(target, frozen)]
+            literal = os.path.expanduser(windows_path(_dequote(words[1].replace("\\", "/"))))
+            if '..' in literal.split('/') and (is_absolute(literal) or cwd):
+                # 默认的逻辑 cd 按字面合并 `..`；`set -P` 之后按真实路径切换，两种都可能。
+                physical = os.path.realpath(physical_path(literal if is_absolute(literal) else os.path.join(cwd, literal)))
+                moved += [(physical, frozen)] if physical != target else []
             if _bare_cd(segment):
-                return {(moved, 'ok'): None, (state, 'fail'): None}
-            return {(moved, 'any'): None, (state, 'any'): None}
+                return {**{(state, 'ok'): None for state in moved}, (state, 'fail'): None}
+            return {**{(state, 'any'): None for state in moved}, (state, 'any'): None}
         # export 等给只读变量赋值会失败而 shell 继续执行，之后的 `||` 仍会执行。
         assigned = _assigned_env(segment, dict(frozen))
         if assigned is not None:
@@ -1373,7 +1405,7 @@ def _analyze(command, cwd, env):
                 raise ValueError(STATIC_SHELL_ERROR)
             if "$" in target or SUBST_REF.search(target):
                 raise ValueError(STATIC_SHELL_ERROR)
-            targets.append(_resolve(cur, SUBST_REF.sub("()", target)))
+            targets += _shell_paths(cur, SUBST_REF.sub("()", target))
         decoded = shlex.split(seg, comments=True)
         seg = _strip_redirects(seg)
         # 命令本身（剥掉 env 前缀之后）的参数里有没有替换：替换出来的可能是写选项或脚本，见 ARG_SAFE_CMD
@@ -1381,9 +1413,9 @@ def _analyze(command, cwd, env):
         # sed 的 w 文件名常紧贴在脚本里（`s/a/b/w文件`），TOKEN 抠不出来，解析出来单独当写候选
         sed_core = SYS_BIN.sub("", raw, count=1)
         if sed_core.split(None, 1)[:1] == ["sed"]:
-            targets += [_resolve(cur, f) for f in _sed_effects(sed_core)[1]]
+            targets += [p for f in _sed_effects(sed_core)[1] for p in _shell_paths(cur, f)]
         elif sed_core.split(None, 1)[:1] == ["sort"]:
-            targets += [_resolve(cur, f) for f in _sort_outputs(sed_core)]
+            targets += [p for f in _sort_outputs(sed_core) for p in _shell_paths(cur, f)]
         # 占位换成 TOKEN 抠不出的 `()`：既不冒充路径，当首词时也不在只读白名单里（跑的是替换出来的命令，说不清）
         seg = SUBST_REF.sub("()", seg)
         if ">" in _mask_quotes(seg):
@@ -1391,14 +1423,14 @@ def _analyze(command, cwd, env):
         am = ASSIGN.match(seg.strip())
         core = raw
         if parsed[:1] == ['cd']:
-            tokens.append(_resolve(cur, parsed[1]))
+            tokens += _shell_paths(cur, parsed[1])
         elif not am and core and not NEUTRAL_CMD.match(core) and not (
                 _readonly_segment(core, raw) and (not had_subst or _subst_args_safe(core))):
             readonly = False
         # 先做 shell 引号去除和反斜杠解码，再取候选；不能把 shell 转义误当路径分隔符。
         for word in ([] if parsed[:1] in (['echo'], ['printf']) else decoded):
             for tok in dict.fromkeys([word, *TOKEN.findall(_dequote(word))]):
-                tokens.append(_resolve(cur, tok))
+                tokens += _shell_paths(cur, tok)
     return targets, tokens, readonly
 
 

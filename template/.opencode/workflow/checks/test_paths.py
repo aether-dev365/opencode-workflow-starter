@@ -365,6 +365,30 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command, credentials=False):
                 self.assertEqual(self.guard(command=command), 'deny')
 
+    def test_parent_segments_after_symlinks_follow_the_kernel(self):
+        # 内核先跟随符号链接再处理 `..`：LINK/../x 指向链接目标的上一级里的 x，而不是按字面合并后的 x。
+        from hooklib import command_paths
+        policy = json.loads(POLICY.read_text(encoding='utf-8'))
+        policy['rules'].append({'id': 'private', 'actions': ['read', 'edit'], 'paths': ['private/*'], 'effect': 'deny', 'reason': 'Synthetic private files'})
+        (self.root / '.opencode/workflow/protection.json').write_text(json.dumps(policy), encoding='utf-8')
+        (self.root / 'private/sub').mkdir(parents=True)
+        (self.root / 'private/key').write_text('synthetic')
+        (self.root / 'a').mkdir()
+        (self.root / 'a/note.txt').write_text('public')
+        (self.root / 'a/PL').symlink_to(self.root / 'private/sub', target_is_directory=True)
+        (self.root / '.opencode/workflow/sub').mkdir()
+        (self.root / 'L').symlink_to(self.root / '.opencode/workflow/sub', target_is_directory=True)
+        for command in ['echo x > L/../protection.json', 'cat a/PL/../key', 'echo x > a/PL/../key', 'rm -rf a/PL/../key',
+                        'sed -i s/a/b/ a/PL/../key', 'set -P; cd a/PL/..; cat key']:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'deny')
+        for command in ['cat a/note.txt', 'cd a && cat note.txt', 'cat a/../a/note.txt', 'echo x > a/new.txt']:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'allow')
+        # 插件按同一份候选路径检查保护配置。
+        written = [os.path.realpath(path) for path in command_paths('echo x > L/../protection.json', str(self.root))]
+        self.assertIn(os.path.realpath(self.root / '.opencode/workflow/protection.json'), written)
+
     def test_tool_paths_resolve_like_opencode(self):
         # OpenCode 解析 grep 的 path、shell 的 workdir 和原生工具路径时，把 `~`、`~/` 换成主目录，再按字面合并 `..`。
         from unittest.mock import patch
