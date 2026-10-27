@@ -270,6 +270,13 @@ test(`OpenCode ${baseline} executes the isolated workflow through real native bo
         rmSync(join(h.directory, 'leak.txt'), { force: true })
       }
     })
+    // 命令或技能文件写错时宿主可能不报错而直接不加载，只能核对实际加载的清单。
+    await t.test('template commands and skills load in the host', async () => {
+      const commands = (await h.client.command.list({ location: h.location })).data.map(command => command.name)
+      const skills = (await h.client.skill.list({ location: h.location })).data.map(skill => skill.id)
+      for (const name of ['review', 'workflow-setup', 'workflow-new']) assert.ok(commands.includes(name), `command ${name}: ${commands.join(', ')}`)
+      for (const id of ['workflow-onboarding', 'workflow-new-project']) assert.ok(skills.includes(id), `skill ${id}: ${skills.join(', ')}`)
+    })
     assert.deepEqual(h.model.failures, [])
   } finally { await h.close() }
 })

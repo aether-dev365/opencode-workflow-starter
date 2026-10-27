@@ -49,6 +49,37 @@ test('the root rules template has the project summary placeholder and the guide 
   NEW_PROJECT_PHASES.forEach((name, index) => assert.match(guide, new RegExp(`^## 第 ${index} 阶段：${name}$`, 'm'), name))
 })
 
+// 命令按 ID 加载技能：改名时命令、技能目录和 frontmatter 的 name 要一起改，否则技能加载不到。
+test('template commands load skills that exist under the same name', () => {
+  const named = readdirSync('template/.opencode/commands').filter(name => name.endsWith('.md'))
+    .flatMap(name => [...readFileSync(join('template/.opencode/commands', name), 'utf8').matchAll(/加载 `([a-z0-9-]+)` 技能/g)].map(match => match[1]))
+  assert.deepEqual(named.sort(), ['workflow-new-project', 'workflow-onboarding'])
+  for (const id of named) {
+    const front = readFileSync(join('template/.opencode/skills', id, 'SKILL.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? ''
+    assert.ok(front.split('\n').includes(`name: ${id}`), id)
+  }
+})
+
+test('the new-project command and skill keep the guide phases, the summary placeholder and the flow boundaries', () => {
+  const command = readFileSync('template/.opencode/commands/workflow-new.md', 'utf8')
+  const skill = readFileSync('template/.opencode/skills/workflow-new-project/SKILL.md', 'utf8')
+  for (const text of ['/workflow-setup', 'docs/workflow/new-project.md']) {
+    assert.ok(command.includes(text), `command: ${text}`)
+    assert.ok(skill.includes(text), `skill: ${text}`)
+  }
+  for (const text of [SUMMARY_PLACEHOLDER, ...NEW_PROJECT_PHASES, 'workflow-onboarding', 'protection.json', '推送', '发布', '远端仓库']) assert.ok(skill.includes(text), text)
+})
+
+test('the onboarding guide and skill hand brand-new projects to /workflow-new', () => {
+  const guide = readFileSync('template/docs/workflow/onboarding.md', 'utf8')
+  const skill = readFileSync('template/.opencode/skills/workflow-onboarding/SKILL.md', 'utf8')
+  assert.ok(guide.includes('[新项目流程](new-project.md)'))
+  for (const text of ['/workflow-new', '第二轮']) {
+    assert.ok(guide.includes(text), `guide: ${text}`)
+    assert.ok(skill.includes(text), `skill: ${text}`)
+  }
+})
+
 test('tracked text files contain no local home paths or IPv4 addresses', () => {
   for (const path of tracked()) assert.deepEqual(leaks(readFileSync(path, 'utf8')), [], path)
 })

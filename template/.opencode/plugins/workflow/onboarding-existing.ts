@@ -41,8 +41,8 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
 const LOADED_AS = new Map([['agents', '代理'], ['agent', '代理'], ['modes', '代理'], ['mode', '代理'], ['commands', '命令'], ['command', '命令']])
 const loader = (parts: string[]) => ['modes', 'mode'].includes(parts[1]) && parts.length !== 3 ? undefined : LOADED_AS.get(parts[1])
 const SYSTEM_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
-const TEMPLATE_FILES = new Set(['LICENSE', 'agents/implementer.md', 'agents/reviewer.md', 'agent/implementer.md', 'agent/reviewer.md', 'commands/review.md', 'commands/workflow-setup.md', '.gitignore', 'bun.lock', 'bun.lockb', 'package-lock.json'])
-const TEMPLATE_PREFIXES = ['plugins/workflow/', 'secret-scan/', 'skills/workflow-onboarding/', 'workflow/', 'node_modules/']
+const TEMPLATE_FILES = new Set(['LICENSE', 'agents/implementer.md', 'agents/reviewer.md', 'agent/implementer.md', 'agent/reviewer.md', 'commands/review.md', 'commands/workflow-setup.md', 'commands/workflow-new.md', '.gitignore', 'bun.lock', 'bun.lockb', 'package-lock.json'])
+const TEMPLATE_PREFIXES = ['plugins/workflow/', 'secret-scan/', 'skills/workflow-onboarding/', 'skills/workflow-new-project/', 'workflow/', 'node_modules/']
 const POINTER_FILES = ['CLAUDE.md', 'GEMINI.md']
 const LIMIT = 100, POINTER_BYTES = 64 * 1024
 const anyDirectories = new Map(EXISTING_MARKERS.filter(m => m.where === 'any' && m.marker.endsWith('/')).map(m => [m.marker.slice(0, -1), m.tool]))
