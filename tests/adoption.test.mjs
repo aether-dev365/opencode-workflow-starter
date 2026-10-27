@@ -82,7 +82,7 @@ test('a separately installed copy passes doctor without source checkout configur
     const plugin = spawnSync(process.execPath, ['--experimental-strip-types', '--test', '--test-reporter=tap', '--test-timeout=120000', '--test-force-exit', 'test/onboarding-files.test.ts'],
       { cwd: join(root, '.opencode/plugins/workflow'), env, encoding: 'utf8', timeout: 300000 })
     const count = name => Number(plugin.stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1])
-    assert.equal(plugin.status, 0, plugin.stdout + plugin.stderr)
+    assert.equal(plugin.status, 0, `${plugin.stdout}\n${plugin.stderr}${plugin.error ? '\n' + plugin.error.message : ''}`)
     assert.equal(count('fail'), 0)
     assert.ok(count('pass') > 0)
     const reasons = [...plugin.stdout.matchAll(/ # SKIP (.*)$/gm)].map(match => match[1])

@@ -66,7 +66,7 @@ npm --prefix .opencode/plugins/workflow test
 
 Windows 原生环境在 PowerShell 中执行时，把 `python3` 换成 `py -3`，守卫测试改为 `py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`。不要在 PowerShell 中调用 `bash`：那里的 `bash` 通常是 WSL 启动器。
 
-插件测试中依赖套件源码的用例（可选组件的复制与安装）在接入方项目中跳过，跳过原因写明需要套件源码。
+插件测试中依赖套件源码的用例（可选组件的复制与安装）在接入方项目中跳过，跳过原因写明需要套件源码；没有创建符号链接权限的 Windows 上，另有部分用例以“需要创建符号链接的权限”跳过。
 
 doctor 不修改项目文件；失败需处理，不能通过删除保护配置消除错误。没有实际执行的项目构建、平台验收和原生插件运行标为未验证。
 
