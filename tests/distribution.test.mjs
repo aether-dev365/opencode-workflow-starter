@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync } from 'node:fs'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { assertPythonSuiteComplete } from './fixtures/python-suite.mjs'
@@ -13,6 +13,9 @@ function files(path) {
   return readdirSync(path, { withFileTypes: true }).filter(e => !['node_modules', '__pycache__', '.state'].includes(e.name)).flatMap(e => e.isDirectory() ? files(join(path, e.name)) : [join(path, e.name)])
 }
 const tracked = () => execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(path => path && !path.endsWith('package-lock.json'))
+// 新项目技能按这句占位说明判断根规则的项目概要是否已填写，阶段名在流程文档和技能中保持一致。
+const SUMMARY_PLACEHOLDER = '（接入时填写，保持简短：用途、技术栈、目录与领域、验证命令入口，以及设计记录的位置和何时阅读。）'
+const NEW_PROJECT_PHASES = ['准备', '最小接入与基线提交', '设计', '搭骨架', '项目规则', '第二轮配置', '验收与交接']
 
 test('public entrypoints and relative documentation links resolve within the deliverable', () => {
   for (const path of [...entrypoints, 'LICENSE', 'examples/adoption-report.md', 'optional/production/mcp-readonly.example.jsonc']) assert.ok(existsSync(path), path)
@@ -25,6 +28,25 @@ test('public entrypoints and relative documentation links resolve within the del
       assert.ok(existsSync(resolve(dirname(path), link.split('#')[0])), `${path} → ${link}`)
     }
   }
+})
+
+// 模板会被复制进接入方项目，指向模板之外的链接在那里会失效。
+test('template Markdown links stay inside the template', () => {
+  const inside = resolve('template') + sep
+  for (const path of files('template').filter(p => p.endsWith('.md'))) {
+    for (const [, link] of readFileSync(path, 'utf8').matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+      if (/^(https?:|#|mailto:)/.test(link)) continue
+      assert.ok(resolve(dirname(path), link.split('#')[0]).startsWith(inside), `${path} → ${link}`)
+    }
+  }
+})
+
+test('the root rules template has the project summary placeholder and the guide lists every phase', () => {
+  const rules = readFileSync('template/AGENTS.md', 'utf8')
+  assert.equal(rules.match(/^## 项目概要\n\n(.+)\n/m)?.[1], SUMMARY_PLACEHOLDER)
+  for (const text of ['/workflow-new', 'docs/workflow/new-project.md']) assert.ok(rules.includes(text), text)
+  const guide = readFileSync('template/docs/workflow/new-project.md', 'utf8')
+  NEW_PROJECT_PHASES.forEach((name, index) => assert.match(guide, new RegExp(`^## 第 ${index} 阶段：${name}$`, 'm'), name))
 })
 
 test('tracked text files contain no local home paths or IPv4 addresses', () => {
