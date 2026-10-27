@@ -34,8 +34,12 @@ test('public entrypoints and relative documentation links resolve within the del
 test('template Markdown links stay inside the template', () => {
   const inside = resolve('template') + sep
   for (const path of files('template').filter(p => p.endsWith('.md'))) {
-    for (const [, link] of readFileSync(path, 'utf8').matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const text = readFileSync(path, 'utf8')
+    // 行内链接可以带尖括号和标题；引用式链接的目标写在定义行。
+    const links = [...text.matchAll(/\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]+))/g), ...text.matchAll(/^ {0,3}\[[^\]]+\]:\s*(?:<([^>]*)>|(\S+))/gm)]
+    for (const link of links.map(match => match[1] ?? match[2])) {
       if (/^(https?:|#|mailto:)/.test(link)) continue
+      assert.ok(!/^[a-z][a-z0-9+.-]*:/i.test(link), `${path} → ${link}`)
       assert.ok(resolve(dirname(path), link.split('#')[0]).startsWith(inside), `${path} → ${link}`)
     }
   }
