@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync, chmodSync, linkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell, launchable, executable, systemCommand } from '../platform.ts'
+import { windowsPath, portableRelative, containedRelative, pythonCommand, pythonEnv, childOptions, killTree, findExecutable, commandLine, samePath, unsupportedShell, launchable, executable, systemCommand, missingLongName } from '../platform.ts'
 import * as hookPlatform from '../platform.ts'
 
 test('hook 可执行性使用平台语义，拒绝目录、缺失及共享 inode', () => {
@@ -162,6 +162,22 @@ test('cmd scripts run through cmd.exe with the whole command line quoted', () =>
   assert.deepEqual(commandLine('C:\\tools\\gitleaks.exe', ['version'], 'win32'), { command: 'C:\\tools\\gitleaks.exe', args: ['version'] })
   assert.deepEqual(commandLine('/usr/bin/opencode.cmd', ['--version'], 'linux'), { command: '/usr/bin/opencode.cmd', args: ['--version'] })
   assert.throws(() => commandLine('C:\\x\\a.cmd', ['say "hi"'], 'win32'), /cmd/)
+})
+
+test('overlong names count as missing only when no file can have them', () => {
+  // 整条路径短于上限时名字过长只能来自某一段，或某段超过 255 个 UTF-16 码元；整条路径超长而每段正常时可能真实存在。
+  const tooLong = (file?: string, code = 'ENAMETOOLONG') => Object.assign(new Error('name too long'), { code, path: file })
+  const deep = '/repo' + ('/' + 'a'.repeat(200)).repeat(30)
+  const wide = '/repo/' + '说'.repeat(200) + '/' + '明'.repeat(200)
+  const windows = 'C:\\repo' + ('\\' + 'a'.repeat(200)).repeat(30)
+  for (const [platform, file, missing] of [
+    ['linux', '/repo/' + 'x'.repeat(300) + '/.git', true], ['linux', '/repo/' + '提交说明'.repeat(25), true],
+    ['linux', deep, false], ['linux', deep + '/' + 'x'.repeat(256), true], ['linux', wide, true], ['darwin', wide, false],
+    ['win32', windows, true], ['win32', windows.repeat(6), false], ['win32', windows.repeat(6) + '\\' + 'x'.repeat(256), true],
+    ['freebsd', '/repo/' + 'x'.repeat(300), true], ['freebsd', '/repo/x', false],
+  ] as const) assert.equal(missingLongName(tooLong(file), platform), missing, `${platform} ${file.length}`)
+  assert.equal(missingLongName(tooLong('/repo/' + 'x'.repeat(300), 'EACCES'), 'linux'), false)
+  assert.equal(missingLongName(tooLong(undefined), 'linux'), false)
 })
 
 test('Windows paths compare case-insensitively', () => {

@@ -1,3 +1,5 @@
+import errno
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -6,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from policy import policy_root
 
 HERE = Path(__file__).resolve().parent
@@ -58,6 +61,49 @@ class PathGuards(unittest.TestCase):
             (Path(home) / '.opencode/opencode.json').write_text('{}')
             (Path(home) / 'opencode.jsonc').write_text('{}')
             self.assertIsNone(policy_root(Path(home) / 'notes.md'))
+
+    def test_arguments_with_overlong_names_are_not_existing_paths(self):
+        # 名字超过文件系统上限的参数不可能是已有文件或链接，长提交说明和内联脚本照常放行。
+        for command in [f'git commit -m title -m {"x" * 300}', f'git commit -m title -m {"提交说明" * 25}',
+                        f'python3 -c "print(\'{"x" * 300}\')"']:
+            with self.subTest(command=command[:30]):
+                self.assertEqual(self.guard(command=command), 'allow')
+
+    def test_overlong_names_still_follow_literal_rules_without_echoing_them(self):
+        name = 'x' * 300
+        for command, reason in [(f'echo x > {name}.env', 'Synthetic credential protection'),
+                                (f'cat {name}.env', 'Synthetic credential protection'), (f'echo x > vendor/{name}', '第三方 fixture')]:
+            with self.subTest(command=command[:30]):
+                denied = self.result(command=command)
+                self.assertEqual(denied['decision'], 'deny')
+                self.assertIn(reason, denied['reason'])
+                self.assertNotIn(name, denied['reason'])
+
+    def test_paths_beyond_the_system_limit_are_denied_without_echoing_them(self):
+        # 整条路径超过上限而每段名字正常时，路径可能真实存在（经相对路径访问的深层目录），无法检查就拒绝。
+        argument = '/'.join(['a' * 200] * 30)
+        result = self.result(command=f'git commit -m title -m {argument}')
+        if os.name == 'nt':
+            # Windows 对不存在的超长路径报 ENOENT，按不存在放行。
+            self.assertEqual(result['decision'], 'allow')
+            return
+        self.assertEqual(result['decision'], 'deny')
+        self.assertIn('超过系统长度上限', result['reason'])
+        self.assertIn('git commit -F -', result['reason'])
+        self.assertNotIn(argument, result['reason'])
+        self.assertLess(len(result['reason']), 400)
+
+    def test_other_errors_still_deny_and_shorten_long_paths(self):
+        spec = importlib.util.spec_from_file_location('pre_guard_paths', HERE / 'pre-guard-paths.py')
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        path = '/repo/' + 'y' * 300
+        with mock.patch.object(guard, 'check_event', side_effect=PermissionError(errno.EACCES, 'Permission denied', path)):
+            result = guard.check({})
+        self.assertEqual(result['decision'], 'deny')
+        self.assertIn('Permission denied', result['reason'])
+        self.assertNotIn(path, result['reason'])
+        self.assertLess(len(result['reason']), 400)
 
     def test_sensitive_reads_and_recursive_deletion_are_denied(self):
         for command in ['cat .env', 'rm -rf .', 'grep value .env', 'git clean -fdx']:

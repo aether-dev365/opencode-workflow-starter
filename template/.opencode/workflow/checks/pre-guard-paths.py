@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Apply configured protection to native paths and supported shell operations."""
+import errno
 import os
 from pathlib import Path
 from hooklib import (candidates_from, split_segments, _command_lines, _lift_substitutions, _backtick_commands,
-                     _cd, windows_path, has_hidden_shell_eval, static_command_words, find_roots)
+                     _cd, windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_is_dir)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -29,7 +30,7 @@ def check_event(event):
         target_root, policy = selected if selected is not None else policy_for(path)
         reason = check_path(target_root, path, action, policy, real, descendants=action == 'edit')
         if reason:
-            raise ValueError(f'{reason} 路径：{reported_path or path}')
+            raise ValueError(f'{reason} 路径：{brief(reported_path or path)}')
 
     if event['tool'] == 'grep':
         path = event['input'].get('path', '')
@@ -37,7 +38,7 @@ def check_event(event):
             raise ValueError('搜索路径无效')
         target = Path(event['directory']) / windows_path(path)
         check(str(target), 'read')
-        pending = [target] if target.is_dir() else []
+        pending = [target] if path_is_dir(target) else []
         while pending:
             folder = pending.pop()
             # 不能依赖 rg 的忽略文件来豁免凭据；按可能搜索到的全部文件检查。
@@ -85,7 +86,7 @@ def check_event(event):
             selected = policy_for(str(absolute))
             # 删除目录会编辑其内容；check 对全部写候选统一使用子项探针。
             check(str(absolute), 'edit', selected)
-            if absolute.is_dir():
+            if path_is_dir(absolute):
                 # 目标内只拦截不可读文件，避免依赖内部的生成目录阻断清理；复用目标策略。
                 for entry, real in walk_with_real_paths(absolute):
                     check(str(entry), 'read', selected, real=real)
@@ -155,10 +156,22 @@ def walk_with_real_paths(top):
                 pending.append((path, path.resolve() if linked else real / entry.name))
 
 
+def brief(path):
+    """拒绝原因中的路径：超长参数只保留首尾，不整段回显。"""
+    text = str(path)
+    return text if len(text) <= 160 else f'{text[:60]}…{text[-60:]}（共 {len(text)} 个字符）'
+
+
 def check(data):
     try:
         return dict(decision='allow', volatile=True) if check_event(data) else dict(decision='allow')
-    except (ValueError, OSError, KeyError, TypeError) as error:
+    except OSError as error:
+        if error.filename is None:
+            return dict(decision='deny', reason=f'文件保护检查拒绝：{error}')
+        if error.errno == errno.ENAMETOOLONG:
+            return dict(decision='deny', reason=f'文件保护检查拒绝：路径超过系统长度上限，无法检查：{brief(error.filename)}。长文本改用文件或标准输入传入，例如 git commit -F -')
+        return dict(decision='deny', reason=f'文件保护检查拒绝：{error.strerror}：{brief(error.filename)}')
+    except (ValueError, KeyError, TypeError) as error:
         return dict(decision='deny', reason=f'文件保护检查拒绝：{error}')
 
 

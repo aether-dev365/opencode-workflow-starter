@@ -100,6 +100,24 @@ test('文档中由模型运行的 doctor 命令不触及保护配置', async () 
   } finally { await f.close() }
 })
 
+test('长提交说明和内联脚本的参数不被当作已有路径', async () => {
+  // 名字超过文件系统上限的参数不可能是已有文件；整条路径超过系统上限时无法检查而拒绝，原因不整段回显参数。
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    await assert.rejects(f.fire('tool.execute.before', before('write', { path: 'notes.txt' })), /上下文/)
+    await f.fire('session.context', context())
+    for (const command of [`git commit -m title -m ${'x'.repeat(300)}`, `git commit -m title -m ${'提交说明'.repeat(25)}`, `python3 -c "print('${'x'.repeat(300)}')"`]) {
+      await f.fire('tool.execute.before', before('shell', { command, workdir: f.root }))
+    }
+    const deep = Array(30).fill('a'.repeat(200)).join('/')
+    const call = f.fire('tool.execute.before', before('shell', { command: `git commit -m title -m ${deep}`, workdir: f.root }))
+    // Windows 对不存在的超长路径报 ENOENT，按不存在放行。
+    if (process.platform === 'win32') await call
+    else await assert.rejects(call, (error: Error) => /超过系统长度上限/.test(error.message) && !error.message.includes(deep) && error.message.length < 400)
+  } finally { await f.close() }
+})
+
 test('unseen scopes deny once then inject; compaction and child sessions reset visibility', async () => {
   const f = await fixture()
   try {

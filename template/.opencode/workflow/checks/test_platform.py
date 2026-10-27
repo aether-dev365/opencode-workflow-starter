@@ -1,4 +1,5 @@
 """Windows 与 Git Bash 的路径和进程差异；平台由参数或 mock 注入，在任何系统上都能运行。"""
+import errno
 import importlib.util
 import json
 import os
@@ -52,6 +53,23 @@ class Platform(unittest.TestCase):
         with mock.patch.object(policy.os.path, 'relpath', side_effect=ValueError('path is on mount D:, start on mount C:')):
             self.assertIsNotNone(policy.check_path('/repo', '/elsewhere/.env', 'read', rules))
             self.assertIsNone(policy.check_path('/repo', '/elsewhere/README.md', 'read', rules))
+
+    def test_overlong_names_count_as_missing_only_when_no_file_can_have_them(self):
+        # 整条路径短于上限时名字过长只能来自某一段，或某段超过 255 个 UTF-16 码元；整条路径超长而每段正常时可能真实存在。
+        def too_long(path, code=errno.ENAMETOOLONG):
+            return OSError(code, 'File name too long', path)
+        deep = '/repo' + ('/' + 'a' * 200) * 30
+        wide = '/repo/' + '说' * 200 + '/' + '明' * 200
+        windows = 'C:\\repo' + ('\\' + 'a' * 200) * 30
+        for platform, path, missing in [
+                ('linux', '/repo/' + 'x' * 300 + '/.git', True), ('linux', '/repo/' + '提交说明' * 25, True),
+                ('linux', deep, False), ('linux', deep + '/' + 'x' * 256, True), ('linux', wide, True), ('darwin', wide, False),
+                ('win32', windows, True), ('win32', windows * 6, False), ('win32', windows * 6 + '\\' + 'x' * 256, True),
+                ('freebsd14', '/repo/' + 'x' * 300, True), ('freebsd14', '/repo/x', False)]:
+            with self.subTest(platform=platform, length=len(path)):
+                self.assertEqual(hooklib.missing_long_name(too_long(path), platform), missing)
+        self.assertFalse(hooklib.missing_long_name(too_long('/repo/' + 'x' * 300, errno.EACCES), 'linux'))
+        self.assertFalse(hooklib.missing_long_name(OSError(errno.ENAMETOOLONG, 'File name too long'), 'linux'))
 
     def test_timeout_kills_tree_with_taskkill_on_windows(self):
         scan = load('pre-secret-scan')

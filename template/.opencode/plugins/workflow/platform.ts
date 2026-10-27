@@ -161,6 +161,27 @@ export function samePath(a: string, b: string, platform: Platform = process.plat
   return canonical(a) === canonical(b)
 }
 
+// 整条路径的长度上限：Linux、macOS 按 UTF-8 字节（含结尾 NUL），Windows 按 UTF-16 码元。
+const PATH_LIMITS: Partial<Record<Platform, number>> = { linux: 4096, darwin: 1024, win32: 32767 }
+// ext4 等按字节、APFS 和 NTFS 等按 UTF-16 码元限制名字，常见文件系统都放不下超过 255 个码元的名字。
+const NAME_LIMIT = 255
+
+// 查询路径报名字过长时，能否确定这个路径不存在（与守卫 hooklib.missing_long_name 相同）：整条路径短于上限时，报错只能来自
+// 某一段名字超过文件系统上限，任何方式都打不开；某段超过 NAME_LIMIT 时同样如此。整条路径超长而每段正常时可能真实存在。
+export function missingLongName(error: unknown, platform: Platform = process.platform): boolean {
+  const { code, path: file } = (error ?? {}) as NodeJS.ErrnoException
+  if (code !== 'ENAMETOOLONG' || typeof file !== 'string') return false
+  const windows = platform === 'win32'
+  const length = windows ? file.length : Buffer.byteLength(file)
+  return length < (PATH_LIMITS[platform] ?? 0) || file.split(windows ? /[\\/]/ : '/').some(part => part.length > NAME_LIMIT)
+}
+
+// 无法确定是否存在的超长路径按出错拒绝；原因中只保留路径首尾，不整段回显参数。
+export function pathTooLong(file: string): Error {
+  const brief = file.length <= 160 ? file : `${file.slice(0, 60)}…${file.slice(-60)}（共 ${file.length} 个字符）`
+  return new Error(`路径超过系统长度上限，无法检查：${brief}。长文本改用文件或标准输入传入，例如 git commit -F -`)
+}
+
 // 守卫只支持 Bash；未知解释器拒绝，WSL 启动器也不能操作当前 Windows 检出。
 export function unsupportedShell(shell: string | undefined, platform: Platform = process.platform): string | undefined {
   const file = (shell ?? '').trim()

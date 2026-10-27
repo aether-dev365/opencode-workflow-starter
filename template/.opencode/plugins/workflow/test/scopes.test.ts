@@ -16,6 +16,25 @@ test('opencode config files without git do not create a checkout root', async ()
   } finally { await rm(home, { recursive: true, force: true }) }
 })
 
+test('a path with an overlong name still finds its checkout root', async () => {
+  // 名字超过文件系统上限的路径不可能存在，向上查找 .git 时跳过它。
+  const f = await fixture()
+  try {
+    assert.equal(await scopeRoot(join(f.root, 'x'.repeat(300), 'y')), f.root)
+    assert.equal(await scopeRoot(join(f.root, '提交说明'.repeat(25))), f.root)
+  } finally { await f.close() }
+})
+
+test('a path beyond the system limit is refused without echoing it', async () => {
+  const f = await fixture()
+  try {
+    const deep = join(f.root, ...Array(30).fill('a'.repeat(200)))
+    // Windows 对不存在的超长路径报 ENOENT，按不存在继续向上查找。
+    if (process.platform === 'win32') { assert.equal(await scopeRoot(deep), f.root); return }
+    await assert.rejects(scopeRoot(deep), (error: Error) => /超过系统长度上限/.test(error.message) && !error.message.includes(deep) && error.message.length < 400)
+  } finally { await f.close() }
+})
+
 test('nested edits receive both root and domain instructions', async () => {
   const f = await fixture()
   try {

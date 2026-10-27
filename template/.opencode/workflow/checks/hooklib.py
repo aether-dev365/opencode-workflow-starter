@@ -28,11 +28,14 @@
 inspect-paths.py 传 include_readonly=True，由原生插件发现 scope 并补充 context；规则加载的口径是
 「读到就该加载」，不是护栏，只读命令的 token 也要。
 """
+import errno
 import ntpath
 import os
 import posixpath
 import re
 import shlex
+import stat
+import sys
 
 # 命令串里的候选 token：空白 / 引号 / 重定向 / 分隔符 / 等号 / 括号 / 反引号之外的连续串。
 # 排掉 = 是为了 `f=src/x.java; printf … > $f` 这种赋值形态。
@@ -215,6 +218,58 @@ def system_command(name, env=None):
 def is_absolute(path, os_name=None):
     """`/` 开头总是绝对路径；`C:/` 只在 Windows 上是盘符绝对路径，POSIX 上它是名为 `C:` 的相对目录。"""
     return path.startswith('/') or ((os_name or os.name) == 'nt' and DRIVE_ABSOLUTE.match(path) is not None)
+
+
+# 整条路径的长度上限：Linux、macOS 按 UTF-8 字节（含结尾 NUL），Windows 按 UTF-16 码元。
+PATH_LIMITS = {'linux': 4096, 'darwin': 1024, 'win32': 32767}
+# ext4 等按字节、APFS 和 NTFS 等按 UTF-16 码元限制名字，常见文件系统都放不下超过 255 个码元的名字。
+NAME_LIMIT = 255
+
+
+def missing_long_name(error, platform=None):
+    """查询路径报名字过长时，能否确定这个路径不存在。
+
+    整条路径短于上限时，报错只能来自某一段名字超过文件系统上限，任何方式都打不开；某段超过 NAME_LIMIT 时同样如此。
+    其余情况（整条路径超长而每段正常）可能真实存在，例如经相对路径访问的深层目录，由调用方拒绝。"""
+    if getattr(error, 'errno', None) != errno.ENAMETOOLONG:
+        return False
+    try:
+        path = os.fsdecode(os.fspath(error.filename))
+    except TypeError:
+        return False
+    platform = platform or sys.platform
+    windows = platform == 'win32'
+    units = lambda text: len(text.encode('utf-16-le', 'surrogatepass')) // 2
+    length = units(path) if windows else len(path.encode('utf-8', 'surrogatepass'))
+    return length < PATH_LIMITS.get(platform, 0) or any(units(part) > NAME_LIMIT for part in re.split(r'[\\/]' if windows else '/', path))
+
+
+# Python 3.12 的 Path.exists 把这些错误当作路径不存在（Windows 的 21、123、1921 是设备未就绪、名称无效、无法解析链接）。
+MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP)
+MISSING_WINERRORS = (21, 123, 1921)
+
+
+def _stat(path):
+    """按 Python 3.12 的 Path.exists 口径查询，能确定不存在的超长名字也按不存在处理，其余错误照常抛出。
+    Python 3.14 起 Path.exists、Path.is_dir 把所有 OSError 都当作不存在，守卫不能依赖它们拒绝查询出错的路径。"""
+    try:
+        return os.stat(path)
+    except OSError as error:
+        if error.errno in MISSING_ERRNOS or getattr(error, 'winerror', None) in MISSING_WINERRORS or missing_long_name(error):
+            return None
+        raise
+    except ValueError:
+        # 含 NUL 或超过 Windows 上限的路径无法传给系统调用，命令同样打不开。
+        return None
+
+
+def path_exists(path):
+    return _stat(path) is not None
+
+
+def path_is_dir(path):
+    info = _stat(path)
+    return info is not None and stat.S_ISDIR(info.st_mode)
 
 
 def _dequote(s):

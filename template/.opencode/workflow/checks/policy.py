@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import sys
 
+from hooklib import path_exists, path_is_dir
+
 PROTECTION_PATH = '.opencode/workflow/protection.json'
 PROTECTION_REASON = '保护配置只允许读取；修改或修复 protection.json 需由用户在 OpenCode 之外完成。'
 
@@ -13,7 +15,7 @@ PROTECTION_REASON = '保护配置只允许读取；修改或修复 protection.js
 def policy_root(path):
     here = Path(os.path.abspath(path))
     for folder in [here, *here.parents]:
-        if (folder / '.git').exists():
+        if path_exists(folder / '.git'):
             return folder
     return None
 
@@ -58,7 +60,7 @@ def check_path(root: str, path: str, action: str, policy: dict, real: Path | Non
     for candidate in dict.fromkeys([absolute, real if real is not None else absolute.resolve()]):
         if action == 'edit' and (any(candidate == locked or candidate in locked.parents
                                      for locked in (protected, protected.resolve()))
-                                 or (candidate.exists() and protected.exists() and candidate.samefile(protected))):
+                                 or (path_exists(candidate) and protected.exists() and candidate.samefile(protected))):
             return PROTECTION_REASON
         try:
             name = os.path.relpath(candidate, base).replace(os.sep, '/')
@@ -74,7 +76,7 @@ def check_path(root: str, path: str, action: str, policy: dict, real: Path | Non
             return reason
         # 明确允许的普通文件（含尚未创建的示例文件）不能因虚构子项推翻例外。
         # 真实目录仍检查子项；字面路径和真实路径各自判定，允许例外不能豁免链接目标。
-        if descendants and not (effect == 'allow' and not candidate.is_dir()):
+        if descendants and not (effect == 'allow' and not path_is_dir(candidate)):
             for rule in policy['rules']:
                 if action in rule['actions'] and any(matches(name.rstrip('/') + '/_', pattern) for pattern in rule['paths']):
                     reason = rule['reason'] if rule['effect'] == 'deny' else None
