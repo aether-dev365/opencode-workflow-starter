@@ -129,8 +129,8 @@ async function main() {
   const doctor = spawnSync(process.execPath, [join(root, 'scripts/workflow/doctor.mjs'), '--root', root], { cwd: root, stdio: 'inherit' })
   const code = doctor.status ?? 1
   console.log(code === 0
-    ? '基础依赖准备完成。请在 OpenCode 中运行 /workflow-setup，选择完整或基础模式、子代理模型和可选组件；这不表示完整流程已验收。'
-    : '基础检查未通过；先处理上述失败，再在 OpenCode 中运行 /workflow-setup，不能把当前状态报告为安装完成。')
+    ? '基础依赖准备完成。请在 OpenCode 中运行 /workflow-setup，选择完整或基础模式、子代理模型和可选组件；从空目录开始的新项目改为运行 /workflow-new，它会在需要时调用 /workflow-setup。这不表示完整流程已验收。'
+    : '基础检查未通过；先处理上述失败，再在 OpenCode 中运行 /workflow-setup（新项目运行 /workflow-new），不能把当前状态报告为安装完成。')
   return code
 }
 

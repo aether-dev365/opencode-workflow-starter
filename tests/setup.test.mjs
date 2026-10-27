@@ -72,6 +72,8 @@ test('a ready checkout installs nothing and ends with a passing doctor', { timeo
     assert.equal(npm, '')
     assert.match(output, /pass opencode-version/)
     assert.match(output, /^基础依赖准备完成。.*\/workflow-setup/m)
+    // 从空目录开始的新项目由 /workflow-new 分阶段进行，它会在需要时调用 /workflow-setup。
+    assert.match(output, /^基础依赖准备完成。.*\/workflow-new/m)
     assert.match(output, /Gitleaks .*checksum OK/)
   } finally { f.cleanup() }
 })
