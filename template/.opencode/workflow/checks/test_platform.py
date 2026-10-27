@@ -71,6 +71,24 @@ class Platform(unittest.TestCase):
         self.assertFalse(hooklib.missing_long_name(too_long('/repo/' + 'x' * 300, errno.EACCES), 'linux'))
         self.assertFalse(hooklib.missing_long_name(OSError(errno.ENAMETOOLONG, 'File name too long'), 'linux'))
 
+    def test_path_queries_treat_only_missing_paths_as_absent_on_every_python(self):
+        # Python 3.14 的 Path.exists 把所有 OSError 当作不存在；守卫自己判断，其余错误照常抛出、按出错拒绝。
+        def windows(code):
+            error = OSError(errno.EINVAL, 'Windows error', '/repo/a')
+            error.winerror = code
+            return error
+        absent = [FileNotFoundError(errno.ENOENT, 'missing', '/repo/a'), OSError(errno.ENOTDIR, 'not a directory', '/repo/a'),
+                  OSError(errno.ELOOP, 'loop', '/repo/a'), windows(21), windows(123), windows(1920), windows(1921), ValueError('embedded null byte')]
+        for error in absent:
+            with self.subTest(error=repr(error)), mock.patch.object(hooklib.os, 'stat', side_effect=error):
+                self.assertFalse(hooklib.path_exists('/repo/a'))
+                self.assertFalse(hooklib.path_is_dir('/repo/a'))
+        for error in [PermissionError(errno.EACCES, 'denied', '/repo/a'), OSError(errno.EIO, 'I/O error', '/repo/a'), windows(5)]:
+            with self.subTest(error=repr(error)), mock.patch.object(hooklib.os, 'stat', side_effect=error):
+                self.assertRaises(OSError, hooklib.path_exists, '/repo/a')
+                self.assertRaises(OSError, hooklib.path_is_dir, '/repo/a')
+                self.assertRaises(OSError, policy.policy_root, '/repo/a')
+
     def test_timeout_kills_tree_with_taskkill_on_windows(self):
         scan = load('pre-secret-scan')
         calls = []

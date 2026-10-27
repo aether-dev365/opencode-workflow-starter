@@ -94,8 +94,9 @@ test('the suite entrypoints route brand-new projects to /workflow-new', () => {
 })
 
 // 插件把解析到项目根的修改类参数按保护配置拒绝，模型照文档运行 doctor --root . 会被拦下；doctor 默认检查当前目录。
+// 可选组件由模型按各自说明合并和验收，其说明同样在 OpenCode 中执行。
 test('doctor commands the model runs from the docs do not pass --root', () => {
-  for (const path of [...files('template').filter(p => p.endsWith('.md')), 'ADOPT.md']) {
+  for (const path of [...files('template'), ...files('optional')].filter(p => p.endsWith('.md')).concat('ADOPT.md')) {
     for (const [command] of readFileSync(path, 'utf8').matchAll(/doctor\.mjs[^`\n]*/g)) assert.doesNotMatch(command, /--root/, `${path}: ${command}`)
   }
 })

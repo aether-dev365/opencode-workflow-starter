@@ -89,7 +89,7 @@ CI 直接调用五项入口，不使用始终退出 0 的 `run-hook.py`。注释
 
 ```bash
 python3 scripts/ci/scan-secrets.py --head "$(git rev-parse HEAD)"
-node scripts/workflow/doctor.mjs --root .
+node scripts/workflow/doctor.mjs
 python3 scripts/ci/run-quality.py --all
 ```
 

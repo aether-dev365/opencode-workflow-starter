@@ -244,9 +244,10 @@ def missing_long_name(error, platform=None):
     return length < PATH_LIMITS.get(platform, 0) or any(units(part) > NAME_LIMIT for part in re.split(r'[\\/]' if windows else '/', path))
 
 
-# Python 3.12 的 Path.exists 把这些错误当作路径不存在（Windows 的 21、123、1921 是设备未就绪、名称无效、无法解析链接）。
+# Python 3.12 的 Path.exists 把这些错误当作路径不存在（Windows 的 21、123、1921 是设备未就绪、名称无效、无法解析链接）；
+# 1920 是无法访问的重解析点，例如 WindowsApps 下的应用执行别名，它下面不可能有子项，与 ntpath.realpath 的非严格模式一致。
 MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP)
-MISSING_WINERRORS = (21, 123, 1921)
+MISSING_WINERRORS = (21, 123, 1920, 1921)
 
 
 def _stat(path):
