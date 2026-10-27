@@ -45,7 +45,7 @@ node scripts/verify.mjs --windows
 - 测试只使用运行时拼接的合成凭据，不提交真实秘密，也不通过放宽 Gitleaks 规则让测试通过。
 - 路径配置沿用原生语义：`*` 匹配任意字符（含 `/`），`?` 匹配一个字符，不支持花括号。
 - 面向用户的文字使用简体中文，标识符使用英文。
-- 操作系统差异集中处理：插件侧在 `platform.ts`，守卫侧在 `hooklib.windows_path` 与 `protocol.utf8_stdio`。Windows 行为通过注入 `path.win32`、`platform: 'win32'` 或 `os_name='nt'` 编写测试，在 Linux 上也能运行。
+- 操作系统差异集中处理：插件侧在 `platform.ts`，守卫侧在 `hooklib.py`（盘符写法、工具路径、程序查找、超长路径等）与 `protocol.py`。Windows 行为通过注入 `path.win32`、`platform: 'win32'` 或 `os_name='nt'` 编写测试，在 Linux 上也能运行。
 - 升级 OpenCode 基线时，同步 `@opencode/plugin`、`@opencode/client`、`scripts/fetch-opencode.mjs` 中的校验值和文档，并完成原生验收。
 
 ## 提交 Pull Request

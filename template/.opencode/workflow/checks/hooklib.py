@@ -16,12 +16,12 @@
 逐段识别语法，避免复杂前缀和长赋值链导致正则回溯或遗漏命令。
 `$VAR` / `${VAR}` 按本条命令里出现过的纯赋值（`A=x`、`A=x B=y`、export / declare / local / readonly）展开——否则
 `D=vendor/src && cat > $D/file.js <<'EOF'` 的目标需要展开后检查。
-语义按 bash：赋值只对其后的段生效，命令前的环境前缀 `X=1 cmd` 不是 shell 变量；解不开的变量原样保留、
-整条退回逐 token 判。
+语义按 bash：赋值只对其后的段生效，管道各段与 `&` 后台中的赋值不外溢（见 command_states），命令前的环境前缀
+`X=1 cmd` 不是 shell 变量；解不开的变量原样保留、整条退回逐 token 判。
 
 相对路径按中性事件的 directory 和原生 input.workdir 解析；workdir 与原生工具的路径参数按 OpenCode 的方式
-解析（见 tool_path），相对会话 Location。没有 workdir 时使用 directory。命令里的 `cd X` 会把
-后续各段的相对路径挂到 X 下，覆盖 `cd vendor && sed -i … src/file.js`。
+解析（见 tool_path），相对会话 Location。没有 workdir 时使用 directory。命令里的 `cd X` 按列表语义推进目录
+（见 command_states）：`cd vendor && sed -i … src/file.js` 的路径挂到 vendor 下，cd 之后的 `;` 两种目录都可能。
 
 多跑一轮的代价是两秒静默；漏跑一次的代价是一个不生效的护栏静默留在仓库里。
 只读白名单只此一份：inspect-paths.py 与各 pre-* 守卫都 import 这里。
