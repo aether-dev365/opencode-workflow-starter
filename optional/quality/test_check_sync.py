@@ -215,4 +215,3 @@ class SyncChecks(unittest.TestCase):
         start = time.monotonic()
         self.run_sync(code=1)
         self.assertLess(time.monotonic() - start, 15)
-

@@ -172,6 +172,13 @@ test('workflow scripts keep LF line endings on every checkout', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+// 接入方复制这些文件后，git diff --check 会把其中的行尾空白和文件末尾空行报给他们；按暂存内容比较，不受 Windows 检出换行影响。
+test('deliverable files pass git diff --check', () => {
+  const empty = execFileSync('git', ['hash-object', '-t', 'tree', '--stdin'], { input: '', encoding: 'utf8' }).trim()
+  const result = spawnSync('git', ['diff', '--cached', '--check', empty, '--', 'template', 'optional', 'examples'], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
 test('documented OpenCode versions match the plugin baseline', () => {
   const manifest = JSON.parse(readFileSync('template/.opencode/plugins/workflow/package.json', 'utf8'))
   const baseline = manifest.dependencies['@opencode/plugin']
