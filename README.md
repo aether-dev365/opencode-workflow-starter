@@ -19,6 +19,7 @@
 | 审核随意、结论无结构 | 用户触发 `/review`，只读 reviewer 按检查单提交结构化结论 |
 | 发布绕过审核 | 可选扩展：只有当前候选的审核全部通过，才运行登记好的固定发布命令 |
 | 接入步骤多，模式和模型不好选 | `/workflow-setup` 逐项询问模式、子代理模型和可选组件，预览改动并经确认后才应用 |
+| 新项目不知道从哪开始，规则和验证命令什么时候写 | `/workflow-new` 分阶段引导：最小接入、设计、搭骨架、补齐项目规则、第二轮配置、基线验收；中断后重新运行，从当前阶段继续 |
 | 子代理该拆几个、各管什么不好定 | AI 按项目领域建议实现类子代理，由你勾选；生成的代理文件沿用统一的安全边界 |
 | 项目里已有 Claude Code、Cursor、Codex 等配置，不知道该迁移还是保留 | `/workflow-setup` 列出检测到的配置及其在 OpenCode 中是否生效，AI 逐项评估并建议，由你决定迁移或保留 |
 | 注释写成开发日志、测试被悄悄跳过、文档链接断开 | 可选质量扩展：提交后报告注释、跳过测试、本地链接和已登记的格式检查，只报告、不拦截 |
@@ -57,7 +58,18 @@ flowchart LR
 
 ## 快速开始
 
-### 推荐：让 OpenCode 引导接入
+### 新项目：从空目录开始
+
+新建空目录并 `git init`，按下文 Linux、macOS、WSL 或 Windows 一节的命令复制 `template/` 的全部内容并运行 `setup.mjs`（空目录不需要合并），然后在项目根启动 `opencode`，运行 **`/workflow-new`**。它分阶段带你完成最小接入、设计、搭骨架、补齐项目规则、第二轮配置和基线验收，需要你决定的地方逐个询问；中断后重新运行，会从当前阶段继续。详见 [新项目流程](template/docs/workflow/new-project.md)。
+
+也可以把套件目录或仓库链接交给 OpenCode：
+
+```text
+这是一个从空目录开始的新项目。请先读取工作流套件的 ADOPT.md，复制模板并准备依赖，确认插件加载后运行 /workflow-new，按新项目流程逐步引导我。
+不自动推送或发布。
+```
+
+### 已有项目：让 OpenCode 引导接入
 
 把套件目录或仓库链接交给 OpenCode，并说明：
 
@@ -116,7 +128,7 @@ node scripts/workflow/doctor.mjs --root .
 然后：
 
 1. 在项目根目录启动 `opencode`，确认 `workflow.starter` 已加载且为 active。插件目录会被自动发现，**不要再在 plugins 配置里重复登记**。
-2. 运行 `/workflow-setup` 决定既有 AI 配置的迁移或保留，选择模式、子代理及其模型和可选组件。AI 协助补充根 `AGENTS.md` 的项目概要、真实验证命令、领域规则、`scopes.json`、保护策略与审核路由；先解释并预览，再确认应用。
+2. 已有项目运行 `/workflow-setup` 决定既有 AI 配置的迁移或保留，选择模式、子代理及其模型和可选组件。AI 协助补充根 `AGENTS.md` 的项目概要、真实验证命令、领域规则、`scopes.json`、保护策略与审核路由；先解释并预览，再确认应用。新项目运行 `/workflow-new`，它在最小接入和骨架完成后各调用一次 `/workflow-setup`。
 3. 按 [安装指南](template/docs/workflow/opencode-install.md) 第 5 节做原生冒烟。doctor 的 `native-runtime: unverified` 是静态检查的边界，不代表插件已在原生环境通过。
 
 doctor 对 2.1.4 报 pass，对其他 2.1.x 报 warn（需在该版本做原生冒烟并记录），其余版本报 fail。可用 `WORKFLOW_OPENCODE_BIN` 指定独立安装的 CLI，不必替换系统默认命令。
@@ -192,4 +204,4 @@ git archive --format=tar.gz --prefix=opencode-workflow-starter-$version/ --outpu
 
 ## English summary
 
-OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts, including a documentation and constraint sync review. `/workflow-setup` guides adoption step by step. It also detects existing Claude Code, Cursor, Codex and other AI tool configurations, reports whether OpenCode loads them, and records your decision to migrate or keep each one. It suggests implementation subagents that fit the project, lets you pick them, and generates them with the same safety boundaries as the default implementer. Optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.4 runs; native Windows (via Git Bash) runs a Windows subset in CI (plugin, guard, quality-extension and adoption suites, plus a check of the file couplings registered for this repository), and the plugin, guard, doctor and adoption scripts also pass on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.
+OpenCode Workflow Starter is a drop-in workflow for OpenCode V2 projects. A local plugin (`workflow.starter`) injects per-directory rules before the model edits a domain, enforces declarative read/edit protection for credentials, vendored and generated files, scans every `git commit` with a checksum-pinned Gitleaks, keeps test failures visible in pipelines, and provides a user-triggered, read-only `/review` with structured verdicts, including a documentation and constraint sync review. `/workflow-setup` guides adoption step by step. For a brand-new project, `/workflow-new` walks you from an empty directory through minimal adoption, design, a project skeleton, project rules, a second setup round and a baseline commit, and resumes from the current phase when rerun. It also detects existing Claude Code, Cursor, Codex and other AI tool configurations, reports whether OpenCode loads them, and records your decision to migrate or keep each one. It suggests implementation subagents that fit the project, lets you pick them, and generates them with the same safety boundaries as the default implementer. Optional extensions add post-commit quality reports, a GitHub Actions template for adopters and gated releases. Guards fail closed and only allow shell commands they can analyze statically. Linux, WSL2 and macOS (Apple Silicon) are fully verified in CI, including native OpenCode 2.1.4 runs; native Windows (via Git Bash) runs a Windows subset in CI (plugin, guard, quality-extension and adoption suites, plus a check of the file couplings registered for this repository), and the plugin, guard, doctor and adoption scripts also pass on real hardware, but native OpenCode on Windows is not yet accepted. Copy `template/` into your repository and run `node scripts/workflow/setup.mjs`. Licensed under MIT.

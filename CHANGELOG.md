@@ -4,7 +4,7 @@
 
 ## [未发布]
 
-**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项；升级前预览但未应用的计划视为过期，需要重新预览。项目中有其他 AI 工具的配置，或有本模板以外的 OpenCode 配置（包括自行添加的代理、命令、技能、插件和子目录中的 `opencode.json(c)`）时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新（新增了 `onboarding-existing.ts`、`onboarding-agents.ts`），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md`、`.opencode/commands/workflow-setup.md`、`docs/workflow/onboarding.md`、`docs/workflow/development.md`、`scripts/workflow/doctor.mjs`、`scripts/workflow/onboarding.mjs`：只更新插件时，向导缺少评估、迁移和子代理规划步骤，主代理也不会把任务派给生成的子代理；doctor 与插件版本不配套时 `onboarding` 检查出错。不再执行项目目录中同名程序的修复分布在插件目录、`scripts/workflow/doctor.mjs`、`scripts/workflow/setup.mjs`、`.opencode/workflow/checks/` 和 `scripts/quality/` 中，需要一起更新；只更新 doctor 或 setup 而不更新插件时它们无法启动，只更新插件时 setup 仍会按名字启动 `WORKFLOW_OPENCODE_BIN`。
+**升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项；升级前预览但未应用的计划视为过期，需要重新预览。项目中有其他 AI 工具的配置，或有本模板以外的 OpenCode 配置（包括自行添加的代理、命令、技能、插件和子目录中的 `opencode.json(c)`）时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新（新增了 `onboarding-existing.ts`、`onboarding-agents.ts`），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md`、`.opencode/commands/workflow-setup.md`、`docs/workflow/onboarding.md`、`docs/workflow/development.md`、`scripts/workflow/doctor.mjs`、`scripts/workflow/onboarding.mjs`：只更新插件时，向导缺少评估、迁移和子代理规划步骤，主代理也不会把任务派给生成的子代理；doctor 与插件版本不配套时 `onboarding` 检查出错。不再执行项目目录中同名程序的修复分布在插件目录、`scripts/workflow/doctor.mjs`、`scripts/workflow/setup.mjs`、`.opencode/workflow/checks/` 和 `scripts/quality/` 中，需要一起更新；只更新 doctor 或 setup 而不更新插件时它们无法启动，只更新插件时 setup 仍会按名字启动 `WORKFLOW_OPENCODE_BIN`。已接入的项目不需要新项目流程的文件；整体更新模板时连同插件目录一起更新，否则 `/workflow-setup` 会把新命令 `/workflow-new` 和技能 `workflow-new-project` 列为既有 OpenCode 配置。
 
 ### 新增
 
@@ -12,11 +12,13 @@
 - `/workflow-setup` 新增子代理规划：AI 按项目领域和结构建议新增的实现类子代理，由用户勾选；向导按与 implementer 相同的权限边界生成代理文件并预览全文，为其选择继承或固定模型，并在宿主中核对实际加载与有效模型。人工修改过的生成文件、手写的同名代理不会被覆盖，人工修改过的生成文件在 `verify` 中列为待你核对；去掉某个子代理时不删除文件。已接入的项目升级后，`onboarding.json` 记录的子代理缺少代理文件时，doctor 的 `onboarding` 由 unverified 改报 warn。
 - 质量扩展新增关联检查（第五项）：在 `quality.json` 的 `sync` 登记触发路径和关联目标，改动命中触发路径而关联目标没有改动时，在提交后和 CI 中报告；改名或删除使登记匹配不到文件时报告登记失效。只报告、不拦截；CI 中同步提醒不使 CI 失败，登记失效和未完成使 CI 失败，汇总变为五项。
 - 基础模板的 `/review` 默认增加文档与约束同步审核单元 `sync`：覆盖全部改动路径，核对行为、接口、配置与权限的变化是否同步到文档、变更记录、示例配置和其他约束文件，并对照质量扩展的关联登记；遗漏类问题定为不阻断的 P2/P3，结论仍为 pass。reviewer 说明同时写明 pass 可以附带 `blocking: false` 的发现。
+- 新项目流程 `/workflow-new`：从空目录开始，依次完成最小接入、设计、搭骨架、补齐项目规则、第二轮 `/workflow-setup` 和基线验收，每个需要你决定的地方先询问；中断后重新运行，会按项目现状判断进行到哪一步。基础和完整模式都适用，完整模式的设计使用 Superpowers。说明见 `docs/workflow/new-project.md`。
 
 ### 变更
 
 - `/workflow-setup` 为 implementer、reviewer 选择固定模型时，如果该模型提供可选的思考强度（variant），会询问选择；没有选择就使用模型默认，不跟随主会话。选择继承时，说明子代理跟随主会话的模型和思考强度。预览计划新增 `effort`，列出每个角色的思考强度。
 - 验收基线从 OpenCode 2.1.2 升级到 2.1.4（CLI、`@opencode/plugin`、`@opencode/client`）。插件代码不需要改动；已接入的项目更新插件依赖（`npm --prefix .opencode/plugins/workflow ci --ignore-scripts`）后，仍在用 2.1.2 CLI 时 doctor 的 `opencode-version` 由 pass 改报 warn，运行 `npm install -g @opencode/cli@2.1.4` 后恢复 pass。
+- 根 AGENTS.md 模板新增“项目概要”一节，集中填写用途、技术栈、目录与领域、验证命令入口和设计记录位置；已有项目接入时同样填写，已接入的项目不需要修改。
 
 ### 修复
 

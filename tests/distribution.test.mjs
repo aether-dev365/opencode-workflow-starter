@@ -80,6 +80,14 @@ test('the onboarding guide and skill hand brand-new projects to /workflow-new', 
   }
 })
 
+test('the suite entrypoints route brand-new projects to /workflow-new', () => {
+  for (const path of ['README.md', 'ADOPT.md']) {
+    const text = readFileSync(path, 'utf8')
+    for (const needle of ['](template/docs/workflow/new-project.md)', '/workflow-new']) assert.ok(text.includes(needle), `${path}: ${needle}`)
+  }
+  assert.ok(readFileSync('CHANGELOG.md', 'utf8').split('\n## [1.1.0]')[0].includes('/workflow-new'))
+})
+
 test('tracked text files contain no local home paths or IPv4 addresses', () => {
   for (const path of tracked()) assert.deepEqual(leaks(readFileSync(path, 'utf8')), [], path)
 })

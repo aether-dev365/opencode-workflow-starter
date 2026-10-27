@@ -4,6 +4,8 @@
 
 ## 0. 从引导开始
 
+目标目录还没有项目代码（空目录，或只有 README、LICENSE 等说明文件）时按新项目流程：在该目录 `git init`，复制 `template/` 的全部内容（不需要合并），运行 `node scripts/workflow/setup.mjs`，确认插件已加载后运行 `/workflow-new`。之后的接入、设计、搭骨架和项目规则由它按 [新项目流程](template/docs/workflow/new-project.md) 分阶段引导，本文件以下内容针对已有项目。已经用脚手架生成过代码的项目按已有项目接入。
+
 不要一开始就复制所有可选扩展。先说明基础保护模式与推荐的完整模式，并使用 OpenCode 原生 question 工具逐个询问；当前客户端没有该工具时用普通对话等待答复。取消、无答复或不能交互不等于选择默认值，也不等于批准安装。能通过项目文件查明的事实由模型自行调查。
 
 首次接入时，向导命令可能尚未存在。先给出最小基础接入清单，取得用户确认，合并基础插件、根规则、路径映射和配置并准备依赖，确认实际 Location 的插件已加载后进入 `/workflow-setup`。这段 bootstrap 不依赖 Superpowers，也不能被描述为已执行它的设计或计划。已有项目按下文逐项合并，不覆盖现有 AGENTS.md、配置或未提交工作。
@@ -42,7 +44,7 @@
 
 ## 3. 合并模板
 
-空项目可以复制 template 全部内容；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter、代理、workflow-setup 命令或 workflow-onboarding 技能时先确定升级/保留方式，不能重复加载或直接覆盖。
+新项目（空目录）复制 template 全部内容后按新项目流程继续；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter、代理、workflow-setup 命令或 workflow-onboarding 技能时先确定升级/保留方式，不能重复加载或直接覆盖。根 AGENTS.md 的“项目概要”一节写明用途、技术栈、目录与领域和验证命令入口。
 
 可执行插件放 `.opencode/plugins/workflow/`，依赖锁文件一起复制。其他目录内容不是活动配置，不自动复制可选扩展到启用位置。
 
