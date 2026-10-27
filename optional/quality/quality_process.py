@@ -58,9 +58,10 @@ def resolve_executable(command: str, *, cwd: Path, env=None, os_name=None) -> Pa
     has_path = '/' in command or (windows and ('\\' in command or ':' in command))
     names = [command]
     if windows:
-        extensions = env.get('PATHEXT', '.COM;.EXE;.BAT;.CMD').split(';')
-        if not any(command.lower().endswith(ext.lower()) for ext in extensions if ext):
-            names += [command + ext for ext in extensions if ext]
+        # Windows 只按 PATHEXT 查找：npm 在同一目录放有无扩展名的 sh 启动脚本，它不能直接执行。
+        extensions = [ext for ext in (env.get('PATHEXT') or '.COM;.EXE;.BAT;.CMD').split(';') if ext]
+        if not any(command.lower().endswith(ext.lower()) for ext in extensions):
+            names = [command + ext for ext in extensions]
     # 只查 PATH 中的绝对目录：空项和 `.` 一类相对项指向当前目录，项目里的同名程序会被执行。
     entries = [_unquote(p, windows) for p in env.get('PATH', os.defpath).split(';' if windows and os.name == 'nt' else os.pathsep)]
     directories = [cwd] if has_path else [Path(p) for p in entries if os.path.isabs(p) or (windows and ntpath.isabs(p))]

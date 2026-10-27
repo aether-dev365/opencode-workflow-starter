@@ -197,6 +197,14 @@ class Formatting(unittest.TestCase):
                 r = module.run_entry(self.entry(check=[str(tool)]), ['a.txt'], root=self.repo.root, fix=False, os_name='nt')
             self.assertTrue(r.incomplete); self.assertFalse(r.started)
             self.assertIn('直接调用解释器', out.getvalue())
+        # npm 的 .bin 目录同时有无扩展名的 sh 启动脚本：Windows 上应找到 .cmd 并给出同样的提示，而不是启动错误。
+        for name in ('prettier', 'prettier.cmd'):
+            self.repo.write('node_modules/.bin/' + name, 'must not run')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            r = module.run_entry(self.entry(check=['node_modules/.bin/prettier', '{files}']), ['a.txt'], root=self.repo.root, fix=False, os_name='nt')
+        self.assertTrue(r.incomplete); self.assertFalse(r.started)
+        self.assertIn('直接调用解释器', out.getvalue())
 
     def test_cwd_and_timeout_are_not_reported_as_format_failures(self):
         self.repo.write('a.txt', '')

@@ -271,19 +271,36 @@ class Processes(unittest.TestCase):
         env = {'PATH': str(self.root), 'PATHEXT': '.EXE;.CMD;.BAT'}
         for command, expected in [('tool', 'tool.EXE'), ('launch', 'launch.CMD'), ('launch.CMD', 'launch.CMD')]:
             self.assertEqual(process.resolve_executable(command, cwd=self.root, env=env, os_name='nt'), self.root / expected)
-        self.assertEqual(process.resolve_executable('./direct', cwd=self.root), self.root / 'direct')
-        self.assertEqual(process.resolve_executable('direct', cwd=self.root, env={'PATH': str(self.root)}), self.root / 'direct')
+        self.assertEqual(process.resolve_executable('./direct', cwd=self.root, os_name='posix'), self.root / 'direct')
+        self.assertEqual(process.resolve_executable('direct', cwd=self.root, env={'PATH': str(self.root)}, os_name='posix'), self.root / 'direct')
         self.assertIsNone(process.resolve_executable('missing', cwd=self.root, env=env))
+
+    def test_windows_lookup_skips_extensionless_shims(self):
+        # npm 在 node_modules/.bin 里同时放无扩展名的 sh 启动脚本和 .cmd：前者在 Windows 上不能直接执行。
+        bin = self.root / 'bin'
+        bin.mkdir()
+        for name in ('tool', 'tool.CMD', 'only'):
+            (bin / name).write_text('', encoding='utf-8')
+        env = {'PATH': str(bin), 'PATHEXT': '.EXE;.CMD'}
+        for command in ('tool', 'bin/tool', './bin/tool'):
+            self.assertEqual(process.resolve_executable(command, cwd=self.root, env=env, os_name='nt'), bin / 'tool.CMD')
+        # PATHEXT 为空时与 shutil.which 一样用默认扩展名。
+        self.assertEqual(process.resolve_executable('tool', cwd=self.root, env={**env, 'PATHEXT': ''}, os_name='nt'), bin / 'tool.CMD')
+        for command in ('only', 'bin/only'):
+            self.assertIsNone(process.resolve_executable(command, cwd=self.root, env=env, os_name='nt'))
 
     def test_command_lookup_skips_relative_path_entries(self):
         # 相对 PATH 项指向当前目录：Windows 的进程创建本来就会先查它，项目里的同名程序不能因此被执行。
         for directory in ('.', 'bin', 'abs'):
             (self.root / directory).mkdir(exist_ok=True)
-            (self.root / directory / 'tool').write_text('', encoding='utf-8')
-            (self.root / directory / 'tool').chmod(0o755)
+            for name in ('tool', 'tool.EXE'):
+                (self.root / directory / name).write_text('', encoding='utf-8')
+                (self.root / directory / name).chmod(0o755)
         relative = os.pathsep.join(['.', 'bin'])
-        self.assertEqual(process.resolve_executable('tool', cwd=self.root, env={'PATH': os.pathsep.join([relative, str(self.root / 'abs')])}), self.root / 'abs' / 'tool')
-        self.assertIsNone(process.resolve_executable('tool', cwd=self.root, env={'PATH': relative}))
+        for os_name, name in (('nt', 'tool.EXE'), ('posix', 'tool')):
+            with self.subTest(os_name=os_name):
+                self.assertEqual(process.resolve_executable('tool', cwd=self.root, env={'PATH': os.pathsep.join([relative, str(self.root / 'abs')])}, os_name=os_name), self.root / 'abs' / name)
+                self.assertIsNone(process.resolve_executable('tool', cwd=self.root, env={'PATH': relative}, os_name=os_name))
 
     def test_programs_resolve_to_absolute_paths(self):
         # 进程创建会在当前目录查找不带路径的命令：Windows 总是先查，macOS 和 Linux 在 PATH 有空项时也查。
