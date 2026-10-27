@@ -37,13 +37,15 @@ test('a path beyond the system limit is refused without echoing it', async () =>
 
 test('other lookup errors are refused with only the ends of the path', async t => {
   // 指向自身的链接让查询报 ELOOP，无法确认而拒绝；原因保留错误码，不整段回显参数。
+  // Windows 对经过自指链接的路径报 ENOENT，属于“继续向上找”，会解析到检出根（pathError 的截断由 platform 单元用例覆盖）。
   const f = await fixture()
   try {
     try { await symlink('loop', join(f.root, 'loop')) }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('需要创建符号链接的权限'); throw error }
     const tail = 'b'.repeat(200)
     const lookup = scopeRoot(join(f.root, 'loop', 'a'.repeat(200), tail))
-    await assert.rejects(lookup, (error: Error) => /无法检查路径/.test(error.message) && !error.message.includes(tail) && error.message.length < 400)
+    if (process.platform === 'win32') assert.equal(await lookup, f.root)
+    else await assert.rejects(lookup, (error: Error) => /无法检查路径/.test(error.message) && !error.message.includes(tail) && error.message.length < 400)
   } finally { await f.close() }
 })
 

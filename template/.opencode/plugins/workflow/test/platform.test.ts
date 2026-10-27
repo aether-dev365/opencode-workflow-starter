@@ -28,6 +28,18 @@ test('Git Bash drive paths map to Windows drives only on Windows', () => {
   assert.equal(windowsPath('/c/Users/example', 'linux'), '/c/Users/example')
 })
 
+test('查询路径的其他错误保留错误码并截断长路径', () => {
+  // 与自指链接的 scopes 用例不同，这里不依赖文件系统，各平台都验证 pathError 的截断与透传。
+  assert.equal(typeof hookPlatform.pathError, 'function')
+  const long = `${'a'.repeat(100)}${'b'.repeat(100)}`
+  const wrapped = hookPlatform.pathError(Object.assign(new Error('x'), { code: 'ELOOP', path: long }), 'fallback') as Error
+  assert.match(wrapped.message, /ELOOP/)
+  assert.ok(!wrapped.message.includes(long) && wrapped.message.length < 200)
+  // 没有错误码的异常原样抛出，不包装。
+  const plain = new Error('weird')
+  assert.equal(hookPlatform.pathError(plain, 'fallback'), plain)
+})
+
 test('拒绝原因中的长路径只保留首尾', () => {
   // 与守卫 hooklib.brief 相同：超过 160 个字符时保留首尾各 60 个。
   assert.equal(typeof hookPlatform.briefPath, 'function')
