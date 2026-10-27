@@ -1,17 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { runtimeBinary, baseline } from './fixtures/native-harness.mjs'
 import { essentialEnv } from './fixtures/env.mjs'
 import { commandLine, findExecutable, pythonCommand } from '../template/.opencode/plugins/workflow/platform.ts'
+import { detectExisting } from '../template/.opencode/plugins/workflow/onboarding-existing.ts'
 
 const windows = process.platform === 'win32'
 
 // Windows runner 上在临时项目里 npm ci 可能超过 2 分钟。
-test('a separately installed copy passes doctor without source checkout configuration', { timeout: 600000 }, () => {
+test('a separately installed copy passes doctor without source checkout configuration', { timeout: 600000 }, async () => {
   // GitHub 的 Windows runner 上系统临时目录在较慢的 C 盘，这里的 npm ci 实测 139–189 秒，RUNNER_TEMP（D 盘）约 12 秒。
   const temp = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'workflow-adoption-'))
   const root = join(temp, 'repo')
@@ -30,6 +31,15 @@ test('a separately installed copy passes doctor without source checkout configur
   try {
     cpSync('template', root, { recursive: true, filter: p => !p.split(/[\\/]/).some(s => ['node_modules', '__pycache__', '.state'].includes(s)) })
     run('git', ['init', '-q'])
+    // 模板新增的命令、技能等要登记为模板文件，否则接入向导会要求用户决定迁移或保留它们。检测在本进程中运行，屏蔽个人 Git 配置。
+    for (const path of ['.opencode/commands/workflow-new.md', '.opencode/skills/workflow-new-project/SKILL.md']) assert.ok(existsSync(join(root, path)), path)
+    const gitEnv = Object.fromEntries(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'].map(key => [key, process.env[key]]))
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: '1' })
+    try {
+      const existing = await detectExisting(root, { personal: false })
+      assert.equal(existing.complete, true)
+      assert.deepEqual(existing.items.map(item => item.path), [])
+    } finally { for (const [key, value] of Object.entries(gitEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } }
     run('npm', ['--prefix', '.opencode/plugins/workflow', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'])
     const python = pythonCommand()
     run(python.command, [...python.args, '.opencode/secret-scan/install.py', '--bin-dir', join(temp, 'bin')])
@@ -64,6 +74,8 @@ test('a separately installed copy passes doctor without source checkout configur
     const leakScan = scan()
     assert.equal(leakScan.status, 2, leakScan.stderr)
     assert.equal(JSON.parse(leakScan.stdout).decision, 'deny')
+    // 超时或缺少扫描器同样拒绝；原因要指向检出的文件，才说明凭据确实被扫描到。
+    assert.match(JSON.parse(leakScan.stdout).reason, /疑似凭据[\s\S]*leak\.txt/)
     assert.ok(!(leakScan.stdout + leakScan.stderr).includes(secret))
     run('npm', ['--prefix', '.opencode/plugins/workflow', 'run', 'typecheck'])
   // Windows 上杀毒软件或索引服务可能短暂占用刚安装的依赖，删除失败时重试。

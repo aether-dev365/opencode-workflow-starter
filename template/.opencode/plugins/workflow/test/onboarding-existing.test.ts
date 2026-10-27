@@ -1,16 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, rm, realpath, symlink, chmod, cp } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath, symlink, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname, delimiter } from 'node:path'
 import { execFileSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
 import { detectExisting, listFiles, EXISTING_MARKERS } from '../onboarding-existing.ts'
-
-const TEMPLATE = fileURLToPath(new URL('../../../..', import.meta.url))
 
 // 检测走调用方的 Git 配置：屏蔽全局与系统配置及默认的 $XDG_CONFIG_HOME/git/ignore，避免个人 excludes 改变结果。
 async function repo(t: { after(fn: () => Promise<void>): void }, files: Record<string, string> = {}) {
@@ -69,15 +66,6 @@ test('ignored files, template agent files, managed agents and dependency bookkee
   const managed = await detectExisting(f.root, { personal: false, managedAgents: ['web-implementer'] })
   assert.deepEqual(managed.items.map(i => [i.path, i.files]), [['.claude', 1], ['.opencode/package.json', 1]])
   assert.ok((await detectExisting(f.root, { personal: false })).items.some(i => i.path === '.opencode/agents/web-implementer.md'))
-})
-
-// 模板新增的命令、技能等文件要登记为模板文件，否则接入向导会要求用户决定迁移或保留它们。
-test('a copy of the whole template is not existing configuration', async t => {
-  const f = await repo(t)
-  await cp(TEMPLATE, f.root, { recursive: true, filter: source => !source.split(/[\\/]/).some(part => ['node_modules', '__pycache__', '.state'].includes(part)) })
-  const report = await detectExisting(f.root, { personal: false })
-  assert.equal(report.complete, true)
-  assert.deepEqual(report.items.map(item => item.path), [])
 })
 
 test('AGENTS.md inside OpenCode agent, mode or command directories is reported because OpenCode loads it as an agent or command', async t => {

@@ -67,7 +67,8 @@ test('the new-project command and skill keep the guide phases, the summary place
     assert.ok(command.includes(text), `command: ${text}`)
     assert.ok(skill.includes(text), `skill: ${text}`)
   }
-  for (const text of [SUMMARY_PLACEHOLDER, ...NEW_PROJECT_PHASES, 'workflow-onboarding', 'protection.json', '推送', '发布', '远端仓库']) assert.ok(skill.includes(text), text)
+  NEW_PROJECT_PHASES.forEach((name, index) => assert.match(skill, new RegExp(`^${index}\\. \\*\\*${name}\\*\\*：`, 'm'), name))
+  for (const text of [SUMMARY_PLACEHOLDER, 'workflow-onboarding', '不推送、不发布、不创建远端仓库', '`protection.json` 只给拟议差异']) assert.ok(skill.includes(text), text)
 })
 
 test('the onboarding guide and skill hand brand-new projects to /workflow-new', () => {
