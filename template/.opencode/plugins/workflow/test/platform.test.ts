@@ -29,7 +29,7 @@ test('Git Bash drive paths map to Windows drives only on Windows', () => {
 })
 
 test('拒绝原因中的长路径只保留首尾', () => {
-  // 与守卫 pre-guard-paths 的 brief 相同：超过 160 个字符时保留首尾各 60 个。
+  // 与守卫 hooklib.brief 相同：超过 160 个字符时保留首尾各 60 个。
   assert.equal(typeof hookPlatform.briefPath, 'function')
   assert.equal(hookPlatform.briefPath('x'.repeat(160)), 'x'.repeat(160))
   assert.equal(hookPlatform.briefPath(`${'a'.repeat(100)}${'b'.repeat(100)}`), `${'a'.repeat(60)}…${'b'.repeat(60)}（共 200 个字符）`)

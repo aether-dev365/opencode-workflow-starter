@@ -192,6 +192,10 @@ class SecretScanTest(unittest.TestCase):
         for workdir in [self.root, '../repo']:
             with self.subTest(workdir=workdir):
                 self.assert_blocked(self.hook(cwd=clean, workdir=workdir), 'settings.conf')
+        # workdir 与 OpenCode 一样展开 `~/`。
+        self.env['OPENCODE_TEST_HOME'] = str(self.base)
+        self.assert_blocked(self.hook(cwd=clean, workdir='~/repo'), 'settings.conf')
+        self.assert_allowed(self.hook(workdir='~/clean'))
 
     @POSIX_SHELL
     def test_cd_symlink_logical_parent_cannot_scan_a_different_repository(self):

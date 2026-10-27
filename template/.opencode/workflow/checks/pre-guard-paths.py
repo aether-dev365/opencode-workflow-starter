@@ -4,7 +4,7 @@ import errno
 import os
 from pathlib import Path
 from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
-                     tool_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir)
+                     tool_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir, brief)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -190,12 +190,6 @@ def walk_with_real_paths(top):
             yield path, None if linked else real / entry.name
             if directory and not symlink:
                 pending.append((path, path.resolve() if linked else real / entry.name))
-
-
-def brief(path):
-    """拒绝原因中的路径：超长参数只保留首尾，不整段回显。"""
-    text = str(path)
-    return text if len(text) <= 160 else f'{text[:60]}…{text[-60:]}（共 {len(text)} 个字符）'
 
 
 def check(data):

@@ -186,7 +186,7 @@ export function missingLongName(error: unknown, platform: Platform = process.pla
   return length < (PATH_LIMITS[platform] ?? 0) || file.split(windows ? /[\\/]/ : '/').some(part => part.length > NAME_LIMIT)
 }
 
-// 拒绝原因中的路径：超长参数只保留首尾，不整段回显（与守卫 pre-guard-paths 的 brief 相同）。
+// 拒绝原因中的路径：超长参数只保留首尾，不整段回显（与守卫 hooklib.brief 相同）。
 export function briefPath(file: string): string {
   return file.length <= 160 ? file : `${file.slice(0, 60)}…${file.slice(-60)}（共 ${file.length} 个字符）`
 }

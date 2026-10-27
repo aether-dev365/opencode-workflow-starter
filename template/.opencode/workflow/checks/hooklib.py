@@ -244,6 +244,12 @@ PATH_LIMITS = {'linux': 4096, 'darwin': 1024, 'win32': 32767}
 NAME_LIMIT = 255
 
 
+def brief(path):
+    """拒绝原因中的路径：超长参数只保留首尾，不整段回显（与插件 platform.ts 的 briefPath 相同）。"""
+    text = str(path)
+    return text if len(text) <= 160 else f'{text[:60]}…{text[-60:]}（共 {len(text)} 个字符）'
+
+
 def missing_long_name(error, platform=None):
     """查询路径报名字过长时，能否确定这个路径不存在。
 
@@ -329,20 +335,22 @@ def _resolve(cur, tok):
     return os.path.normpath(os.path.join(cur, tok))
 
 
-def physical_path(path):
+def physical_path(path, os_name=None):
     """按 POSIX 内核的方式解析绝对路径中的 `..`：先跟随前面各段的符号链接，再回到上一级；最后一段不跟随，由
     check_path 的真实路径检查覆盖。字面合并会把 `LINK/../x` 当作与 LINK 同级的 x，内核打开的却是链接目标上一级里的 x。
-    不含 `..` 段或不是绝对路径时原样返回。Windows 按字面合并 `..`，这里同样计算，只是多检查一个候选。"""
-    drive, rest = os.path.splitdrive(path)
-    parts = re.split(r'[\\/]', rest) if os.name == 'nt' else rest.split('/')
-    if '..' not in parts or not os.path.isabs(path):
+    不含 `..` 段或不是绝对路径时原样返回。Windows 按字面合并 `..`，这里同样计算，只是多检查一个候选。
+    非严格的 realpath 查询出错时当作不是链接继续；得到的候选仍要经过 check_path 的查询，出错同样拒绝。"""
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    drive, rest = module.splitdrive(path)
+    parts = re.split(r'[\\/]', rest) if module is ntpath else rest.split('/')
+    if '..' not in parts or not module.isabs(path):
         return path
-    current = drive + os.sep
+    current = drive + module.sep
     for part in parts[:-1]:
         if part in ('', '.'):
             continue
-        current = os.path.dirname(current) if part == '..' else os.path.realpath(os.path.join(current, part))
-    return os.path.join(current, parts[-1])
+        current = module.dirname(current) if part == '..' else module.realpath(module.join(current, part))
+    return module.join(current, parts[-1])
 
 
 def _shell_paths(cur, tok):

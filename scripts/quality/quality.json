@@ -51,9 +51,9 @@
     { "id": "ci-template", "paths": ["optional/ci/*"], "exclude": ["optional/ci/README.md"], "related": ["optional/ci/README.md"],
       "message": "接入方 CI 的行为变化要同步 CI README" },
     { "id": "plugin-path-parity", "paths": ["template/.opencode/plugins/workflow/platform.ts"],
-      "related": ["template/.opencode/workflow/checks/hooklib.py"], "message": "插件与守卫各有一份的路径口径（盘符写法、OpenCode 工具路径解析、超长路径能否确定不存在）两边保持一致" },
+      "related": ["template/.opencode/workflow/checks/hooklib.py"], "message": "插件与守卫各有一份的路径口径（盘符写法、OpenCode 工具路径解析、超长路径能否确定不存在、拒绝原因中长路径的截断）两边保持一致" },
     { "id": "guard-path-parity", "paths": ["template/.opencode/workflow/checks/hooklib.py"],
-      "related": ["template/.opencode/plugins/workflow/platform.ts"], "message": "守卫与插件各有一份的路径口径（盘符写法、OpenCode 工具路径解析、超长路径能否确定不存在）两边保持一致" },
+      "related": ["template/.opencode/plugins/workflow/platform.ts"], "message": "守卫与插件各有一份的路径口径（盘符写法、OpenCode 工具路径解析、超长路径能否确定不存在、拒绝原因中长路径的截断）两边保持一致" },
     { "id": "release-extension", "paths": ["template/.opencode/plugins/workflow/release.ts", "template/.opencode/plugins/workflow/evidence.ts", "optional/release/*.example.json"],
       "related": ["optional/release/README.md"], "message": "发布核查、证据规则或证据示例变化要同步发布扩展 README" }
   ]

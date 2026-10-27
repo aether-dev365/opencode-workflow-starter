@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,6 +25,21 @@ class Pipefail(unittest.TestCase):
                 self.assertEqual(output['decision'], decision)
                 if decision == 'allow':
                     self.assertTrue(output['input']['command'].startswith('set -o pipefail; '))
+
+    def test_workdir_home_shorthand_finds_the_project_configuration(self):
+        # workdir 与 OpenCode 一样展开 `~/`，配置按实际执行目录所在的检出查找。
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as location:
+            project = Path(home) / 'project'
+            config = project / '.opencode/workflow/pipefail.json'
+            config.parent.mkdir(parents=True)
+            (project / '.git').mkdir()
+            (Path(location) / '.git').mkdir()
+            config.write_text(json.dumps({'version': 1, 'commandPrefixes': [['cargo', 'test']]}))
+            event = dict(version=1, phase='before', directory=location, sessionId='s', callId='c',
+                         tool='shell', paths=[], input={'command': 'cargo test | tail', 'workdir': '~/project'})
+            result = subprocess.run([sys.executable, str(HERE / 'pre-bash-pipefail.py')], input=json.dumps(event),
+                                    encoding='utf-8', capture_output=True, env={**os.environ, 'OPENCODE_TEST_HOME': home})
+            self.assertTrue(json.loads(result.stdout).get('input', {}).get('command', '').startswith('set -o pipefail; '), result.stdout)
 
     def test_exit_status_is_preserved_only_for_test_pipelines(self):
         with tempfile.TemporaryDirectory() as root:

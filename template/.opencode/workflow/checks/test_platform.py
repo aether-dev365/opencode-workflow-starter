@@ -42,6 +42,13 @@ class Platform(unittest.TestCase):
                 with self.subTest(value=value, os_name='posix'):
                     self.assertEqual(hooklib.tool_path('/repo', value, 'posix'), expected)
 
+    def test_parent_segments_are_found_with_platform_separators(self):
+        # Windows 的 `\` 是分隔符，POSIX 上是名字里的普通字符。
+        self.assertEqual(hooklib.physical_path('C:\\repo\\L\\..\\x', 'nt'), 'C:\\repo\\x')
+        self.assertEqual(hooklib.physical_path('C:/repo/L/../x', 'nt'), 'C:\\repo\\x')
+        self.assertEqual(hooklib.physical_path('/repo/a\\..\\b', 'posix'), '/repo/a\\..\\b')
+        self.assertEqual(hooklib.physical_path('/repo/a/../b', 'posix'), '/repo/b')
+
     def test_git_bash_drive_paths_resolve_as_absolute(self):
         with mock.patch.object(hooklib.os, 'name', 'nt'):
             # 结果是本机格式：Windows 上 normpath 输出反斜杠。
