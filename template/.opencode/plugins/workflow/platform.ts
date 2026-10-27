@@ -186,10 +186,20 @@ export function missingLongName(error: unknown, platform: Platform = process.pla
   return length < (PATH_LIMITS[platform] ?? 0) || file.split(windows ? /[\\/]/ : '/').some(part => part.length > NAME_LIMIT)
 }
 
-// 无法确定是否存在的超长路径按出错拒绝；原因中只保留路径首尾，不整段回显参数。
+// 拒绝原因中的路径：超长参数只保留首尾，不整段回显（与守卫 pre-guard-paths 的 brief 相同）。
+export function briefPath(file: string): string {
+  return file.length <= 160 ? file : `${file.slice(0, 60)}…${file.slice(-60)}（共 ${file.length} 个字符）`
+}
+
+// 无法确定是否存在的超长路径按出错拒绝。
 export function pathTooLong(file: string): Error {
-  const brief = file.length <= 160 ? file : `${file.slice(0, 60)}…${file.slice(-60)}（共 ${file.length} 个字符）`
-  return new Error(`路径超过系统长度上限，无法检查：${brief}。长文本改用文件或标准输入传入，例如 git commit -F -`)
+  return new Error(`路径超过系统长度上限，无法检查：${briefPath(file)}。长文本改用文件或标准输入传入，例如 git commit -F -`)
+}
+
+// 查询路径的其他错误同样拒绝；原因保留错误码，路径只保留首尾。不是系统错误时原样抛出。
+export function pathError(error: unknown, file: string): unknown {
+  const { code, path: failed } = (error ?? {}) as NodeJS.ErrnoException
+  return code ? new Error(`无法检查路径（${code}）：${briefPath(failed ?? file)}`) : error
 }
 
 // 守卫只支持 Bash；未知解释器拒绝，WSL 启动器也不能操作当前 Windows 检出。

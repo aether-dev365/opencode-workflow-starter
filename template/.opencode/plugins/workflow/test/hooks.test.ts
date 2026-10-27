@@ -193,6 +193,21 @@ test('长提交说明和内联脚本的参数不被当作已有路径', async ()
   } finally { await f.close() }
 })
 
+test('路径查询出错时拒绝原因只显示路径首尾', async () => {
+  // 文件名后面再接路径时 stat 报 ENOTDIR，无法确认而拒绝；原因保留错误码，不整段回显参数。Windows 报 ENOENT，按不存在放行。
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    const allowed = before('shell', { command: 'echo x > notes.txt', workdir: f.root })
+    await assert.rejects(f.fire('tool.execute.before', allowed), /上下文/)
+    await f.fire('session.context', context())
+    const tail = 'b'.repeat(200)
+    const call = f.fire('tool.execute.before', before('shell', { command: `echo x > AGENTS.md/${'a'.repeat(200)}/${tail}`, workdir: f.root }))
+    if (process.platform === 'win32') await call
+    else await assert.rejects(call, (error: Error) => /ENOTDIR/.test(error.message) && !error.message.includes(tail) && error.message.length < 400)
+  } finally { await f.close() }
+})
+
 test('unseen scopes deny once then inject; compaction and child sessions reset visibility', async () => {
   const f = await fixture()
   try {

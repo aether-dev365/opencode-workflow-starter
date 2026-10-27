@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, writeFile, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fixture } from './fixture.ts'
@@ -32,6 +32,18 @@ test('a path beyond the system limit is refused without echoing it', async () =>
     // Windows 对不存在的超长路径报 ENOENT，按不存在继续向上查找。
     if (process.platform === 'win32') { assert.equal(await scopeRoot(deep), f.root); return }
     await assert.rejects(scopeRoot(deep), (error: Error) => /超过系统长度上限/.test(error.message) && !error.message.includes(deep) && error.message.length < 400)
+  } finally { await f.close() }
+})
+
+test('other lookup errors are refused with only the ends of the path', async t => {
+  // 指向自身的链接让查询报 ELOOP，无法确认而拒绝；原因保留错误码，不整段回显参数。
+  const f = await fixture()
+  try {
+    try { await symlink('loop', join(f.root, 'loop')) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('需要创建符号链接的权限'); throw error }
+    const tail = 'b'.repeat(200)
+    const lookup = scopeRoot(join(f.root, 'loop', 'a'.repeat(200), tail))
+    await assert.rejects(lookup, (error: Error) => /无法检查路径/.test(error.message) && !error.message.includes(tail) && error.message.length < 400)
   } finally { await f.close() }
 })
 

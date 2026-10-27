@@ -12,7 +12,7 @@ import { scopeRoot } from './scopes.ts'
 import { loadProjectConfig } from './config.ts'
 import { registerReview, REVIEWER } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
-import { containedRelative, missingLongName, pathTooLong, samePath, toolPath, unsupportedShell } from './platform.ts'
+import { containedRelative, missingLongName, pathError, pathTooLong, samePath, toolPath, unsupportedShell } from './platform.ts'
 import { registerSetupTools } from './onboarding.ts'
 import { sessionQueue } from './serial.ts'
 
@@ -31,7 +31,7 @@ async function isProtectionPath(path: string, root: string): Promise<boolean> {
     // 名字超过文件系统上限的路径不存在；无法确定时按出错拒绝。
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'ENOENT' || missingLongName(error)) return false
-    throw code === 'ENAMETOOLONG' ? pathTooLong(path) : error
+    throw code === 'ENAMETOOLONG' ? pathTooLong(path) : pathError(error, path)
   }
 }
 

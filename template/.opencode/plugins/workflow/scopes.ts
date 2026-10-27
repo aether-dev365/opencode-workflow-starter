@@ -2,7 +2,7 @@ import { access, readFile } from 'node:fs/promises'
 import { dirname, resolve, relative, isAbsolute } from 'node:path'
 import { containedFile, SCOPE_TEXT_LIMIT } from './config.ts'
 import { matchesPattern, patternProblem } from './patterns.ts'
-import { missingLongName, pathTooLong, portableRelative } from './platform.ts'
+import { missingLongName, pathError, pathTooLong, portableRelative } from './platform.ts'
 
 export type Scope = { root: string; instruction: string; text: string }
 export { SCOPE_TEXT_LIMIT }
@@ -14,7 +14,7 @@ export async function scopeRoot(path: string): Promise<string | undefined> {
       const code = (error as NodeJS.ErrnoException).code || ''
       // 名字超过文件系统上限的路径不存在，继续向上查找。
       if (code === 'ENAMETOOLONG') { if (!missingLongName(error)) throw pathTooLong(path) }
-      else if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(code)) throw error
+      else if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(code)) throw pathError(error, path)
     }
     const parent = dirname(here)
     if (parent === here) return undefined
