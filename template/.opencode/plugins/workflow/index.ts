@@ -12,7 +12,7 @@ import { scopeRoot } from './scopes.ts'
 import { loadProjectConfig } from './config.ts'
 import { registerReview, REVIEWER } from './review.ts'
 import { registerRelease, loadReleaseConfig } from './release.ts'
-import { containedRelative, missingLongName, pathTooLong, samePath, unsupportedShell, windowsPath } from './platform.ts'
+import { containedRelative, missingLongName, pathTooLong, samePath, toolPath, unsupportedShell } from './platform.ts'
 import { registerSetupTools } from './onboarding.ts'
 import { sessionQueue } from './serial.ts'
 
@@ -73,7 +73,7 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
   const approve = (event: WorkflowEvent) => {
     const now = Date.now()
     for (const [entry, expiry] of approvals) if (expiry < now) approvals.delete(entry)
-    approvals.set(approvalKey(resolve(event.directory, windowsPath(String(event.input.workdir || ''))), String(event.input.command)), now + 10_000)
+    approvals.set(approvalKey(toolPath(event.directory, String(event.input.workdir || '')), String(event.input.command)), now + 10_000)
   }
   const consume = (cwd: string, command: string) => {
     const entry = approvalKey(cwd, command), expiry = approvals.get(entry)
@@ -131,7 +131,7 @@ export async function registerWorkflow(ctx: Plugin.Context): Promise<() => Promi
     const refused = unsupportedShell(raw.shell)
     if (refused) throw new Error(refused)
     // 工具的 workdir 可以是相对路径；OpenCode 在本钩子之后才把它解析为绝对路径。
-    const cwd = resolve(ctx.location.directory, windowsPath(raw.cwd || ''))
+    const cwd = toolPath(ctx.location.directory, raw.cwd || '')
     if (consume(cwd, raw.command)) return
     const event = normalizeCall('shell', { command: raw.command }, cwd, '__shell__', '__shell__')
     allow(await runChecks(event, guards, controller.signal), event)

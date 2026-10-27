@@ -365,6 +365,30 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command, credentials=False):
                 self.assertEqual(self.guard(command=command), 'deny')
 
+    def test_tool_paths_resolve_like_opencode(self):
+        # OpenCode 解析 grep 的 path、shell 的 workdir 和原生工具路径时，把 `~`、`~/` 换成主目录，再按字面合并 `..`。
+        from unittest.mock import patch
+        for name in ['src', 'build']:
+            (self.root / name).mkdir()
+        (self.root / 'src/.env').write_text('synthetic')
+        environment = {key: value for key, value in os.environ.items() if key != 'OPENCODE_TEST_HOME'}
+        for variables in [{'OPENCODE_TEST_HOME': str(self.root)}, {'HOME': str(self.root), 'USERPROFILE': str(self.root)}]:
+            with patch.dict('os.environ', {**environment, **variables}, clear=True):
+                for path in ['src/missing/..', 'missing/../src', f'{self.root}/src/missing/..', '~/src', '~']:
+                    with self.subTest(variables=variables, grep=path):
+                        self.assertEqual(self.guard(tool='grep', pattern='x', path=path), 'deny')
+                for command in ['echo x > .opencode/workflow/protection.json', 'rm -rf .opencode']:
+                    for workdir in ['~', 'missing/..']:
+                        with self.subTest(variables=variables, workdir=workdir, command=command):
+                            self.assertEqual(self.guard(command=command, workdir=workdir), 'deny')
+                for path in ['build', '~/build', 'missing/../build']:
+                    with self.subTest(variables=variables, grep=path):
+                        self.assertEqual(self.guard(tool='grep', pattern='x', path=path), 'allow')
+                self.assertEqual(self.guard(command='echo x > notes.txt', workdir='~/build'), 'allow')
+        # 只有恰为 `~` 或以 `~/` 开头才展开；`~user` 与其他位置的 `~` 是普通名字。
+        (self.root / '~user').mkdir()
+        self.assertEqual(self.guard(tool='grep', pattern='x', path='~user'), 'allow')
+
     def test_git_clean_paths_follow_git_pathspec_rules(self):
         # git 按字面合并 ..，自己展开引号里的通配，并支持 :/、:(top)、:(icase)、:! 等 pathspec 写法；
         # -e 的值是排除规则而不是路径；不带 -x 时同样删除未被忽略的未跟踪文件。

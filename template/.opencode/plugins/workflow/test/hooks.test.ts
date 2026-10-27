@@ -117,6 +117,31 @@ test('cd 失败以及管道、后台中的 cd 不改变后续命令的目录', a
   } finally { await f.close() }
 })
 
+test('grep 的 path、shell 的 workdir 和原生工具路径按 OpenCode 的方式解析', async () => {
+  // OpenCode 把恰为 `~` 或以 `~/` 开头的路径换成主目录（OPENCODE_TEST_HOME，否则系统主目录），再按字面合并 `..`。
+  const f = await fixture()
+  const previous = process.env.OPENCODE_TEST_HOME
+  try {
+    process.env.OPENCODE_TEST_HOME = f.root
+    await writeFile(join(f.root, 'src/.env'), 'SYNTHETIC=value\n')
+    await (await load())(f.ctx)
+    for (const path of ['src/missing/..', 'missing/../src', '~/src', '~']) {
+      await assert.rejects(f.fire('tool.execute.before', before('grep', { pattern: '.', path })), /文件保护/, path)
+    }
+    const allowed = before('shell', { command: 'echo x > notes.txt', workdir: '~' })
+    await assert.rejects(f.fire('tool.execute.before', allowed), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', allowed)
+    await assert.rejects(f.fire('tool.execute.before', before('shell', { command: 'echo x > .opencode/workflow/protection.json', workdir: '~' })), /保护配置/)
+    await assert.rejects(f.fire('tool.execute.before', before('write', { path: '~/.opencode/workflow/protection.json' })), /保护配置/)
+    await assert.rejects(f.fire('shell.create.before', { command: 'cat .env', cwd: '~/src', timeout: 0, shell: '/bin/bash', env: {} }), /文件保护检查拒绝/)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_TEST_HOME
+    else process.env.OPENCODE_TEST_HOME = previous
+    await f.close()
+  }
+})
+
 test('git clean 的路径按 git 的 pathspec 规则检查', async () => {
   // git 按字面合并 ..，并支持 :/、:(top) 等写法；不带 -x 时同样删除未被忽略的未跟踪文件。
   const f = await fixture()

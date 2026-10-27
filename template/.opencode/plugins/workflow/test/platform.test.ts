@@ -28,6 +28,17 @@ test('Git Bash drive paths map to Windows drives only on Windows', () => {
   assert.equal(windowsPath('/c/Users/example', 'linux'), '/c/Users/example')
 })
 
+test('工具路径与 OpenCode FileAccess.resolve 的解析相同', () => {
+  // 守卫 hooklib.tool_path 用同一组例子：盘符写法、`~` 与 `~/`、字面合并 `..`。
+  assert.equal(typeof hookPlatform.toolPath, 'function')
+  const windows = { platform: 'win32' as const, env: { OPENCODE_TEST_HOME: 'C:/Users/example' } }
+  for (const [value, expected] of [['~/x', 'C:\\Users\\example\\x'], ['~', 'C:\\Users\\example'], ['~\\x', 'C:\\repo\\~\\x'],
+    ['/d/data/../x', 'D:\\x'], ['src/missing/..', 'C:\\repo\\src'], ['', 'C:\\repo']]) assert.equal(hookPlatform.toolPath('C:\\repo', value, windows), expected, value)
+  const posix = { platform: 'linux' as const, env: { OPENCODE_TEST_HOME: '/home/example' } }
+  for (const [value, expected] of [['~/x', '/home/example/x'], ['~', '/home/example'], ['~user/x', '/repo/~user/x'],
+    ['/c/x', '/c/x'], ['src/missing/..', '/repo/src'], ['', '/repo']]) assert.equal(hookPlatform.toolPath('/repo', value, posix), expected, value)
+})
+
 test('relative paths use forward slashes on Windows', () => {
   assert.equal(portableRelative('C:\\repo', 'C:\\repo\\src\\a.ts', path.win32), 'src/a.ts')
   assert.equal(portableRelative('/repo', '/repo/src/a.ts', path.posix), 'src/a.ts')

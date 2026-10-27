@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, realpathSync, accessSync, statSync, constants } from 'node:fs'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 // 操作系统差异集中在这里：路径分隔符、Python 启动器、.cmd 启动器、进程树终止和 shell 识别。
@@ -12,6 +13,15 @@ const driveForms = [/^\/([a-zA-Z]):(?:[\\/]|$)/, /^\/([a-zA-Z])(?:\/|$)/, /^\/cy
 export function windowsPath(value: string, platform: Platform = process.platform): string {
   if (platform !== 'win32') return value
   return driveForms.reduce((current, form) => current.replace(form, (_, drive: string) => `${drive.toUpperCase()}:/`), value)
+}
+
+// 与 OpenCode FileAccess.resolve 相同（守卫 hooklib.tool_path 同口径）：先转换盘符写法，恰为 `~` 或以 `~/` 开头时换成主目录
+// （OPENCODE_TEST_HOME，没有时取系统主目录），再相对 directory 按字面合并 `..`。grep 的 path、shell 的 workdir 和原生工具的路径都这样解析。
+export function toolPath(directory: string, value: string, { platform = process.platform, env = process.env }: { platform?: Platform; env?: NodeJS.ProcessEnv } = {}): string {
+  const p = platform === 'win32' ? path.win32 : path.posix
+  const home = env.OPENCODE_TEST_HOME ?? homedir()
+  const local = windowsPath(value, platform)
+  return p.resolve(directory, local === '~' ? home : local.startsWith('~/') ? p.join(home, local.slice(2)) : local)
 }
 
 // 路径模式按 `/` 书写；Windows 的 relative() 返回反斜杠。

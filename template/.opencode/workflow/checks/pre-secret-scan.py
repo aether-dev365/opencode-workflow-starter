@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 
-from hooklib import (_command_lines, _lift_substitutions, _strip_redirects, split_segments, windows_path,
+from hooklib import (_command_lines, _lift_substitutions, _strip_redirects, split_segments, tool_path, windows_path,
                      SHELL_WRAPPERS, find_program, program, supported_shell_command, system_command)
 from protocol import emit_result, read_event
 
@@ -481,7 +481,7 @@ def check(data):
         command = data['input'].get('command')
         if not isinstance(command, str):
             raise Blocked('已拦截：凭据扫描缺少 Bash command 输入。')
-        cwd = Path(data['directory']) / windows_path(data['input'].get('workdir', ''))
+        cwd = Path(tool_path(data['directory'], data['input'].get('workdir', '')))
         parsed = commit_command(command, str(cwd))
         if parsed:
             scan_commit(parsed, runner)

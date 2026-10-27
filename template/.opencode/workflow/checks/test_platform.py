@@ -29,6 +29,19 @@ class Platform(unittest.TestCase):
                 self.assertEqual(hooklib.windows_path(value, 'nt'), expected)
         self.assertEqual(hooklib.windows_path('/c/Users/example', 'posix'), '/c/Users/example')
 
+    def test_tool_paths_match_opencode_file_access(self):
+        # 与 OpenCode FileAccess.resolve 相同（插件 platform.ts 的 toolPath 用同一组例子）：盘符写法、`~` 与 `~/`、字面合并 `..`。
+        with mock.patch.dict(os.environ, {'OPENCODE_TEST_HOME': 'C:/Users/example'}):
+            for value, expected in [('~/x', 'C:\\Users\\example\\x'), ('~', 'C:\\Users\\example'), ('~\\x', 'C:\\repo\\~\\x'),
+                                    ('/d/data/../x', 'D:\\x'), ('src/missing/..', 'C:\\repo\\src'), ('', 'C:\\repo')]:
+                with self.subTest(value=value, os_name='nt'):
+                    self.assertEqual(hooklib.tool_path('C:\\repo', value, 'nt'), expected)
+        with mock.patch.dict(os.environ, {'OPENCODE_TEST_HOME': '/home/example'}):
+            for value, expected in [('~/x', '/home/example/x'), ('~', '/home/example'), ('~user/x', '/repo/~user/x'),
+                                    ('/c/x', '/c/x'), ('src/missing/..', '/repo/src'), ('', '/repo')]:
+                with self.subTest(value=value, os_name='posix'):
+                    self.assertEqual(hooklib.tool_path('/repo', value, 'posix'), expected)
+
     def test_git_bash_drive_paths_resolve_as_absolute(self):
         with mock.patch.object(hooklib.os, 'name', 'nt'):
             # 结果是本机格式：Windows 上 normpath 输出反斜杠。

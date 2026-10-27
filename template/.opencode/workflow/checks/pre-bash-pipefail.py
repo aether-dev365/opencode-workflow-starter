@@ -11,7 +11,7 @@ import shlex
 from pathlib import Path
 from policy import policy_root
 
-from hooklib import HEREDOC_OP, PREFIX, _lift_substitutions, _mask_quotes, windows_path
+from hooklib import HEREDOC_OP, PREFIX, _lift_substitutions, _mask_quotes, tool_path
 from protocol import emit_result, load_event
 
 # 管道里非末端的这些命令，失败时退出码会被末端吞掉
@@ -98,7 +98,7 @@ def check(data):
         return dict(decision='allow')
     prefixes = []
     try:
-        root = policy_root(Path(data['directory']) / windows_path(tool_input.get('workdir', '')))
+        root = policy_root(tool_path(data['directory'], tool_input.get('workdir', '')))
         config = root / '.opencode/workflow/pipefail.json' if root else None
         if config and config.exists():
             value = json.loads(config.read_text(encoding='utf-8'))

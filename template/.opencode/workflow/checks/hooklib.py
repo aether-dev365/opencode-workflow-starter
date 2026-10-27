@@ -19,8 +19,8 @@
 语义按 bash：赋值只对其后的段生效，命令前的环境前缀 `X=1 cmd` 不是 shell 变量；解不开的变量原样保留、
 整条退回逐 token 判。
 
-相对路径按中性事件的 directory 和原生 input.workdir 解析；workdir 相对会话 Location。
-没有 workdir 时使用 directory。命令里的 `cd X` 会把
+相对路径按中性事件的 directory 和原生 input.workdir 解析；workdir 与原生工具的路径参数按 OpenCode 的方式
+解析（见 tool_path），相对会话 Location。没有 workdir 时使用 directory。命令里的 `cd X` 会把
 后续各段的相对路径挂到 X 下，覆盖 `cd vendor && sed -i … src/file.js`。
 
 多跑一轮的代价是两秒静默；漏跑一次的代价是一个不生效的护栏静默留在仓库里。
@@ -170,6 +170,24 @@ def windows_path(value, os_name=None):
     for form in WINDOWS_DRIVE_FORMS:
         value = form.sub(lambda m: m.group(1).upper() + ':/', value, count=1)
     return value
+
+
+def opencode_home(env=None):
+    """OpenCode 展开 `~` 用的主目录：OPENCODE_TEST_HOME，没有时取系统主目录（与 Node 的 os.homedir() 一致）。"""
+    home = (os.environ if env is None else env).get('OPENCODE_TEST_HOME')
+    return home if home is not None else os.path.expanduser('~')
+
+
+def tool_path(directory, value, os_name=None):
+    """与 OpenCode FileAccess.resolve 相同：先转换盘符写法，恰为 `~` 或以 `~/` 开头时换成主目录，再相对 directory
+    按字面合并 `..`。grep 的 path、shell 的 workdir 和原生工具的路径参数都这样解析，不去引号，`~user` 不展开。"""
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    value = windows_path(value, os_name)
+    if value == '~':
+        value = opencode_home()
+    elif value.startswith('~/'):
+        value = module.join(opencode_home(), value[2:])
+    return module.normpath(module.join(directory, value))
 
 
 def _env_value(env, name):
@@ -1410,7 +1428,7 @@ def candidates_from(data, include_readonly=False):
     tool_input = data['input']
     cwd = data['directory']
     if tool_input.get('workdir'):
-        cwd = _resolve(cwd, tool_input['workdir'])
+        cwd = tool_path(cwd, tool_input['workdir'])
     explicit = [_resolve(cwd, path) for path in data['paths']]
     inferred, via_command = candidates(tool_input, cwd, include_readonly)
     return list(dict.fromkeys(explicit + inferred)), via_command

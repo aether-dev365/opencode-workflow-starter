@@ -4,7 +4,7 @@ import errno
 import os
 from pathlib import Path
 from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
-                     windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir)
+                     tool_path, has_hidden_shell_eval, static_command_words, find_roots, path_exists, path_is_dir)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -36,7 +36,7 @@ def check_event(event):
         path = event['input'].get('path', '')
         if not isinstance(path, str):
             raise ValueError('搜索路径无效')
-        target = Path(event['directory']) / windows_path(path)
+        target = Path(tool_path(event['directory'], path))
         check(str(target), 'read')
         pending = [target] if path_is_dir(target) else []
         while pending:
@@ -55,7 +55,7 @@ def check_event(event):
         for path in candidates_from(event)[0]:
             check(path, 'read' if event['tool'] == 'read' or event['input'].get('action') == 'read' else 'edit')
         return False
-    cwd = str(Path(event['directory']) / windows_path(event['input'].get('workdir', '')))
+    cwd = tool_path(event['directory'], event['input'].get('workdir', ''))
     command = event['input'].get('command', '')
     reason = '无法静态检查这条 shell 命令，请改写成直接的命令'
     try:
