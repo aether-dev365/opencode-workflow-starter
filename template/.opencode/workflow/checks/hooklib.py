@@ -351,27 +351,38 @@ def physical_path(path, os_name=None):
     """按 POSIX 内核的方式解析绝对路径中的 `..`：先跟随前面各段的符号链接，再回到上一级；最后一段不跟随，由
     check_path 的真实路径检查覆盖。字面合并会把 `LINK/../x` 当作与 LINK 同级的 x，内核打开的却是链接目标上一级里的 x。
     不含 `..` 段或不是绝对路径时原样返回。Windows 按字面合并 `..`，这里同样计算，只是多检查一个候选。
-    非严格的 realpath 查询出错时当作不是链接继续；得到的候选仍要经过 check_path 的查询，出错同样拒绝。"""
+    `..` 之前的某一段在真机上不存在时（可能是同一命令里新建的链接），无法确认内核落点，返回 None 由调用方拒绝；
+    os_name 注入（跨平台测试）时只算字面与链接解析，不查存在性。非严格的 realpath 查询出错时当作不是链接继续；
+    得到的候选仍要经过 check_path 的查询，出错同样拒绝。"""
     module = ntpath if (os_name or os.name) == 'nt' else posixpath
     drive, rest = module.splitdrive(path)
     parts = re.split(r'[\\/]', rest) if module is ntpath else rest.split('/')
     if '..' not in parts or not module.isabs(path):
         return path
     current = drive + module.sep
-    for part in parts[:-1]:
+    for index, part in enumerate(parts[:-1]):
         if part in ('', '.'):
             continue
-        current = module.dirname(current) if part == '..' else module.realpath(module.join(current, part))
+        if part == '..':
+            current = module.dirname(current)
+            continue
+        target = module.join(current, part)
+        if os_name is None and '..' in parts[index + 1:] and not os.path.lexists(target):
+            return None
+        current = module.realpath(target)
     return module.join(current, parts[-1])
 
 
 def _shell_paths(cur, tok):
-    """shell 命令中的路径候选：字面合并的路径；含 `..` 段时另加按内核方式解析的路径（见 physical_path）。"""
+    """shell 命令中的路径候选：字面合并的路径；含 `..` 段时另加按内核方式解析的路径（见 physical_path）。
+    `..` 之前的段在检查时不存在时无法确认落点，拒绝。"""
     lexical = _resolve(cur, tok)
     raw = windows_path(_dequote(tok.replace("\\", "/")))
     if not raw or raw.startswith(("-", "$", "~")) or not (is_absolute(raw) or cur):
         return [lexical]
     physical = physical_path(raw if is_absolute(raw) else os.path.join(cur, raw))
+    if physical is None:
+        raise ValueError('无法确认 `..` 之前的路径（可能是同一命令里新建的链接），请改写为不经过 `..` 的直接路径')
     return list(dict.fromkeys([lexical, os.path.normpath(physical)]))
 
 
@@ -529,8 +540,10 @@ def command_states(text, cwd, env):
             moved = [(target, frozen)]
             literal = os.path.expanduser(windows_path(_dequote(words[1].replace("\\", "/"))))
             if '..' in literal.split('/') and (is_absolute(literal) or cwd):
-                # 默认的逻辑 cd 按字面合并 `..`；`set -P` 之后按真实路径切换，两种都可能。
-                physical = os.path.realpath(physical_path(literal if is_absolute(literal) else os.path.join(cwd, literal)))
+                # 默认的逻辑 cd 按字面合并 `..`；`set -P` 之后按真实路径切换，两种都可能。cd 目标无法确认落点时
+                # bash 的 cd 本身会失败（留在原目录，已由 fail 分支覆盖），不另加真实目录状态。
+                resolved = physical_path(literal if is_absolute(literal) else os.path.join(cwd, literal))
+                physical = os.path.realpath(resolved) if resolved is not None else target
                 moved += [(physical, frozen)] if physical != target else []
             if _bare_cd(segment):
                 return {**{(state, 'ok'): None for state in moved}, (state, 'fail'): None}

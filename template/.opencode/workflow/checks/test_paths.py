@@ -379,7 +379,10 @@ class PathGuards(unittest.TestCase):
         (self.root / '.opencode/workflow/sub').mkdir()
         (self.root / 'L').symlink_to(self.root / '.opencode/workflow/sub', target_is_directory=True)
         for command in ['echo x > L/../protection.json', 'cat a/PL/../key', 'echo x > a/PL/../key', 'rm -rf a/PL/../key',
-                        'sed -i s/a/b/ a/PL/../key', 'set -P; cd a/PL/..; cat key']:
+                        'sed -i s/a/b/ a/PL/../key', 'set -P; cd a/PL/..; cat key',
+                        # 同一条命令里新建链接再经它的 `..`：检查时链接还不存在，无法确认落点，拒绝。
+                        'ln -s .opencode/workflow/sub K && echo x > K/../protection.json',
+                        'mkdir -p fresh && echo x > fresh/../.opencode/workflow/protection.json']:
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'deny')
         for command in ['cat a/note.txt', 'cd a && cat note.txt', 'cat a/../a/note.txt', 'echo x > a/new.txt']:

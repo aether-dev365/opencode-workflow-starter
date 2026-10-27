@@ -30,7 +30,11 @@ def run(data):
     result = dict(decision='allow')
     if INSPECT in names:
         # 拒绝时也带上 inspect：插件先按只读分类决定是否报告配置问题，再报告守卫结论。
-        result['inspect'] = load(INSPECT).check(data)['input']
+        # 路径分析出错（如无法确认 `..` 之前的路径）时给出保守的 inspect，交给守卫按同样的原因拒绝。
+        try:
+            result['inspect'] = load(INSPECT).check(data)['input']
+        except Exception:
+            result['inspect'] = {'paths': [], 'readonly': False}
     event = dict(data, input=dict(data['input']))
     changed = volatile = False
     for name in GUARDS:
