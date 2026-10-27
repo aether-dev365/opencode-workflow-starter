@@ -100,6 +100,23 @@ test('文档中由模型运行的 doctor 命令不触及保护配置', async () 
   } finally { await f.close() }
 })
 
+test('cd 失败以及管道、后台中的 cd 不改变后续命令的目录', async () => {
+  // cd 失败时 `;`、`||` 之后的命令仍在原目录执行；管道各段和 & 后台命令在子 shell 中执行。
+  const f = await fixture()
+  try {
+    await (await load())(f.ctx)
+    const allowed = before('shell', { command: 'cd src && echo x > a.ts', workdir: f.root })
+    await assert.rejects(f.fire('tool.execute.before', allowed), /上下文/)
+    await f.fire('session.context', context())
+    await f.fire('tool.execute.before', allowed)
+    for (const command of ['cd missing; echo x > .opencode/workflow/protection.json', 'cd missing || echo x > .opencode/workflow/protection.json',
+      'cd src | echo x > .opencode/workflow/protection.json', 'cd src & echo x > .opencode/workflow/protection.json',
+      '! cd src; echo x > ../.opencode/workflow/protection.json']) {
+      await assert.rejects(f.fire('tool.execute.before', before('shell', { command, workdir: f.root })), /保护配置/, command)
+    }
+  } finally { await f.close() }
+})
+
 test('长提交说明和内联脚本的参数不被当作已有路径', async () => {
   // 名字超过文件系统上限的参数不可能是已有文件；整条路径超过系统上限时无法检查而拒绝，原因不整段回显参数。
   const f = await fixture()

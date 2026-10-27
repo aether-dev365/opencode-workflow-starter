@@ -384,6 +384,48 @@ class PathGuards(unittest.TestCase):
                         'timeout 5 cat README.md']:
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command=command), 'allow')
+
+    def test_directory_changes_follow_shell_list_semantics(self):
+        # cd 失败时 `;`、换行与 `||` 之后的命令仍在原目录执行；管道各段和 & 后台命令在子 shell 中，cd 与赋值不影响后续命令。
+        from hooklib import command_paths
+        for name in ['src', 'build']:
+            (self.root / name).mkdir()
+        (self.root / 'src/.env').write_text('synthetic')
+        with tempfile.TemporaryDirectory() as outside:
+            for command in [
+                'cd missing; echo x > .opencode/workflow/protection.json',
+                'cd missing\necho x > .opencode/workflow/protection.json',
+                'cd missing || echo x > .opencode/workflow/protection.json',
+                'cd src | echo x > .opencode/workflow/protection.json',
+                'cd src & echo x > .opencode/workflow/protection.json',
+                'cd missing; rm -rf .opencode',
+                'cd src && cd missing; echo x > ../.opencode/workflow/protection.json',
+                '! cd src; echo x > ../.opencode/workflow/protection.json',
+                # `!` 只取反退出码，后面的命令照常执行。
+                '! rm -rf src', '! find src -delete', '! rm -rf "$X"',
+                # export 给只读变量赋值失败时 shell 继续执行，`||` 之后的命令照常执行。
+                'readonly X=a; export X=b || rm -rf src',
+                # macOS 的 /usr/bin/cd 不改变调用方的目录且返回 0。
+                f'env cd {outside} && rm -rf .opencode',
+                f'timeout 5 cd {outside} && rm -rf .opencode',
+                'X=.opencode/workflow; X=src | echo x > $X/protection.json',
+            ]:
+                with self.subTest(command=command):
+                    self.assertEqual(self.guard(command=command), 'deny')
+        # 插件按同一份候选路径检查保护配置。
+        written = command_paths('cd missing; echo x > notes.txt', str(self.root))
+        self.assertIn(str(self.root / 'notes.txt'), written)
+        self.assertIn(str(self.root / 'missing/notes.txt'), written)
+        self.assertNotIn(str(self.root / 'notes.txt'), command_paths('cd src && echo x > notes.txt', str(self.root)))
+        for command in ['cd src && echo x > a.ts', 'cd build && rm -rf .', 'cd build && rm -rf . && ls',
+                        'cd src || echo x > notes.txt', 'DEST=notes.txt; echo hi > "$DEST"',
+                        '; '.join(f'cd d{index}' for index in range(6)) + '; ls']:
+            with self.subTest(command=command):
+                self.assertEqual(self.guard(command=command), 'allow')
+        denied = self.result(command='; '.join(f'cd d{index}' for index in range(7)) + '; ls')
+        self.assertEqual(denied['decision'], 'deny')
+        self.assertIn('拆成多条命令', denied['reason'])
+
     def test_hidden_command_substitutions_with_runtime_evaluation_are_denied(self):
         for command in [
             "x='a[$(printf marker)]'; y=$((x))",

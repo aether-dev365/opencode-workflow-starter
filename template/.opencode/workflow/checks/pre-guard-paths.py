@@ -3,8 +3,8 @@
 import errno
 import os
 from pathlib import Path
-from hooklib import (candidates_from, split_segments, _command_lines, _lift_substitutions, _backtick_commands,
-                     _cd, windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_is_dir)
+from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
+                     windows_path, has_hidden_shell_eval, static_command_words, find_roots, path_is_dir)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -71,9 +71,7 @@ def check_event(event):
             raise ValueError(reason) from error
 
     def deletes(words, cwd):
-        """cd 与递归删除类命令：返回 (之后的 cwd, 是否有删除目标)，目标逐个检查。"""
-        if words[0] == 'cd' and len(words) > 1:
-            cwd = _cd(cwd, words[-1])
+        """递归删除类命令：目标逐个检查，返回是否有删除目标。"""
         targets = []
         if words[0] == 'rm' and any(w == '--recursive' or (w.startswith('-') and ('r' in w or 'R' in w)) for w in words[1:]):
             targets = [w for w in words[1:] if not w.startswith('-')]
@@ -90,7 +88,7 @@ def check_event(event):
                 # 目标内只拦截不可读文件，避免依赖内部的生成目录阻断清理；复用目标策略。
                 for entry, real in walk_with_real_paths(absolute):
                     check(str(entry), 'read', selected, real=real)
-        return cwd, bool(targets)
+        return bool(targets)
 
     def nested_deletes(segment, cwd):
         """命令替换、进程替换与反引号里的递归删除同样检查；内层 cd 只影响内层。返回是否有删除目标。"""
@@ -98,27 +96,20 @@ def check_event(event):
         lifted, _ = _lift_substitutions(segment, inners)
         found = False
         for inner in inners + _backtick_commands(lifted):
-            local = cwd
-            for part in split_segments(inner):
+            for part, local, _ in command_states(inner, cwd, {}):
                 words = command_words(part)
                 if words:
-                    local, removed = deletes(words, local)
-                    found = found or removed
+                    found = deletes(words, local) or found
                 found = nested_deletes(part, local) or found
         return found
 
-    segments = split_segments('\n'.join(_command_lines(command.splitlines(), literal=True)))
-    filtered = []
     volatile = False
-    for segment in segments:
+    for segment, local, _ in command_states('\n'.join(_command_lines(command.splitlines(), literal=True)), cwd, {}):
         words = command_words(segment)
-        volatile = nested_deletes(segment, cwd) or volatile
-        filtered.append(segment)
-        if not words:
-            continue
-        cwd, removed = deletes(words, cwd)
-        volatile = volatile or removed
-    candidate_event = {**event, 'paths': [], 'input': {**event['input'], 'command': '; '.join(filtered)}}
+        volatile = nested_deletes(segment, local) or volatile
+        if words:
+            volatile = deletes(words, local) or volatile
+    candidate_event = {**event, 'paths': []}
     for path in candidates_from(candidate_event, include_readonly=True)[0]:
         check(path, 'read')
     for path in candidates_from(candidate_event)[0]:

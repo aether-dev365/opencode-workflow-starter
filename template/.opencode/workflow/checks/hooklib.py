@@ -344,6 +344,15 @@ def shell_literal_text(text):
 
 def split_segments(text):
     """按 ; | || && & 与换行切段，引号内不切；`2>&1` / `&>` 里的 & 不是分隔符；反斜杠续行接回上一行。"""
+    return [segment for segment, _ in split_commands(text)]
+
+
+# 段之后的分隔符：`&&`、`||` 之后的段按上一条的结果执行，`|` 连成管道，`&` 把之前的整条列表放到后台；其余（`;`、换行）按 `;`。
+LIST_OPERATORS = {'&&': '&&', '||': '||', '|': '|', '|&': '|', '&': '&'}
+
+
+def split_commands(text):
+    """与 split_segments 相同的切分，另给出每段之后的分隔符；`&&`、`||`、`|` 之后的换行仍属于同一条列表。"""
     text = shell_literal_text(text)
     segs, buf, quote = [], [], None
     i, n = 0, len(text)
@@ -378,16 +387,116 @@ def split_segments(text):
             i += 1
             continue
         if c in ";|&\n":
-            segs.append("".join(buf))
-            buf = []
+            start = i
             i += 1
             while i < n and text[i] in ";|&":
                 i += 1
+            op = LIST_OPERATORS.get(text[start:i], ';')
+            if op in ('&&', '||', '|'):
+                while i < n and text[i] in " \t\n":
+                    i += 1
+            segs.append(("".join(buf), op))
+            buf = []
             continue
         buf.append(c)
         i += 1
-    segs.append("".join(buf))
-    return [s.strip() for s in segs if s.strip()]
+    segs.append(("".join(buf), ';'))
+    return [(s.strip(), op) for s, op in segs if s.strip()]
+
+
+# 一条命令里可能的目录与变量组合上限；cd 后接 `;` 时组合翻倍，超过就无法在检查时限内逐一判定。
+STATE_LIMIT = 64
+
+
+def _frozen(env):
+    return tuple(sorted(env.items()))
+
+
+def _assigned_env(segment, env):
+    """纯赋值段执行之后的变量，不是纯赋值段时返回 None；与 _analyze 判定只读时的口径相同，值先按已有变量展开。"""
+    text = SUBST_REF.sub("()", _strip_redirects(HARMLESS_REDIRECT.sub(" ", _expand(_strip_comment(segment), env))))
+    match = ASSIGN.match(text.strip())
+    if not match:
+        return None
+    env = dict(env)
+    for pair in ASSIGN_PAIR.finditer(match.group(1)):
+        _assign(env, pair.group(1), pair.group(2))
+    return env
+
+
+def _bare_cd(segment):
+    """段首（赋值前缀之后）就是 cd：在当前 shell 执行，成败分得清。`!`、if、time、env、/usr/bin/cd 等前缀不算。"""
+    words = shlex.split(segment, comments=True)
+    while words and re.match(r'^[A-Za-z_]\w*=', words[0]):
+        words.pop(0)
+    return words[:1] == ['cd']
+
+
+def command_states(text, cwd, env):
+    """按 bash 的列表语义给出每段命令可能在其中执行的 (段, 目录, 变量)，同一段可能对应多个组合。
+    只有不带前缀的 `cd 目标` 分得清成败：成功进入目标，失败留在原处；带 `!`、if、time、env 等前缀的 cd 两种都可能。
+    `&&`、`||` 之后的段只在对应结果下执行，`;` 与换行之后不论结果；管道各段和 `&` 之前的整条列表在子 shell 中执行，
+    其中的 cd 与赋值不影响之后的命令。不静态的段照常抛出 ValueError。"""
+    lists, pipelines, pipeline, connector = [], [], [], None
+    for segment, op in split_commands(text):
+        pipeline.append(segment)
+        if op == '|':
+            continue
+        pipelines.append((connector, pipeline))
+        pipeline = []
+        if op in ('&&', '||'):
+            connector = op
+            continue
+        lists.append((pipelines, op == '&'))
+        pipelines, connector = [], None
+    if pipeline:
+        pipelines.append((connector, pipeline))
+    if pipelines:
+        lists.append((pipelines, False))
+
+    results = []
+
+    def step(segment, words, state):
+        """执行一段：记下它所在的组合，返回 {(之后的组合, 结果)}。"""
+        cwd, frozen = state
+        results.append((segment, cwd, dict(frozen)))
+        if words[:1] == ['cd']:
+            moved = (_cd(cwd, words[1]), frozen)
+            if _bare_cd(segment):
+                return {(moved, 'ok'): None, (state, 'fail'): None}
+            return {(moved, 'any'): None, (state, 'any'): None}
+        # export 等给只读变量赋值会失败而 shell 继续执行，之后的 `||` 仍会执行。
+        assigned = _assigned_env(segment, dict(frozen))
+        if assigned is not None:
+            return {((cwd, _frozen(assigned)), 'any'): None}
+        return {(state, 'any'): None}
+
+    states = {(cwd or "", _frozen(env)): None}
+    for pipelines, background in lists:
+        current = {(state, 'any'): None for state in states}
+        for connector, pipeline in pipelines:
+            words = [static_command_words(segment) for segment in pipeline]
+            wanted = 'fail' if connector == '||' else 'ok'
+            following = {}
+            for state, status in current:
+                if connector and status not in (wanted, 'any'):
+                    following[(state, status)] = None
+                    continue
+                if connector and status == 'any':
+                    # 结果未知：这一段可能被跳过，跳过时上一条的结果原样传下去。
+                    following[(state, 'ok' if wanted == 'fail' else 'fail')] = None
+                if len(pipeline) == 1:
+                    following.update(step(pipeline[0], words[0], state))
+                    continue
+                for segment, parsed in zip(pipeline, words):
+                    step(segment, parsed, state)
+                following[(state, 'any')] = None
+            current = following
+            if len({state for state, _ in current}) > STATE_LIMIT:
+                raise ValueError('命令中的 cd 与赋值组合过多，无法静态确认工作目录，请拆成多条命令')
+        if not background:
+            states = {state: None for state, _ in current}
+    return results
 
 
 def _owner_takes_data(prefix, readers=False):
@@ -1161,6 +1270,10 @@ def static_command_words(segment):
         words.pop(0)
     core = shlex.join(words)
     while words:
+        if words[0] == '!':
+            # `!` 只取反退出码，后面的命令照常在当前 shell 执行，cd、删除和变量规则同样适用。
+            words = words[1:]
+            continue
         name = SYS_BIN.sub('', words[0], count=1)
         _check_shell_assignments([name, *words[1:]])
         if not supported_shell_command(name):
@@ -1210,15 +1323,15 @@ def static_command_words(segment):
 
 
 def _analyze(command, cwd, env):
-    """返回 (重定向目标, 其余 token, 是否确认只读)。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
+    """返回 (重定向目标, 其余 token, 是否确认只读)。每段在它可能所在的每个目录与变量组合下各取一次候选（见
+    command_states）。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
     内层的重定向目标照样是候选，内层不只读整条就不只读；命令替换的结果当重定向目标时解不开，按不只读处理。"""
     text = "\n".join(_command_lines(command.split("\n"), literal=True))
     inners = []
     text, bad = _lift_substitutions(text, inners)
     readonly = not _backtick_commands(text) and not bad
-    cur = cwd or ""
     targets, tokens = [], []
-    for seg in split_segments(text):
+    for seg, cur, env in command_states(text, cwd, env):
         parsed = static_command_words(seg)
         seg = _expand(_strip_comment(seg), env)
         for k in SUBST_REF.findall(seg):
@@ -1261,11 +1374,7 @@ def _analyze(command, cwd, env):
         core = raw
         if parsed[:1] == ['cd']:
             tokens.append(_resolve(cur, parsed[1]))
-            cur = _cd(cur, parsed[1])
-        elif am:
-            for pm in ASSIGN_PAIR.finditer(am.group(1)):
-                _assign(env, pm.group(1), pm.group(2))
-        elif core and not NEUTRAL_CMD.match(core) and not (
+        elif not am and core and not NEUTRAL_CMD.match(core) and not (
                 _readonly_segment(core, raw) and (not had_subst or _subst_args_safe(core))):
             readonly = False
         # 先做 shell 引号去除和反斜杠解码，再取候选；不能把 shell 转义误当路径分隔符。
