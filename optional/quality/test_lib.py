@@ -114,7 +114,7 @@ class FormatsConfig(unittest.TestCase):
             'check': [None, [], 'x', [''], ['x', '\0'], ['{files}'], ['x', '{files}', '{files}'], ['x', '--files={files}']],
             'fix': [None, [], [''], ['x', 'prefix{files}']], 'hook': [0, 'yes'],
             'timeoutSeconds': [True, 0, 601, 1.5],
-            'cwd': [None, '', '/tmp', 'C:\\example', '\\\\server\\share', '../escape', 'sub/../../escape'],
+            'cwd': [None, '', '/tmp', '\\tmp', 'C:\\example', '\\\\server\\share', '../escape', 'sub/../../escape'],
             'unknown': [True],
         }.items():
             for value in values:
@@ -136,6 +136,16 @@ class FormatsConfig(unittest.TestCase):
             root = Path(d) / 'repo'; root.mkdir()
             (root / 'outside').symlink_to(Path(d), target_is_directory=True)
             (root / 'quality.json').write_text(json.dumps({'version': 1, 'formats': [self.entry(cwd='outside')]}), encoding='utf-8')
+            with self.assertRaises(ConfigError) as caught:
+                load_config(root, root=root)
+            self.assertEqual(caught.exception.args[0], 'formats[0].cwd')
+
+    def test_rooted_cwd_inside_checkout_is_configuration_error(self):
+        # Python 3.13 起 ntpath.isabs 不把无盘符的根路径算作绝对路径，指向检出目录内的也要拒绝。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); (root / 'sub').mkdir()
+            cwd = str(root / 'sub')[len(root.drive):]
+            (root / 'quality.json').write_text(json.dumps({'version': 1, 'formats': [self.entry(cwd=cwd)]}), encoding='utf-8')
             with self.assertRaises(ConfigError) as caught:
                 load_config(root, root=root)
             self.assertEqual(caught.exception.args[0], 'formats[0].cwd')

@@ -103,7 +103,8 @@ def load_config(directory: Path, *, root: Path | None = None) -> dict:
         if 'fix' in entry:
             result['fix'] = _argv(entry['fix'], field + '.fix')
         cwd = entry.get('cwd', '.')
-        if (not isinstance(cwd, str) or not cwd or '\0' in cwd or ntpath.isabs(cwd) or ntpath.splitdrive(cwd)[0]
+        # 不用 ntpath.isabs：Python 3.13 起它不把 /tmp、\tmp 这类无盘符的根路径算作绝对路径。
+        if (not isinstance(cwd, str) or not cwd or '\0' in cwd or cwd.startswith(('/', '\\')) or ntpath.splitdrive(cwd)[0]
                 or ntpath.normpath(cwd).replace('\\', '/').split('/')[0] == '..'):
             raise ConfigError(field + '.cwd')
         if root is not None:
