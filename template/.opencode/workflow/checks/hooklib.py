@@ -544,7 +544,9 @@ def command_states(text, cwd, env):
                 # bash 的 cd 本身会失败（留在原目录，已由 fail 分支覆盖），不另加真实目录状态。
                 resolved = physical_path(literal if is_absolute(literal) else os.path.join(cwd, literal))
                 physical = os.path.realpath(resolved) if resolved is not None else target
-                moved += [(physical, frozen)] if physical != target else []
+                # 与字面目标的真实路径比较：没有经过符号链接的 `..` 时两者相同，不额外增加状态（macOS 的 /var、
+                # Windows 的 8.3 短名会让字面目标与其真实路径不同，不能据此翻倍状态数）。
+                moved += [(physical, frozen)] if physical != os.path.realpath(target) else []
             if _bare_cd(segment):
                 return {**{(state, 'ok'): None for state in moved}, (state, 'fail'): None}
             return {**{(state, 'any'): None for state in moved}, (state, 'any'): None}

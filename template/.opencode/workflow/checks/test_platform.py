@@ -54,11 +54,13 @@ class Platform(unittest.TestCase):
             self.assertIsNone(hooklib.git_clean_pathspec_problem('build/out', os_name))
 
     def test_parent_segments_are_found_with_platform_separators(self):
-        # Windows 的 `\` 是分隔符，POSIX 上是名字里的普通字符。
-        self.assertEqual(hooklib.physical_path('C:\\repo\\L\\..\\x', 'nt'), 'C:\\repo\\x')
-        self.assertEqual(hooklib.physical_path('C:/repo/L/../x', 'nt'), 'C:\\repo\\x')
-        self.assertEqual(hooklib.physical_path('/repo/a\\..\\b', 'posix'), '/repo/a\\..\\b')
-        self.assertEqual(hooklib.physical_path('/repo/a/../b', 'posix'), '/repo/b')
+        # Windows 的 `\` 是分隔符，POSIX 上是名字里的普通字符。符号链接解析在 test_paths 用真实文件系统覆盖，
+        # 这里把 realpath 固定为恒等，只验证分隔符拆分，不依赖本机是否存在同名目录。
+        with mock.patch('ntpath.realpath', lambda path: path), mock.patch('posixpath.realpath', lambda path: path):
+            self.assertEqual(hooklib.physical_path('C:\\repo\\L\\..\\x', 'nt'), 'C:\\repo\\x')
+            self.assertEqual(hooklib.physical_path('C:/repo/L/../x', 'nt'), 'C:\\repo\\x')
+            self.assertEqual(hooklib.physical_path('/repo/a\\..\\b', 'posix'), '/repo/a\\..\\b')
+            self.assertEqual(hooklib.physical_path('/repo/a/../b', 'posix'), '/repo/b')
 
     def test_git_bash_drive_paths_resolve_as_absolute(self):
         with mock.patch.object(hooklib.os, 'name', 'nt'):

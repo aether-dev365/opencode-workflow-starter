@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shlex
 import tempfile
 import time
 import unittest
@@ -375,9 +376,12 @@ class PathGuards(unittest.TestCase):
         (self.root / 'private/key').write_text('synthetic')
         (self.root / 'a').mkdir()
         (self.root / 'a/note.txt').write_text('public')
-        (self.root / 'a/PL').symlink_to(self.root / 'private/sub', target_is_directory=True)
         (self.root / '.opencode/workflow/sub').mkdir()
-        (self.root / 'L').symlink_to(self.root / '.opencode/workflow/sub', target_is_directory=True)
+        try:
+            (self.root / 'a/PL').symlink_to(self.root / 'private/sub', target_is_directory=True)
+            (self.root / 'L').symlink_to(self.root / '.opencode/workflow/sub', target_is_directory=True)
+        except OSError:
+            self.skipTest('需要创建符号链接的权限')
         for command in ['echo x > L/../protection.json', 'cat a/PL/../key', 'echo x > a/PL/../key', 'rm -rf a/PL/../key',
                         'sed -i s/a/b/ a/PL/../key', 'set -P; cd a/PL/..; cat key',
                         # 同一条命令里新建链接再经它的 `..`：检查时链接还不存在，无法确认落点，拒绝。
@@ -492,8 +496,8 @@ class PathGuards(unittest.TestCase):
                 # export 给只读变量赋值失败时 shell 继续执行，`||` 之后的命令照常执行。
                 'readonly X=a; export X=b || rm -rf src',
                 # macOS 的 /usr/bin/cd 不改变调用方的目录且返回 0。
-                f'env cd {outside} && rm -rf .opencode',
-                f'timeout 5 cd {outside} && rm -rf .opencode',
+                f'env cd {shlex.quote(Path(outside).as_posix())} && rm -rf .opencode',
+                f'timeout 5 cd {shlex.quote(Path(outside).as_posix())} && rm -rf .opencode',
                 'X=.opencode/workflow; X=src | echo x > $X/protection.json',
             ]:
                 with self.subTest(command=command):
