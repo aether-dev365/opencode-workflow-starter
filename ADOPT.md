@@ -44,7 +44,7 @@
 
 ## 3. 合并模板
 
-新项目（空目录）复制 template 全部内容后按新项目流程继续；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter、代理、workflow-setup 或 workflow-new 命令、workflow-onboarding 或 workflow-new-project 技能时先确定升级/保留方式，不能重复加载或直接覆盖。根 AGENTS.md 的“项目概要”一节写明用途、技术栈、目录与领域和验证命令入口。
+新项目（空目录）复制 template 全部内容后按新项目流程继续；已有项目逐项合并 AGENTS.md、opencode.jsonc、.gitignore 和 .gitattributes，保留注释、无关 MCP、已有模型与用户改动。.gitattributes 的两条规则让工作流脚本在 Windows（core.autocrlf=true）检出时保持 LF，不改动项目其他文件的换行约定。遇到同名 workflow.starter、代理、review、workflow-setup 或 workflow-new 命令、workflow-onboarding 或 workflow-new-project 技能时先确定升级/保留方式，不能重复加载或直接覆盖。根 AGENTS.md 的“项目概要”一节写明用途、技术栈、目录与领域和验证命令入口。
 
 可执行插件放 `.opencode/plugins/workflow/`，依赖锁文件一起复制。其他目录内容不是活动配置，不自动复制可选扩展到启用位置。
 
