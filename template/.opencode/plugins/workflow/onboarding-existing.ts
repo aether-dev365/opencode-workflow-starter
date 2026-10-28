@@ -37,7 +37,7 @@ export const EXISTING_MARKERS: readonly { tool: string; marker: string; where: '
 
 // 根 .opencode/ 下的模板文件、领域规则文件、向导按套件角色处理的代理和依赖安装的附属文件不算既有配置。
 // 代理、命令目录中的每个 Markdown 文件都会被 OpenCode 加载，AGENTS 规则文件也不例外。
-// OpenCode 2.1.4 递归加载 agent(s)、command(s) 目录，mode(s) 只加载目录本身的文件。
+// OpenCode 2.2.0 递归加载 agent(s)、command(s) 目录，mode(s) 只加载目录本身的文件。
 const LOADED_AS = new Map([['agents', '代理'], ['agent', '代理'], ['modes', '代理'], ['mode', '代理'], ['commands', '命令'], ['command', '命令']])
 const loader = (parts: string[]) => ['modes', 'mode'].includes(parts[1]) && parts.length !== 3 ? undefined : LOADED_AS.get(parts[1])
 const SYSTEM_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])

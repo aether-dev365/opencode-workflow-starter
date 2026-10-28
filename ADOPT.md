@@ -22,9 +22,9 @@
 
 检查其他 AI 工具的配置和工作流（标记清单见 [接入向导](template/docs/workflow/onboarding.md) 的“既有 AI 配置”），列入接入清单。OpenCode V2 不读取 `CLAUDE.md`，但会加载 `.claude/skills` 与 `.agents/skills`。bootstrap 只合并模板与现有 AGENTS.md，不迁移其他工具的内容；迁移或保留在 `/workflow-setup` 中逐项决定和记录。
 
-查明当前 OpenCode、Node、Python 和 Git 版本。基础包使用 OpenCode 2.1.4 验收；若目标版本不同，先验证兼容或提出升级计划，不悄悄替换依赖。
+查明当前 OpenCode、Node、Python 和 Git 版本。基础包使用 OpenCode 2.2.0 验收；若目标版本不同，先验证兼容或提出升级计划，不悄悄替换依赖。
 
-先执行 `opencode --version`；设置了 `WORKFLOW_OPENCODE_BIN` 时，同时核对该路径的版本。未安装、不是 V2 或无法识别时，向用户展示检测结果，提供 [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md)、[官方安装入口](https://opencode.ai/v2/docs/) 和 `npm install -g @opencode/cli@2.1.4`，完成安装或修正命令路径并复查后再接入。已有 V1 按指南保留配置并处理迁移，不在 V1 宿主中加载本模板的 V2 插件。
+先执行 `opencode --version`；设置了 `WORKFLOW_OPENCODE_BIN` 时，同时核对该路径的版本。未安装、不是 V2 或无法识别时，向用户展示检测结果，提供 [OpenCode V2 安装指南](template/docs/workflow/opencode-install.md)、[官方安装入口](https://opencode.ai/v2/docs/) 和 `npm install -g @opencode/cli@2.2.0`，完成安装或修正命令路径并复查后再接入。已有 V1 按指南保留配置并处理迁移，不在 V1 宿主中加载本模板的 V2 插件。
 
 ## 2. 给出接入清单
 
@@ -70,7 +70,7 @@ Windows 原生环境在 PowerShell 中执行时，把 `python3` 换成 `py -3`�
 
 doctor 不修改项目文件；失败需处理，不能通过删除保护配置消除错误。没有实际执行的项目构建、平台验收和原生插件运行标为未验证。
 
-doctor 的 warn 项要在接入报告中逐项处理或说明：版本未验收、已跟踪文件命中凭据规则、已跟踪文件过多而未完成凭据扫描、未设置 shell、没有明确选择记录的 reviewer 未指定模型、继承策略冲突或代理文件中 model 为空、规则文件过长、接入档案记录的子代理缺少代理文件。状态为 unverified 的项（如当前会话技能/模型、原生运行、插件早于 doctor 时的规则大小）在报告中标为未验证；配置写入不等于真实加载。2.1.x 补丁版本告警不等于已通过原生验收；suite 的固定 CLI 可在套件目录运行 `node scripts/fetch-opencode.mjs` 获取。
+doctor 的 warn 项要在接入报告中逐项处理或说明：版本未验收、已跟踪文件命中凭据规则、已跟踪文件过多而未完成凭据扫描、未设置 shell、没有明确选择记录的 reviewer 未指定模型、继承策略冲突或代理文件中 model 为空、规则文件过长、接入档案记录的子代理缺少代理文件。状态为 unverified 的项（如当前会话技能/模型、原生运行、插件早于 doctor 时的规则大小）在报告中标为未验证；配置写入不等于真实加载。2.2.x 补丁版本告警不等于已通过原生验收；suite 的固定 CLI 可在套件目录运行 `node scripts/fetch-opencode.mjs` 获取。
 
 ## 5. 原生冒烟
 

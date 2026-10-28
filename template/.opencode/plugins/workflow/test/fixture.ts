@@ -54,7 +54,7 @@ export async function fixture() {
   const subscribers = new Set<{ queue: any[]; wake?: () => void }>()
   const storage = { get: async (key: string) => structuredClone(data.get(key)), set: async (key: string, value: unknown) => { data.set(key, structuredClone(value)) }, remove: async (key: string) => { data.delete(key) } }
   const ctx = {
-    app: { version: '2.1.4' }, location: { directory: root }, options: {},
+    app: { version: '2.2.0' }, location: { directory: root }, options: {},
     rpc: { register: async () => ({ dispose: async () => {} }) },
     tool: { hook: register('tool'), transform: async (callback: (editor: any) => void) => {
       const added: string[] = []

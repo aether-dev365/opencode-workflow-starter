@@ -188,6 +188,8 @@ test('documented OpenCode versions match the plugin baseline', () => {
   for (const path of docs) {
     // 带 + 的是其他组件的最低要求（如 Superpowers 要求 OpenCode 2.0.4+），不是本模板的基线。
     for (const [version] of readFileSync(path, 'utf8').matchAll(/(?<![\d.])2\.\d+\.\d+(?![\d.+])/g)) assert.equal(version, baseline, path)
+    // doctor 对基线所在系列的其他补丁版本报 warn，文档中的系列写法（如 2.1.x）须跟随基线。
+    for (const [series] of readFileSync(path, 'utf8').matchAll(/(?<![\d.])2\.\d+\.x\b/g)) assert.equal(series, baseline.replace(/\d+$/, 'x'), path)
   }
 })
 
