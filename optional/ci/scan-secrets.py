@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -47,11 +46,15 @@ def validate_report(path: Path, exit_code: int) -> list[dict]:
 def scan(root: Path, head: str, *, timeout: float = 600) -> int:
     try:
         sys.path.insert(0, str(root / 'scripts/quality'))
-        from quality_process import run_process, termination_flag
+        from quality_process import program, run_process, termination_flag
         deadline = time.monotonic() + timeout
         env = {**os.environ, 'PYTHONIOENCODING': 'utf-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+        # 只按 PATH 中的绝对路径启动 git 和 Gitleaks：PATH 有空项时，按名字查找会选中项目里的同名程序。
+        executable = program('git')
+        if executable is None:
+            raise ValueError('找不到 git 命令')
         def git(*args):
-            result = subprocess.run(['git', *args], cwd=root, env=env, stdout=subprocess.PIPE,
+            result = subprocess.run([executable, *args], cwd=root, env=env, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, timeout=max(.001, min(10, deadline - time.monotonic())))
             if result.returncode:
                 raise ValueError('Git 查询失败')
@@ -63,7 +66,7 @@ def scan(root: Path, head: str, *, timeout: float = 600) -> int:
         shallow = root / git('rev-parse', '--git-path', 'shallow')
         if shallow.exists() and shallow.read_bytes().strip():
             raise ValueError('历史不完整')
-        scanner = shutil.which('gitleaks')
+        scanner = program('gitleaks')
         if not scanner:
             raise ValueError('扫描器缺失')
         scanner = Path(scanner).absolute()

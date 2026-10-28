@@ -9,6 +9,14 @@ from pathlib import Path
 import re
 import subprocess
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts/quality'))
+try:
+    from quality_process import program
+    IMPORTED = True
+except ImportError:
+    IMPORTED = False
+
 
 @dataclass(frozen=True)
 class Scope:
@@ -18,7 +26,11 @@ class Scope:
 
 
 def git(root, *args, input=None, codes=(0,)):
-    result = subprocess.run(['git', *args], cwd=root, input=input, stdout=subprocess.PIPE,
+    # 只按 PATH 中的绝对路径启动 git：PATH 有空项时，按名字启动会执行项目里的同名程序。
+    executable = program('git') if IMPORTED else None
+    if executable is None:
+        raise ValueError('找不到 git 命令')
+    result = subprocess.run([executable, *args], cwd=root, input=input, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=10)
     if result.returncode not in codes:
         raise ValueError('Git 查询失败')

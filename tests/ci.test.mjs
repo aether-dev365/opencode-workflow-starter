@@ -320,8 +320,16 @@ code=m['scan'](Path.cwd(),${JSON.stringify(head)},timeout=15)
 print(json.dumps({'code':code,'sent':sent.is_set()}))`, { env: { FAKE_READY: ready, FAKE_MODE: 'hang' } })
   assert.equal(result.status, 0, result.stderr)
   assert.deepEqual(JSON.parse(result.stdout), { code: 2, sent: true })
-  const missing = r.probe('scripts/ci/scan-secrets.py', `m['shutil'].which=lambda name: None\nsys.exit(m['scan'](Path.cwd(),${JSON.stringify(head)}))`)
+  const missing = r.probe('scripts/ci/scan-secrets.py', `sys.path.insert(0,'scripts/quality')\nimport quality_process\nfound=quality_process.program\nquality_process.program=lambda name,**options: None if name=='gitleaks' else found(name,**options)\nsys.exit(m['scan'](Path.cwd(),${JSON.stringify(head)}))`)
   assert.equal(missing.status, 2)
+})
+
+test('secrets: programs planted in the project are not run', t => {
+  // 进程创建会在当前目录查找不带路径的命令：macOS 和 Linux 在 PATH 有空项时也查。Gitleaks 同样只在 PATH 的绝对目录中查找。
+  const r = makeRepo(t, { ciFiles: secretFiles }); scannerFixture(r, true); const head = r.commit()
+  for (const name of ['git', 'gitleaks']) chmodSync(r.write(name, '#!/bin/sh\necho planted\n'), 0o755)
+  const result = scan(r, head, { PATH: delimiter + r.env.PATH })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
 })
 
 test('secrets: real finding paths cannot become legacy workflow commands', t => {
@@ -423,6 +431,15 @@ test('scope: push spans all commits and merge changes', t => {
   r.git('merge', '--no-ff', '-qm', 'merge', 'side'); const head = r.git('rev-parse', 'HEAD')
   success(scope(r, 'push', push(base, head, "trunk'branch"), head, "refs/heads/trunk'branch"), { mode: 'range', base, head })
   assert.equal(r.git('diff', '--name-only', base, head), 'one.ts\ntwo.ts')
+})
+
+test('scope: a git planted in the project is not run', t => {
+  // 进程创建会在当前目录查找不带路径的命令：macOS 和 Linux 在 PATH 有空项时也查。
+  const r = makeRepo(t, { ciFiles: files }); const base = r.commit()
+  r.write('one.ts', 'one'); const head = r.commit()
+  chmodSync(r.write('git', '#!/bin/sh\necho planted\n'), 0o755)
+  r.env.PATH = delimiter + r.env.PATH
+  success(scope(r, 'push', push(base, head), head), { mode: 'range', base, head })
 })
 
 test('scope: first push and dispatch use all', t => {
