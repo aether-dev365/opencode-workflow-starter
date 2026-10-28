@@ -483,16 +483,20 @@ for (const scope of ['project', 'global'] as const) for (const field of ['plugin
       assert.equal(parse(await f.read('opencode.jsonc', where)).plugin, undefined)
     }
   })
-  test(`Superpowers ${scope}/${field}/${entry} 冲突在预览前拒绝，即使另一层已有固定来源`, async t => {
+  test(`Superpowers ${scope}/${field}/${entry} 其他来源保留不替换，即使另一层已有固定来源`, async t => {
     const f = await fixture(t), where = scope === 'project' ? f.root : join(f.home, '.config/opencode')
     for (const source of ['superpowers@git+https://github.com/obra/superpowers.git#v7.0.0', 'file:///example/superpowers/index.js']) {
       const plugin = entry === 'string' ? source : { package: source, options: { example: true } }
       const original = JSON.stringify({ [field]: [plugin] })
       await f.put('opencode.json', original, where)
       await f.put('opencode.jsonc', JSON.stringify({ plugins: [config.SUPERPOWERS_SPEC] }), where)
-      for (const target of ['project', 'global'] as const) await assert.rejects(files.planSetup(f.root, { kind: 'superpowers', scope: target }, { home: f.home }), /Superpowers|版本|冲突/)
-      assert.equal(await f.read('opencode.json', where), original)
-      await absent(join(f.root, '.opencode/workflow/.state/onboarding'))
+      for (const target of ['project', 'global'] as const) {
+        const plan = await files.planSetup(f.root, { kind: 'superpowers', scope: target }, { home: f.home })
+        assert.ok(plan.changes.every(change => change.operation === 'keep'), JSON.stringify(plan.changes))
+        assert.ok(plan.warnings.some(x => /其他来源或版本/.test(x) && /existing/.test(x) && x.includes(`${scope}/opencode.json`)), JSON.stringify(plan.warnings))
+        assert.deepEqual((await f.apply(plan.id)).changed, [])
+        assert.equal(await f.read('opencode.json', where), original)
+      }
     }
   })
 }
@@ -513,8 +517,12 @@ for (const scope of ['project', 'global'] as const) test(`Superpowers ${scope} �
 test('已有不同 Superpowers 来源不追加、不覆盖，另一个范围也要检查', async t => {
   const f = await fixture(t)
   await f.put('.config/opencode/opencode.jsonc', '{/* existing */"plugin":["superpowers@old-version"]}', f.home)
-  await assert.rejects(files.planSetup(f.root, { kind: 'superpowers', scope: 'project' }, { home: f.home }), /Superpowers|superpowers|版本|冲突/)
+  const plan = await files.planSetup(f.root, { kind: 'superpowers', scope: 'project' }, { home: f.home })
+  assert.ok(plan.changes.every(change => change.operation === 'keep'), JSON.stringify(plan.changes))
+  assert.ok(plan.warnings.some(x => /其他来源或版本/.test(x) && x.includes('global/opencode.jsonc')), JSON.stringify(plan.warnings))
+  assert.deepEqual((await f.apply(plan.id)).changed, [])
   await absent(join(f.root, 'opencode.jsonc'))
+  assert.equal(await f.read('.config/opencode/opencode.jsonc', f.home), '{/* existing */"plugin":["superpowers@old-version"]}')
 })
 
 test('quality=hook 才安装真实 hook；重复应用保留；checks 不安装', fromSuite, async t => {

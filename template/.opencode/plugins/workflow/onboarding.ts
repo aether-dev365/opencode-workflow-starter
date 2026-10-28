@@ -128,6 +128,9 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
           let plan: SetupPlan
           if (action === 'bootstrap') {
             if (input.scope !== 'project' && input.scope !== 'global') throw new Error('安装前必须明确选择 project 项目级或 global 个人全局范围')
+            // 宿主已登记 Superpowers 时不再登记第二份，包括从插件目录自动发现、配置里看不到的那份。
+            const loaded = runtime.superpowers.installed
+            if (loaded.length) return respond({ ready: false, issues: [!runtime.superpowers.issues.length && !runtime.superpowers.pinIssues.length ? '已加载已核对的固定版本 Superpowers，无需安装' : `已登记 Superpowers（${loaded.map(item => `${item.source}，版本 ${item.version ?? '未知'}，状态 ${item.status}`).join('；')}），不会再登记一份；要沿用请把接入选择的 superpowers 设为 existing，要改用固定版本请先人工移除现有来源并重载`], unverified: external })
             plan = await planSetup(runtime.root, { kind: 'superpowers', scope: input.scope })
           } else {
             const choices = validateSetupChoices(input.choices), issues = gates(choices, runtime, context.sessionID, false, checkpoint)

@@ -135,7 +135,7 @@ node scripts/workflow/onboarding.mjs status
 node scripts/workflow/onboarding.mjs bootstrap --scope project
 ```
 
-bootstrap 只生成 Superpowers 计划，不立即安装。全局范围必须显式使用 `--scope global`；它尊重个人配置目录，不会自动修改系统管理配置。
+bootstrap 只生成 Superpowers 计划，不立即安装。已登记其他来源或版本的 Superpowers 时不追加固定版本，返回不修改文件的计划和提示；当前会话已加载 Superpowers 时 `workflow_setup` 不再生成安装计划。全局范围必须显式使用 `--scope global`；它尊重个人配置目录，不会自动修改系统管理配置。
 
 完整选择文件示例（用户确实选择基础模式时）：
 

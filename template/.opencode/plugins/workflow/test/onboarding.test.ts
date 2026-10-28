@@ -588,6 +588,32 @@ test('bootstrap is explicit, independent of Superpowers, and status restores its
   } finally { await f.close() }
 })
 
+for (const status of ['active', 'failed'] as const) test(`bootstrap does not register a second Superpowers when the host already has one (${status})`, async () => {
+  const f = await setup(), root = await installUserSuperpowers(f, 'local')
+  try {
+    if (status === 'failed') f.plugins[0].state = { status: 'failed', error: 'load error' }
+    const result = await f.invoke({ action: 'bootstrap', scope: 'project' })
+    assert.equal(result.ready, false); assert.equal(result.id, undefined)
+    assert.ok(result.issues.some((x: string) => /不会再登记一份/.test(x) && x.includes(`状态 ${status}`)), JSON.stringify(result.issues))
+    assert.equal((await readFile(join(f.root, 'opencode.jsonc'), 'utf8')).includes(SUPERPOWERS_SPEC), false)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('bootstrap still refuses a second Superpowers when reading the registered one fails', async () => {
+  const f = await setup(), root = await installUserSuperpowers(f, 'local')
+  try {
+    // 超过读取上限，核验抛错；插件列表仍说明已经登记了一份。
+    await writeFile(join(root, 'index.js'), 'x'.repeat(1024 * 1024 + 1))
+    const status = await f.invoke({ action: 'status' })
+    assert.ok(status.superpowers.issues.some((x: string) => /运行时核验失败/.test(x)), JSON.stringify(status.superpowers.issues))
+    assert.equal(status.superpowers.installed.length, 1)
+    const result = await f.invoke({ action: 'bootstrap', scope: 'project' })
+    assert.equal(result.ready, false); assert.equal(result.id, undefined)
+    assert.ok(result.issues.some((x: string) => /不会再登记一份/.test(x)), JSON.stringify(result.issues))
+    assert.equal((await readFile(join(f.root, 'opencode.jsonc'), 'utf8')).includes(SUPERPOWERS_SPEC), false)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
+})
+
 test('apply requires a concrete digest, main session, non-reviewer and scoped permission; no-op is success', async () => {
   const f = await setup()
   try {

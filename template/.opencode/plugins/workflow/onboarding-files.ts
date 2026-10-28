@@ -214,7 +214,7 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
   }
   for (const name of ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR']) if (process.env[name]) plan.warnings.push(`${name} 存在额外配置覆盖；不自动修改，请重载后核对有效配置与代理模型`)
   if (request.kind === 'superpowers') {
-    const all = new Map<string, string | null>()
+    const all = new Map<string, string | null>(), others = new Set<string>()
     let installed = false
     for (const [scope, area] of [['project', project], ['global', global]] as const) {
       for (const name of CONFIGS) {
@@ -228,14 +228,16 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
           for (const item of value[field]) {
             const source = typeof item === 'string' ? item : object(item) ? item.package : undefined
             if (typeof source !== 'string' || !source.trim()) throw new Error(`插件条目无法安全合并，请人工处理：${name} ${field}`)
-            if (/superpowers/i.test(source) && source !== SUPERPOWERS_SPEC) throw new Error('已有不同来源或版本的 Superpowers，不能静默追加或替换；请人工处理冲突')
+            if (/superpowers/i.test(source) && source !== SUPERPOWERS_SPEC) others.add(`${scope}/${name}`)
             if (source === SUPERPOWERS_SPEC) installed = true
           }
         }
       }
     }
     const scope = request.scope
-    if (installed) plan.warnings.push('已有固定来源的 Superpowers，保留原配置及 options，不重复登记或迁移范围')
+    // 已有其他版本时只提示，不追加固定版本：两份同时登记会使运行时核验判为不唯一。
+    if (others.size) plan.warnings.push(`已有其他来源或版本的 Superpowers（${[...others].join('、')}），保留不替换；要沿用请在接入选择中把 superpowers 设为 existing；要改用固定版本，先人工移除这些条目再重新预览`)
+    else if (installed) plan.warnings.push('已有固定来源的 Superpowers，保留原配置及 options，不重复登记或迁移范围')
     else {
       const name = all.get(`${scope}/opencode.jsonc`) !== null ? 'opencode.jsonc' : all.get(`${scope}/opencode.json`) !== null ? 'opencode.json' : 'opencode.jsonc'
       const before = all.get(`${scope}/${name}`) ?? null
