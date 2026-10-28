@@ -10,6 +10,10 @@
 
 - 完整模式可以沿用已经安装的其他版本 Superpowers，包括个人全局安装：在接入选择中把 `superpowers` 明确设为 `existing` 后，`/workflow-setup` 核对插件来源结构和本会话的真实读取，不再要求与固定的 v7.0.1 一致，并在 `verify`、`finish` 中把该版本列为未经套件验收。`superpowers` 为 `project` 或 `global` 时仍只接受固定版本，并提示可以改选 `existing`。`status` 的 `superpowers` 新增 `pinned`、`installed` 和 `pinIssues`。`bootstrap` 遇到其他来源或版本的 Superpowers 不再报错，改为返回不修改文件的计划并提示改选；宿主已登记 Superpowers（包括加载失败的）时不再登记第二份。
 
+### 修复
+
+- `bootstrap` 不再把名称中只是含有 superpowers 的无关插件（如 `superpowers-chrome`）当作已安装的 Superpowers；此前遇到这类插件会报“已有不同来源或版本的 Superpowers”，并拒绝生成安装计划。
+
 ## [1.2.1] - 2026-10-28
 
 修复路径守卫可被同一命令中新建的符号链接绕过的问题，以及 Windows 上 Python 3.13 及更高版本对根路径的判断；`ln` 的支持写法随之收紧。

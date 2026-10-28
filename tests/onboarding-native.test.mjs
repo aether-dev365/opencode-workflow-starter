@@ -96,7 +96,11 @@ test('full onboarding requires both actual skill reads in the finishing session'
     const listed = await runCase(h, [[{ name: 'workflow_setup', input: { action: 'status' } }], [{ name: 'workflow_setup', input: { action: 'finish' } }]])
     assert.equal(setupResults(listed).at(-1)?.ready, false)
     const completed = await runCase(h, [...readSkills(), [{ name: 'workflow_setup', input: { action: 'finish' } }]])
-    assert.equal(setupResults(completed).at(-1)?.ready, true, JSON.stringify(setupResults(completed).at(-1)?.issues))
+    const done = setupResults(completed).at(-1)
+    assert.equal(done?.ready, true, JSON.stringify(done?.issues))
+    // 选 existing、实际是固定版本时不列未验证说明
+    assert.equal(done.superpowers.pinned, true)
+    assert.ok(!done.unverified.some(x => /未经套件验收/.test(x)), JSON.stringify(done.unverified))
     const otherSession = await runCase(h, [[{ name: 'workflow_setup', input: { action: 'finish' } }]])
     assert.equal(setupResults(otherSession).at(-1)?.ready, false)
     assert.deepEqual(h.model.failures, [])

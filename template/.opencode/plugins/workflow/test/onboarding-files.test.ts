@@ -485,7 +485,7 @@ for (const scope of ['project', 'global'] as const) for (const field of ['plugin
   })
   test(`Superpowers ${scope}/${field}/${entry} 其他来源保留不替换，即使另一层已有固定来源`, async t => {
     const f = await fixture(t), where = scope === 'project' ? f.root : join(f.home, '.config/opencode')
-    for (const source of ['superpowers@git+https://github.com/obra/superpowers.git#v7.0.0', 'file:///example/superpowers/index.js']) {
+    for (const source of ['superpowers@git+https://github.com/obra/superpowers.git#v7.0.0', 'file:///example/superpowers/index.js', 'git+https://github.com/example/superpowers.git', '@example/superpowers@1.0.0', 'C:\\Users\\example\\superpowers', 'superpowers']) {
       const plugin = entry === 'string' ? source : { package: source, options: { example: true } }
       const original = JSON.stringify({ [field]: [plugin] })
       await f.put('opencode.json', original, where)
@@ -512,6 +512,16 @@ for (const scope of ['project', 'global'] as const) test(`Superpowers ${scope} �
   assert.deepEqual(actual.plugin, legacy)
   assert.deepEqual(actual.plugins, [...plugins, config.SUPERPOWERS_SPEC])
   assert.deepEqual((await f.apply(plan.id)).changed, [])
+})
+
+test('名称中只是含有 superpowers 的无关插件不算已有的 Superpowers', async t => {
+  const f = await fixture(t)
+  const plugins = ['superpowers-chrome@1.0.0', 'my-superpowers', { package: 'file:///example/superpowers-tools/index.js' }]
+  await f.put('opencode.jsonc', JSON.stringify({ plugins }))
+  const plan = await files.planSetup(f.root, { kind: 'superpowers', scope: 'project' }, { home: f.home })
+  assert.equal(plan.warnings.some(x => /其他来源或版本/.test(x)), false, JSON.stringify(plan.warnings))
+  await f.apply(plan.id)
+  assert.deepEqual(parse(await f.read('opencode.jsonc')).plugins, [...plugins, config.SUPERPOWERS_SPEC])
 })
 
 test('已有不同 Superpowers 来源不追加、不覆盖，另一个范围也要检查', async t => {

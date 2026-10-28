@@ -24,18 +24,23 @@ export type SourceSnapshot = {
   plugins: PluginInfo[]; skills: SkillInfo[]
   installation?: { root: string; files: Record<string, string>; skills: Record<string, string> }
 }
-export type InstalledSuperpowers = { type: PluginInfo['source']['type']; source: string; version: string | null; status: PluginInfo['state']['status'] }
+export type InstalledSuperpowers = { type: PluginInfo['source']['type']; source: string; version: string | null; status: PluginInfo['state']['status']; error?: string }
 export type SuperpowersCheck = { issues: string[]; pinIssues: string[]; installed: InstalledSuperpowers[]; skills: SkillInfo[]; fingerprint: string }
 const fixedPin: SourcePin = { spec: SUPERPOWERS_SPEC, revision: SUPERPOWERS_REVISION, files: SUPERPOWERS_SOURCE.files, skills: SUPERPOWERS_SOURCE.skills }
 
 // 列出全部同 id 插件，供展示和 bootstrap 判断；版本优先取唯一 active 那份安装目录中的 package.json。
+// 该文件只在 name 为 superpowers 时才算 Superpowers 的清单，版本号限长，避免把无关或超长内容带进输出。
 export function installedSuperpowers(plugins: PluginInfo[], manifest?: unknown): InstalledSuperpowers[] {
   const candidates = plugins.filter(plugin => plugin.id === 'superpowers')
   const active = candidates.length === 1 && candidates[0].state.status === 'active' ? candidates[0] : undefined
+  const listed = object(manifest) && manifest.name === 'superpowers' && typeof manifest.version === 'string' && /^[\w.+-]{1,64}$/.test(manifest.version) ? manifest.version : undefined
   return candidates.map(plugin => {
-    const source = plugin.source, declared = source.type === 'package' ? source.version ?? null : null
-    const version = plugin === active && object(manifest) && typeof manifest.version === 'string' ? manifest.version : declared
-    return { type: source.type, source: source.type === 'package' ? source.target : source.type === 'local' ? source.path : source.type, version, status: plugin.state.status }
+    const source = plugin.source, state = plugin.state, declared = source.type === 'package' ? source.version ?? null : null
+    return {
+      type: source.type, source: source.type === 'package' ? source.target : source.type === 'local' ? source.path : source.type,
+      version: plugin === active && listed !== undefined ? listed : declared, status: state.status,
+      ...(state.status === 'failed' ? { error: state.error.replace(/\s+/g, ' ').trim().slice(0, 200) } : {}),
+    }
   })
 }
 
@@ -189,10 +194,13 @@ export async function probeSetupRuntime(ctx: Plugin.Context, sessionID: Paramete
   managed.forEach((name, index) => { const agent = extra[index]; if (agent) agents[name] = agent })
   let superpowers: SuperpowersCheck, plugins: PluginInfo[] = []
   try {
-    const [pluginList, skills] = await Promise.all([ctx.plugin.list({ location }), ctx.skill.list({ location })])
-    if (Array.isArray(pluginList.data)) plugins = pluginList.data
-    if (!Array.isArray(pluginList.data) || !Array.isArray(skills.data)) throw new Error('宿主插件或技能目录返回无效')
-    superpowers = verifySuperpowers(await sourceSnapshot(plugins, skills.data))
+    // 技能目录出错时插件列表照常保留，bootstrap 仍能看到已登记的 Superpowers。
+    const [pluginList, skillList] = await Promise.allSettled([ctx.plugin.list({ location }), ctx.skill.list({ location })])
+    if (pluginList.status === 'fulfilled' && Array.isArray(pluginList.value.data)) plugins = pluginList.value.data
+    if (pluginList.status === 'rejected') throw pluginList.reason
+    if (skillList.status === 'rejected') throw skillList.reason
+    if (!Array.isArray(pluginList.value.data) || !Array.isArray(skillList.value.data)) throw new Error('宿主插件或技能目录返回无效')
+    superpowers = verifySuperpowers(await sourceSnapshot(plugins, skillList.value.data))
   } catch (error) {
     // 读取安装文件出错时仍按已取得的插件列表报告已登记的 Superpowers，bootstrap 据此不再登记第二份。
     superpowers = { issues: [`Superpowers 运行时核验失败：${(error as Error).message}`], pinIssues: [], installed: installedSuperpowers(plugins), skills: [], fingerprint: 'unavailable' }

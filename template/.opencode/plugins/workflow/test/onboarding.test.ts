@@ -88,6 +88,26 @@ test('a package Superpowers needs package.json named superpowers at the inferred
   }
 })
 
+test('the shown Superpowers version comes only from a bounded version in a package.json named superpowers', () => {
+  const { pin, snapshot } = trustedSource(), declared = 'b'.repeat(40)
+  snapshot.plugins[0].source = { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v7.1.0', version: declared }
+  for (const [manifest, expected] of [
+    ['{"name":"superpowers","version":"7.1.0"}', '7.1.0'],
+    ['{"name":"other","version":"UNRELATED-1.2.3"}', declared],
+    [JSON.stringify({ name: 'superpowers', version: 'x'.repeat(65) }), declared],
+    ['{"name":"superpowers","version":"7.1.0\\nforged"}', declared],
+  ]) {
+    const altered = structuredClone(snapshot)
+    altered.installation!.files['package.json'] = manifest
+    assert.equal(verifySuperpowers(altered, pin).installed[0].version, expected, manifest)
+  }
+  // 本地来源没有宿主报告的版本，安装目录的 package.json 不是 Superpowers 时显示未知
+  const local = structuredClone(snapshot)
+  local.plugins[0].source = { type: 'local', path: local.installation!.root }
+  local.installation!.files['package.json'] = '{"name":"other","version":"1.0.0"}'
+  assert.equal(verifySuperpowers(local, pin).installed[0].version, null)
+})
+
 test('skill evidence needs a started native call and complete successful content in the same session and binding', () => {
   const { skills } = trustedSource(), ledger = new SkillEvidence(), skill = skills[0]
   assert.equal(ledger.complete('s1', 'call', 'binding', skill, successful(skill)), false)
@@ -528,6 +548,10 @@ test('full configure plan/apply/finish fail closed without actual trusted skill 
     }
     const result = await f.invoke({ action: 'finish', verified: true })
     assert.equal(result.ready, false)
+    // 不带自报字段时同样被拒：技能不在 <根>/skills/<id>/ 下，无法定位包安装目录
+    const structural = await f.invoke({ action: 'finish' })
+    assert.equal(structural.ready, false)
+    assert.ok(structural.issues.some((x: string) => /安装路径与源码/.test(x)), JSON.stringify(structural.issues))
   } finally { await f.close() }
 })
 
@@ -559,20 +583,36 @@ for (const type of ['local', 'package'] as const) test(`an explicitly chosen exi
   } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+// 项目里的同名技能顶替包安装的 Superpowers：推断出的根目录是 .opencode，那里没有 name 为 superpowers 的 package.json。
+async function shadowPackageSuperpowers(f: Awaited<ReturnType<typeof fixture>>) {
+  for (const id of ['brainstorming', 'writing-plans']) {
+    const body = `\n# ${id}\n项目里的同名技能。\n`, path = join(f.root, '.opencode/skills', id, 'SKILL.md')
+    await mkdir(join(f.root, '.opencode/skills', id), { recursive: true })
+    await writeFile(path, `---\nname: ${id}\n---\n${body}`)
+    f.skills.set(id, { id, name: id, path, content: body })
+  }
+  f.plugins.push({ id: 'superpowers', source: { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v9.0.0', version: 'b'.repeat(40) }, features: { server: true }, state: { status: 'active' } })
+}
+
 test('a same-name project skill cannot stand in for a package Superpowers', async () => {
   const f = await setup('full')
   try {
-    for (const id of ['brainstorming', 'writing-plans']) {
-      const body = `\n# ${id}\n项目里的同名技能。\n`, path = join(f.root, '.opencode/skills', id, 'SKILL.md')
-      await mkdir(join(f.root, '.opencode/skills', id), { recursive: true })
-      await writeFile(path, `---\nname: ${id}\n---\n${body}`)
-      f.skills.set(id, { id, name: id, path, content: body })
-    }
-    f.plugins.push({ id: 'superpowers', source: { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v9.0.0', version: 'b'.repeat(40) }, features: { server: true }, state: { status: 'active' } })
+    await shadowPackageSuperpowers(f)
     for (const id of ['brainstorming', 'writing-plans']) await readSkill(f, id)
     const status = await f.invoke({ action: 'status' })
     assert.equal(status.superpowers.available, false)
     assert.ok(status.superpowers.issues.some((x: string) => /package\.json/.test(x)), JSON.stringify(status.superpowers.issues))
+  } finally { await f.close() }
+})
+
+test('the hint to switch to existing appears only when the source structure passes', async () => {
+  const f = await setup('full')
+  try {
+    await shadowPackageSuperpowers(f)
+    const refused = await f.invoke({ action: 'plan', choices: { ...choices('full'), superpowers: 'project' } })
+    assert.equal(refused.ready, false)
+    assert.ok(refused.issues.some((x: string) => /package\.json/.test(x)), JSON.stringify(refused.issues))
+    assert.equal(refused.issues.some((x: string) => /改为 existing/.test(x)), false, JSON.stringify(refused.issues))
   } finally { await f.close() }
 })
 
@@ -591,11 +631,42 @@ test('bootstrap is explicit, independent of Superpowers, and status restores its
 for (const status of ['active', 'failed'] as const) test(`bootstrap does not register a second Superpowers when the host already has one (${status})`, async () => {
   const f = await setup(), root = await installUserSuperpowers(f, 'local')
   try {
-    if (status === 'failed') f.plugins[0].state = { status: 'failed', error: 'load error' }
+    if (status === 'failed') f.plugins[0].state = { status: 'failed', error: 'load error:\n  missing entry' }
     const result = await f.invoke({ action: 'bootstrap', scope: 'project' })
     assert.equal(result.ready, false); assert.equal(result.id, undefined)
-    assert.ok(result.issues.some((x: string) => /不会再登记一份/.test(x) && x.includes(`状态 ${status}`)), JSON.stringify(result.issues))
+    const [message] = result.issues
+    assert.match(message, /不会再登记一份/)
+    assert.ok(message.includes(`状态 ${status}`), message)
+    if (status === 'failed') {
+      // 加载失败先看原因；“改装固定版本”只适用于结构通过、仅版本不同的安装
+      assert.ok(message.includes('load error: missing entry'), message)
+      assert.doesNotMatch(message, /改用固定版本/)
+      assert.equal((await f.invoke({ action: 'status' })).superpowers.installed[0].error, 'load error: missing entry')
+    } else assert.match(message, /设为 existing/)
     assert.equal((await readFile(join(f.root, 'opencode.jsonc'), 'utf8')).includes(SUPERPOWERS_SPEC), false)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('bootstrap lists every registered Superpowers when more than one is registered', async () => {
+  const f = await setup(), root = await installUserSuperpowers(f, 'local')
+  try {
+    f.plugins.push({ id: 'superpowers', source: { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v7.0.0', version: 'c'.repeat(40) }, features: { server: true }, state: { status: 'active' } })
+    const result = await f.invoke({ action: 'bootstrap', scope: 'project' })
+    assert.equal(result.ready, false); assert.equal(result.id, undefined)
+    const [message] = result.issues
+    assert.ok(message.includes(root) && message.includes('#v7.0.0'), message)
+    assert.equal((await readFile(join(f.root, 'opencode.jsonc'), 'utf8')).includes(SUPERPOWERS_SPEC), false)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('bootstrap keeps the registered Superpowers in view when the host skill list fails', async () => {
+  const f = await setup(), root = await installUserSuperpowers(f, 'local')
+  try {
+    ;(f.ctx.skill as any).list = async () => { throw new Error('skill list failed') }
+    assert.equal((await f.invoke({ action: 'status' })).superpowers.installed.length, 1)
+    const result = await f.invoke({ action: 'bootstrap', scope: 'project' })
+    assert.equal(result.ready, false); assert.equal(result.id, undefined)
+    assert.ok(result.issues.some((x: string) => /不会再登记一份/.test(x)), JSON.stringify(result.issues))
   } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
 })
 

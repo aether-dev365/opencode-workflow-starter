@@ -27,6 +27,8 @@ type Built = { plan: SetupPlan; observations: Observation[]; writes: Write[]; ho
 type Saved = { version: 1; root: string; global: Area; plan: SetupPlan; observations: Observation[]; hookState?: string }
 const STATE = '.opencode/workflow/.state/onboarding'
 const CONFIGS = ['opencode.json', 'opencode.jsonc']
+// superpowers 须是完整的名称或路径段（superpowers@…、…/superpowers.git、…/superpowers/index.js、@scope/superpowers）；superpowers-chrome 等无关插件不算。
+const SUPERPOWERS_ENTRY = /(?:^|[\\/@:])superpowers(?:\.git)?(?=$|[\\/@#])/i
 export const QUALITY = [
   'check-format.py', 'check-links.py', 'check-skips.py', 'check-sync.py', 'install-hooks.py', 'quality_lexer.py', 'quality_lib.py', 'quality_links.py',
   'quality_process.py', 'quality_snapshot.py', 'quality_sync.py', 'quality_testing.py', 'review-comments.py', 'run-hook.py',
@@ -228,7 +230,7 @@ async function build(root: string, request: SetupRequest, global: Area, id: stri
           for (const item of value[field]) {
             const source = typeof item === 'string' ? item : object(item) ? item.package : undefined
             if (typeof source !== 'string' || !source.trim()) throw new Error(`插件条目无法安全合并，请人工处理：${name} ${field}`)
-            if (/superpowers/i.test(source) && source !== SUPERPOWERS_SPEC) others.add(`${scope}/${name}`)
+            if (SUPERPOWERS_ENTRY.test(source) && source !== SUPERPOWERS_SPEC) others.add(`${scope}/${name}`)
             if (source === SUPERPOWERS_SPEC) installed = true
           }
         }

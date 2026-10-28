@@ -26,6 +26,14 @@ function superpowersNotes(choices: SetupChoices | null, superpowers: Superpowers
   return [`沿用未经套件验收的 Superpowers：${plugin.source}，版本 ${plugin.version ?? '未知'}`, ...(plugin.type === 'package' ? ['Superpowers 以包方式安装，安装目录由技能路径推断，未证明就是宿主实际加载的包'] : [])]
 }
 
+// 已登记 Superpowers 时 bootstrap 的拒绝说明：加载失败、重复登记或被同名技能顶替要先处理来源问题，只有结构通过、仅版本不同时才建议沿用或改装。
+function bootstrapRefusal(superpowers: SuperpowersCheck): string {
+  if (!superpowers.issues.length && !superpowers.pinIssues.length) return '已加载已核对的固定版本 Superpowers，无需安装'
+  const list = superpowers.installed.map(item => `${item.source}，版本 ${item.version ?? '未知'}，状态 ${item.status}${item.error ? `（${item.error}）` : ''}`).join('；')
+  if (superpowers.issues.length) return `已登记 Superpowers（${list}），但未通过来源核验，不会再登记一份；请按 status 中 superpowers.issues 处理（加载失败时先看括号中的错误原因）后重载`
+  return `已登记 Superpowers（${list}），不会再登记一份；要沿用请把接入选择的 superpowers 设为 existing，要改用固定版本请先人工移除现有来源并重载`
+}
+
 export async function registerSetupTools(ctx: Plugin.Context, validateMutation: (event: WorkflowEvent, signal: AbortSignal) => Promise<void>): Promise<() => Promise<void>> {
   const ledger = new SkillEvidence(), currentModels = new Map<string, ModelRef>(), reloadRequired = new Set<string>()
   const lifetime = new AbortController(), registrations: { dispose(): Promise<void> }[] = []
@@ -48,7 +56,8 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
     if (choices.mode === 'full') {
       if (!eventsHealthy) issues.push('原生失效事件流已中断，无法验证 Location、配置与压缩边界；请重载 OpenCode 并重新读取技能')
       issues.push(...runtime.superpowers.issues)
-      if (choices.superpowers !== 'existing' && runtime.superpowers.pinIssues.length) issues.push(...runtime.superpowers.pinIssues, '所选 Superpowers 来源要求已核对的固定版本；如要沿用当前生效的安装（含个人全局安装），请把接入选择的 superpowers 改为 existing')
+      // 改选 existing 只能跳过与固定版本的差异，结构问题仍会拦截，此时不提示改选。
+      if (choices.superpowers !== 'existing' && runtime.superpowers.pinIssues.length) issues.push(...runtime.superpowers.pinIssues, ...(runtime.superpowers.issues.length ? [] : ['所选 Superpowers 来源要求已核对的固定版本；如要沿用当前生效的安装（含个人全局安装），请把接入选择的 superpowers 改为 existing']))
       const read = ledger.reads(sessionID, runtime.fingerprint)
       for (const id of requiredSkills) if (!read.includes(id)) issues.push(`完整模式需要当前会话真实成功读取 ${id} 技能；列表、自报完成、其他会话或过期证据不算`)
     }
@@ -130,7 +139,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
             if (input.scope !== 'project' && input.scope !== 'global') throw new Error('安装前必须明确选择 project 项目级或 global 个人全局范围')
             // 宿主已登记 Superpowers 时不再登记第二份，包括从插件目录自动发现、配置里看不到的那份。
             const loaded = runtime.superpowers.installed
-            if (loaded.length) return respond({ ready: false, issues: [!runtime.superpowers.issues.length && !runtime.superpowers.pinIssues.length ? '已加载已核对的固定版本 Superpowers，无需安装' : `已登记 Superpowers（${loaded.map(item => `${item.source}，版本 ${item.version ?? '未知'}，状态 ${item.status}`).join('；')}），不会再登记一份；要沿用请把接入选择的 superpowers 设为 existing，要改用固定版本请先人工移除现有来源并重载`], unverified: external })
+            if (loaded.length) return respond({ ready: false, issues: [bootstrapRefusal(runtime.superpowers)], unverified: external })
             plan = await planSetup(runtime.root, { kind: 'superpowers', scope: input.scope })
           } else {
             const choices = validateSetupChoices(input.choices), issues = gates(choices, runtime, context.sessionID, false, checkpoint)
