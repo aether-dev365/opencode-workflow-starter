@@ -337,17 +337,18 @@ def _strip_comment(seg):
     return head
 
 
-def _resolve(cur, tok):
+def _resolve(cur, tok, os_name=None):
     """相对路径挂到当前目录下；选项 / 变量 / ~ 原样；绝对路径也规范化（`$D/src` 在 D 带尾斜杠时拼出 `//`，
     否则目录模式无法匹配）；引号全部去掉。没有 cwd 时相对路径原样。"""
-    tok = windows_path(_dequote(tok.replace("\\", "/")))
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    tok = windows_path(_dequote(tok.replace("\\", "/")), os_name)
     if not tok or tok.startswith(("-", "$", "~")):
         return tok
-    if is_absolute(tok):
-        return os.path.normpath(tok)
+    if is_absolute(tok, os_name):
+        return module.normpath(tok)
     if not cur:
         return tok
-    return os.path.normpath(os.path.join(cur, tok))
+    return module.normpath(module.join(cur, tok))
 
 
 def git_clean_pathspec_problem(path, os_name=None):
@@ -371,7 +372,7 @@ def physical_path(path, os_name=None):
     module = ntpath if (os_name or os.name) == 'nt' else posixpath
     drive, rest = module.splitdrive(path)
     parts = re.split(r'[\\/]', rest) if module is ntpath else rest.split('/')
-    if '..' not in parts or not module.isabs(path):
+    if '..' not in parts or not is_absolute(path, os_name):
         return path
     current = drive + module.sep
     for index, part in enumerate(parts[:-1]):
@@ -387,26 +388,28 @@ def physical_path(path, os_name=None):
     return module.join(current, parts[-1])
 
 
-def _shell_paths(cur, tok):
+def _shell_paths(cur, tok, os_name=None):
     """shell 命令中的路径候选：字面合并的路径；含 `..` 段时另加按内核方式解析的路径（见 physical_path）。
     `..` 之前的段在检查时不存在时无法确认落点，拒绝。"""
-    lexical = _resolve(cur, tok)
-    raw = windows_path(_dequote(tok.replace("\\", "/")))
-    if not raw or raw.startswith(("-", "$", "~")) or not (is_absolute(raw) or cur):
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    lexical = _resolve(cur, tok, os_name)
+    raw = windows_path(_dequote(tok.replace("\\", "/")), os_name)
+    if not raw or raw.startswith(("-", "$", "~")) or not (is_absolute(raw, os_name) or cur):
         return [lexical]
-    physical = physical_path(raw if is_absolute(raw) else os.path.join(cur, raw))
+    physical = physical_path(raw if is_absolute(raw, os_name) else module.join(cur, raw), os_name)
     if physical is None:
         raise ValueError('无法确认 `..` 之前的路径（可能是同一命令里新建的链接），请改写为不经过 `..` 的直接路径')
-    return list(dict.fromkeys([lexical, os.path.normpath(physical)]))
+    return list(dict.fromkeys([lexical, module.normpath(physical)]))
 
 
-def _cd(cur, target):
-    target = os.path.expanduser(windows_path(_dequote(target.replace("\\", "/"))))
-    if os.environ.get('CDPATH') and not is_absolute(target) and target.split('/')[0] not in {'.', '..'}:
+def _cd(cur, target, os_name=None):
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    target = module.expanduser(windows_path(_dequote(target.replace("\\", "/")), os_name))
+    if os.environ.get('CDPATH') and not is_absolute(target, os_name) and target.split('/')[0] not in {'.', '..'}:
         raise ValueError('非空 CDPATH 使相对 cd 目标不确定，请使用 ./ 开头或绝对目录')
-    if is_absolute(target) or not cur:
+    if is_absolute(target, os_name) or not cur:
         return target
-    return os.path.normpath(os.path.join(cur, target))
+    return module.normpath(module.join(cur, target))
 
 
 def shell_literal_text(text):
@@ -521,11 +524,12 @@ def _bare_cd(segment):
     return words[:1] == ['cd']
 
 
-def command_states(text, cwd, env):
+def command_states(text, cwd, env, os_name=None):
     """按 bash 的列表语义给出每段命令可能在其中执行的 (段, 目录, 变量)，同一段可能对应多个组合。
     只有不带前缀的 `cd 目标` 分得清成功：成功进入目标，失败留在原处或已进入目标；带 `!`、if、time、env 等前缀的 cd 结果未知。
     `&&`、`||` 之后的段只在对应结果下执行，`;` 与换行之后不论结果；管道各段和 `&` 之前的整条列表在子 shell 中执行，
     其中的 cd 与赋值不影响之后的命令。不静态的段照常抛出 ValueError。"""
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
     lists, pipelines, pipeline, connector = [], [], [], None
     for segment, op in split_commands(text):
         pipeline.append(segment)
@@ -550,17 +554,17 @@ def command_states(text, cwd, env):
         cwd, frozen = state
         results.append((segment, cwd, dict(frozen)))
         if words[:1] == ['cd']:
-            target = _cd(cwd, words[1])
+            target = _cd(cwd, words[1], os_name)
             moved = [(target, frozen)]
-            literal = os.path.expanduser(windows_path(_dequote(words[1].replace("\\", "/"))))
-            if '..' in literal.split('/') and (is_absolute(literal) or cwd):
+            literal = module.expanduser(windows_path(_dequote(words[1].replace("\\", "/")), os_name))
+            if '..' in literal.split('/') and (is_absolute(literal, os_name) or cwd):
                 # 默认的逻辑 cd 按字面合并 `..`；`set -P` 之后按真实路径切换，两种都可能。cd 目标无法确认落点时
                 # bash 的 cd 本身会失败（留在原目录，已由 fail 分支覆盖），不另加真实目录状态。
-                resolved = physical_path(literal if is_absolute(literal) else os.path.join(cwd, literal))
-                physical = os.path.realpath(resolved) if resolved is not None else target
+                resolved = physical_path(literal if is_absolute(literal, os_name) else module.join(cwd, literal), os_name)
+                physical = module.realpath(resolved) if resolved is not None else target
                 # 与字面目标的真实路径比较：没有经过符号链接的 `..` 时两者相同，不额外增加状态（macOS 的 /var、
                 # Windows 的 8.3 短名会让字面目标与其真实路径不同，不能据此翻倍状态数）。
-                moved += [(physical, frozen)] if physical != os.path.realpath(target) else []
+                moved += [(physical, frozen)] if physical != module.realpath(target) else []
             if _bare_cd(segment):
                 # PWD 或 OLDPWD 只读时，bash 先切换目录，再因无法更新变量返回失败，失败的 cd 也可能已在目标中。
                 return {**{(state, result): None for state in moved for result in ('ok', 'fail')}, (state, 'fail'): None}
@@ -1476,7 +1480,7 @@ def _linked_paths(paths, links, changes=(), os_name=None):
         raise ValueError(reason)
     mapping, spellings = {}, {}
     for source, target in links:
-        if module is ntpath and '~' in module.basename(source):
+        if module is ntpath and re.search(r'~[0-9]', module.basename(source)):
             raise ValueError(reason)
         source = module.normcase(module.join(module.realpath(module.dirname(source)), module.basename(source)))
         spellings.setdefault(source, set()).add(module.normpath(target))
@@ -1508,8 +1512,8 @@ def _linked_paths(paths, links, changes=(), os_name=None):
                 # 普通前缀也展开 Windows 短名；不能整体 realpath 跳过中途即将被改写的链接。
                 prefix = module.realpath(prefix)
                 source = module.normcase(prefix)
-            # 未展开的 ~ 可能是已有或即将创建的链接的 8.3 别名，不能据此认定与映射无关。
-            if module is ntpath and '~' in module.basename(prefix):
+            # 未展开的 ~数字 可能是已有或即将创建的链接的 8.3 别名，不能据此认定与映射无关。
+            if module is ntpath and re.search(r'~[0-9]', module.basename(prefix)):
                 raise ValueError(reason)
             if source in mapping:
                 suffix = parts[index + 1:]
@@ -1550,33 +1554,34 @@ def _linked_paths(paths, links, changes=(), os_name=None):
     return list(dict.fromkeys(found))
 
 
-def _analyze(command, cwd, env, link_state=None):
+def _analyze(command, cwd, env, link_state=None, os_name=None):
     """返回 (写目标, 其余 token, 是否确认只读)。写目标包括重定向目标、sed/sort 的输出文件、`ln -s` 的链接目标，
     以及同一命令经新链接访问的具体子路径，整条命令只读时也保留、按编辑检查。每段在它可能所在的每个目录与变量组合下各取一次候选（见
     command_states）。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
     内层的重定向目标照样是候选，内层不只读整条就不只读；命令替换的结果当重定向目标时解不开，按不只读处理。"""
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
     outer = link_state is None
     links, accesses, changes = link_state if link_state is not None else ([], [], [])
 
     def paths(cur, tok):
         # 保留尚未合并 .. 的访问路径，供最外层统一匹配新链接；命令替换与管道也共享这份保守候选。
-        raw = windows_path(tok)
+        raw = windows_path(tok, os_name)
         if '$' in raw or '`' in raw or SUBST_REF.search(raw) or raw.startswith('~'):
             accesses.append(None)
         elif raw:
-            accesses.append(raw if is_absolute(raw) else os.path.join(cur or os.getcwd(), raw))
-        return _shell_paths(cur, tok)
+            accesses.append(raw if is_absolute(raw, os_name) else module.join(cur or os.getcwd(), raw))
+        return _shell_paths(cur, tok, os_name)
 
     text = "\n".join(_command_lines(command.split("\n"), literal=True))
     inners = []
     text, bad = _lift_substitutions(text, inners)
     readonly = not _backtick_commands(text) and not bad
     targets, tokens = [], []
-    for seg, cur, env in command_states(text, cwd, env):
+    for seg, cur, env in command_states(text, cwd, env, os_name):
         parsed = static_command_words(seg)
         changes_kind = parsed[:1] in (['mkdir'], ['rmdir'], ['mv'], ['rm'], ['cp'], ['install'])
         if parsed[:1] == ['ln']:
-            pairs = _symlink_pairs(static_command_words(_strip_redirects(seg)), cur)
+            pairs = _symlink_pairs(static_command_words(_strip_redirects(seg)), cur, os_name)
             links += pairs
             targets += [p for _, target in pairs for p in paths('', target)]
             changes_kind = not pairs
@@ -1584,12 +1589,12 @@ def _analyze(command, cwd, env, link_state=None):
             changes.append(None)
         seg = _expand(_strip_comment(seg), env)
         for k in SUBST_REF.findall(seg):
-            sub_targets, sub_tokens, sub_ro = _analyze(inners[int(k)], cur, dict(env), (links, accesses, changes))
+            sub_targets, sub_tokens, sub_ro = _analyze(inners[int(k)], cur, dict(env), (links, accesses, changes), os_name)
             targets += sub_targets
             tokens += sub_tokens
             readonly = readonly and sub_ro
         for inner in _backtick_commands(seg):
-            sub_targets, sub_tokens, sub_ro = _analyze(inner, cur, dict(env), (links, accesses, changes))
+            sub_targets, sub_tokens, sub_ro = _analyze(inner, cur, dict(env), (links, accesses, changes), os_name)
             targets += sub_targets
             tokens += sub_tokens
             readonly = readonly and sub_ro
@@ -1632,16 +1637,16 @@ def _analyze(command, cwd, env, link_state=None):
                 found = paths(cur, tok)
                 tokens += found
                 if changes_kind:
-                    changes += [p for p in found if is_absolute(p)]
+                    changes += [p for p in found if is_absolute(p, os_name)]
     if outer:
-        targets += _linked_paths(accesses, links, changes)
+        targets += _linked_paths(accesses, links, changes, os_name)
     return targets, tokens, readonly
 
 
-def command_paths(command, cwd="", include_readonly=False):
+def command_paths(command, cwd="", include_readonly=False, os_name=None):
     """命令串里可能被写的路径候选（去重、保序）；整条命令确认只读时只剩重定向的目标（含 cat heredoc 的目标），
     include_readonly=True 则只读命令的 token 也保留（给规则加载用，不给护栏用）。"""
-    targets, tokens, readonly = _analyze(command, cwd, {})
+    targets, tokens, readonly = _analyze(command, cwd, {}, os_name=os_name)
     found = targets if (readonly and not include_readonly) else targets + tokens
     return list(dict.fromkeys(t for t in found if t))
 

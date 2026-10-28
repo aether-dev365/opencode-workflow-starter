@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from hooklib import (candidates_from, command_states, _command_lines, _lift_substitutions, _backtick_commands,
                      tool_path, windows_path, has_hidden_shell_eval, static_command_words, find_roots,
-                     path_exists, path_is_dir, brief, git_clean_pathspec_problem)
+                     path_exists, path_is_dir, is_absolute, brief, git_clean_pathspec_problem)
 from policy import check_path, load_policy, policy_root
 from protocol import emit_result, load_event
 
@@ -19,7 +19,7 @@ def check_event(event):
 
     def policy_for(path):
         # 选项与未展开变量不是绝对路径，检查结果不能受检查器进程目录影响。
-        target_root = (policy_root(path) or root) if os.path.isabs(path) else root
+        target_root = (policy_root(path) or root) if is_absolute(path) else root
         # 外部检出缺配置时沿用会话规则，读取普通参考文件仍可用，凭据规则继续生效。
         if target_root != root and not (target_root / '.opencode/workflow/protection.json').exists():
             target_root = root

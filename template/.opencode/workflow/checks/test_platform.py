@@ -6,6 +6,7 @@ import ntpath
 import os
 from pathlib import Path
 import stat
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -89,9 +90,24 @@ class Platform(unittest.TestCase):
     def test_missing_windows_short_names_cannot_guess_new_links(self):
         with mock.patch('os.lstat', side_effect=FileNotFoundError(errno.ENOENT, 'missing')), \
                 mock.patch('ntpath.realpath', ntpath.normpath):
-            with self.assertRaises(ValueError):
-                hooklib._linked_paths([r'C:\repo\LONGAL~1\locked.txt'],
-                                     [(r'C:\repo\long-alias', r'C:\records')], os_name='nt')
+            for name in ['LONGAL~1', 'LONGA~12']:
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    hooklib._linked_paths([fr'C:\repo\{name}\locked.txt'],
+                                         [(r'C:\repo\long-alias', r'C:\records')], os_name='nt')
+                with self.subTest(link=name), self.assertRaises(ValueError):
+                    hooklib._linked_paths([], [(fr'C:\repo\{name}', r'C:\records')], os_name='nt')
+
+    def test_windows_ordinary_tildes_are_not_short_names(self):
+        with mock.patch('os.lstat', side_effect=FileNotFoundError(errno.ENOENT, 'missing')), \
+                mock.patch('ntpath.realpath', ntpath.normpath):
+            for name in ['proj~v2', 'draft~', 'proj~１２']:
+                cases = [(fr'C:\repo\{name}', r'C:\records', fr'C:\repo\{name}\locked.txt', r'C:\records\locked.txt'),
+                         (fr'C:\{name}\alias', r'C:\records', fr'C:\{name}\alias\locked.txt', r'C:\records\locked.txt'),
+                         (r'C:\repo\alias', fr'C:\{name}', r'C:\repo\alias\locked.txt', fr'C:\{name}\locked.txt'),
+                         (r'C:\repo\alias', r'C:\records', fr'C:\repo\alias\{name}', fr'C:\records\{name}')]
+                for source, target, access, expected in cases:
+                    with self.subTest(source=source, target=target, access=access):
+                        self.assertEqual(hooklib._linked_paths([access], [(source, target)], os_name='nt'), [expected])
 
     def test_windows_link_targets_with_extended_prefixes_are_followed(self):
         cases = [(r'\\?\C:\records\nested', r'C:\records\locked.txt'),
@@ -132,11 +148,28 @@ class Platform(unittest.TestCase):
                 return SimpleNamespace(st_mode=stat.S_IFDIR)
             raise FileNotFoundError(errno.ENOENT, 'missing', path)
         # Python 3.13 起 ntpath.isabs 不再把单分隔符根路径视为绝对路径。
-        with mock.patch.object(hooklib.os, 'name', 'nt'), mock.patch.object(hooklib.os, 'path', ntpath), \
-                mock.patch('ntpath.isabs', lambda path: bool(ntpath.splitdrive(path)[0])), \
+        with mock.patch('ntpath.isabs', lambda path: bool(ntpath.splitdrive(path)[0])), \
                 mock.patch('ntpath.realpath', ntpath.normpath), mock.patch('os.stat', query), mock.patch('os.lstat', query):
             with self.assertRaises(ValueError):
-                hooklib.command_paths('mkdir /repo/new; ln -s records /repo/new', '/repo')
+                hooklib.command_paths('mkdir /repo/new; ln -s records /repo/new', '/repo', os_name='nt')
+
+    def test_command_link_mappings_keep_the_injected_platform(self):
+        def query(path):
+            if ntpath.normcase(ntpath.normpath(path)) in {r'c:\repo', r'd:\repo', r'\\server\share\repo'}:
+                return SimpleNamespace(st_mode=stat.S_IFDIR)
+            raise FileNotFoundError(errno.ENOENT, 'missing', path)
+        commands = ['ln -s records alias; cat alias/locked.txt',
+                    'ln -s records alias | cat alias/locked.txt',
+                    'echo "$(ln -s records alias; cat alias/locked.txt)"',
+                    'echo "`ln -s records alias; cat alias/locked.txt`"']
+        with mock.patch('os.stat', query), mock.patch('os.lstat', query), mock.patch('ntpath.realpath', ntpath.normpath):
+            for cwd, expected in [('C:/repo', r'C:\repo\records\locked.txt'),
+                                  ('//server/share/repo', r'\\server\share\repo\records\locked.txt')]:
+                for command in commands:
+                    with self.subTest(cwd=cwd, command=command):
+                        self.assertIn(expected, hooklib.command_paths(command, cwd, os_name='nt'))
+            self.assertIn(r'D:\repo\records\locked.txt', hooklib.command_paths(
+                'cd /d/repo && ln -s records alias; cat alias/locked.txt', 'C:/repo', os_name='nt'))
 
     def test_tool_paths_match_opencode_file_access(self):
         # 与 OpenCode FileAccess.resolve 相同（插件 platform.ts 的 toolPath 用同一组例子）：盘符写法、`~` 与 `~/`、字面合并 `..`。
@@ -171,12 +204,41 @@ class Platform(unittest.TestCase):
             self.assertEqual(hooklib.physical_path('/repo/a\\..\\b', 'posix'), '/repo/a\\..\\b')
             self.assertEqual(hooklib.physical_path('/repo/a/../b', 'posix'), '/repo/b')
 
+    def test_rooted_windows_parent_segments_follow_links(self):
+        def realpath(path):
+            normalized = ntpath.normpath(path)
+            return r'\records\nested' if normalized == r'\repo\L' else normalized
+        with mock.patch('ntpath.isabs', lambda path: bool(ntpath.splitdrive(path)[0])), \
+                mock.patch('ntpath.realpath', realpath):
+            for path in [r'\repo\L\..\locked.txt', '/repo/L/../locked.txt']:
+                with self.subTest(path=path):
+                    self.assertEqual(hooklib.physical_path(path, 'nt'), r'\records\locked.txt')
+            for command in ['echo x > /repo/L/../locked.txt', 'cd /repo/L/.. && echo x > locked.txt']:
+                with self.subTest(command=command):
+                    self.assertIn(r'\records\locked.txt', hooklib.command_paths(command, '/repo', os_name='nt'))
+
+    def test_rooted_paths_use_the_external_checkout_policy(self):
+        guard = load('pre-guard-paths')
+        with tempfile.TemporaryDirectory() as folder:
+            root, external = Path(folder) / 'repo', Path(folder) / 'external'
+            for repo, effect in [(root, 'allow'), (external, 'deny')]:
+                (repo / '.git').mkdir(parents=True)
+                config = repo / '.opencode/workflow/protection.json'
+                config.parent.mkdir(parents=True)
+                config.write_text(json.dumps({'version': 1, 'rules': [
+                    {'id': 'read', 'actions': ['read'], 'paths': ['*'], 'effect': effect, 'reason': '检出读取规则'}
+                ]}), encoding='utf-8')
+            event = {'directory': str(root), 'tool': 'read', 'input': {}, 'paths': [str(external / 'locked.txt')]}
+            # 只模拟守卫判定根路径时的 Python 3.13 行为，不替换真实文件系统查询所用的 os.path。
+            with mock.patch.object(guard, 'os', SimpleNamespace(path=SimpleNamespace(isabs=lambda path: False))):
+                with self.assertRaisesRegex(ValueError, '检出读取规则'):
+                    guard.check_event(event)
+
     def test_git_bash_drive_paths_resolve_as_absolute(self):
-        with mock.patch.object(hooklib.os, 'name', 'nt'):
-            # 结果是本机格式：Windows 上 normpath 输出反斜杠。
-            self.assertIn(os.path.normpath('C:/repo/.env'), hooklib.command_paths('cat /c/repo/.env', 'C:/work', include_readonly=True))
-            self.assertIn(os.path.normpath('C:/work/src/a.ts'), hooklib.command_paths('cat src/a.ts', 'C:/work', include_readonly=True))
-            self.assertIn(os.path.normpath('D:/data/vendor/x.js'), hooklib.command_paths('cd /d/data && echo x > vendor/x.js', 'C:/work'))
+        self.assertIn(r'C:\repo\.env', hooklib.command_paths('cat /c/repo/.env', 'C:/work', include_readonly=True, os_name='nt'))
+        self.assertIn(r'C:\work\src\a.ts', hooklib.command_paths('cat src/a.ts', 'C:/work', include_readonly=True, os_name='nt'))
+        self.assertIn(r'D:\data\vendor\x.js', hooklib.command_paths('cd /d/data && echo x > vendor/x.js', 'C:/work', os_name='nt'))
+        self.assertIn('/repo/C:/x/z', hooklib.command_paths('cd C:/x && echo y > z', '/repo', os_name='posix'))
 
     def test_drive_letter_paths_are_absolute_only_on_windows(self):
         # POSIX 上 C:/x 是相对路径（目录可以叫 C:），必须挂到当前目录下检查；只有 Windows 把它当盘符绝对路径。
