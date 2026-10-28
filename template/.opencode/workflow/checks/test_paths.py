@@ -476,7 +476,7 @@ class PathGuards(unittest.TestCase):
                 self.assertEqual(self.guard(command=command), 'allow')
 
     def test_directory_changes_follow_shell_list_semantics(self):
-        # cd 失败时 `;`、换行与 `||` 之后的命令仍在原目录执行；管道各段和 & 后台命令在子 shell 中，cd 与赋值不影响后续命令。
+        # cd 失败时 `;`、换行与 `||` 之后的命令可能仍在原目录执行；管道各段和 & 后台命令在子 shell 中，cd 与赋值不影响后续命令。
         from hooklib import command_paths
         for name in ['src', 'build']:
             (self.root / name).mkdir()
@@ -486,6 +486,8 @@ class PathGuards(unittest.TestCase):
                 'cd missing; echo x > .opencode/workflow/protection.json',
                 'cd missing\necho x > .opencode/workflow/protection.json',
                 'cd missing || echo x > .opencode/workflow/protection.json',
+                # PWD 或 OLDPWD 只读时，cd 先切换目录，再因无法更新变量返回失败，`||` 之后的命令在新目录执行。
+                'readonly OLDPWD; cd src || echo x > ../.opencode/workflow/protection.json',
                 'cd src | echo x > .opencode/workflow/protection.json',
                 'cd src & echo x > .opencode/workflow/protection.json',
                 'cd missing; rm -rf .opencode',
@@ -507,6 +509,9 @@ class PathGuards(unittest.TestCase):
         self.assertIn(str(self.root / 'notes.txt'), written)
         self.assertIn(str(self.root / 'missing/notes.txt'), written)
         self.assertNotIn(str(self.root / 'notes.txt'), command_paths('cd src && echo x > notes.txt', str(self.root)))
+        written = command_paths('cd src || echo x > notes.txt', str(self.root))
+        self.assertIn(str(self.root / 'notes.txt'), written)
+        self.assertIn(str(self.root / 'src/notes.txt'), written)
         for command in ['cd src && echo x > a.ts', 'cd build && rm -rf .', 'cd build && rm -rf . && ls',
                         'cd src || echo x > notes.txt', 'DEST=notes.txt; echo hi > "$DEST"',
                         '; '.join(f'cd d{index}' for index in range(6)) + '; ls']:

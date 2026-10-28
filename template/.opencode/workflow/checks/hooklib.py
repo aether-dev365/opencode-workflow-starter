@@ -500,7 +500,7 @@ def _assigned_env(segment, env):
 
 
 def _bare_cd(segment):
-    """段首（赋值前缀之后）就是 cd：在当前 shell 执行，成败分得清。`!`、if、time、env、/usr/bin/cd 等前缀不算。"""
+    """段首（赋值前缀之后）就是 cd：在当前 shell 执行，成功时一定已进入目标。`!`、if、time、env、/usr/bin/cd 等前缀不算。"""
     words = shlex.split(segment, comments=True)
     while words and re.match(r'^[A-Za-z_]\w*=', words[0]):
         words.pop(0)
@@ -509,7 +509,7 @@ def _bare_cd(segment):
 
 def command_states(text, cwd, env):
     """按 bash 的列表语义给出每段命令可能在其中执行的 (段, 目录, 变量)，同一段可能对应多个组合。
-    只有不带前缀的 `cd 目标` 分得清成败：成功进入目标，失败留在原处；带 `!`、if、time、env 等前缀的 cd 两种都可能。
+    只有不带前缀的 `cd 目标` 分得清成功：成功进入目标，失败留在原处或已进入目标；带 `!`、if、time、env 等前缀的 cd 结果未知。
     `&&`、`||` 之后的段只在对应结果下执行，`;` 与换行之后不论结果；管道各段和 `&` 之前的整条列表在子 shell 中执行，
     其中的 cd 与赋值不影响之后的命令。不静态的段照常抛出 ValueError。"""
     lists, pipelines, pipeline, connector = [], [], [], None
@@ -548,7 +548,8 @@ def command_states(text, cwd, env):
                 # Windows 的 8.3 短名会让字面目标与其真实路径不同，不能据此翻倍状态数）。
                 moved += [(physical, frozen)] if physical != os.path.realpath(target) else []
             if _bare_cd(segment):
-                return {**{(state, 'ok'): None for state in moved}, (state, 'fail'): None}
+                # PWD 或 OLDPWD 只读时，bash 先切换目录，再因无法更新变量返回失败，失败的 cd 也可能已在目标中。
+                return {**{(state, result): None for state in moved for result in ('ok', 'fail')}, (state, 'fail'): None}
             return {**{(state, 'any'): None for state in moved}, (state, 'any'): None}
         # export 等给只读变量赋值会失败而 shell 继续执行，之后的 `||` 仍会执行。
         assigned = _assigned_env(segment, dict(frozen))

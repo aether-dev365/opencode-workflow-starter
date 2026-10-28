@@ -100,8 +100,8 @@ test('文档中由模型运行的 doctor 命令不触及保护配置', async () 
   } finally { await f.close() }
 })
 
-test('cd 失败以及管道、后台中的 cd 不改变后续命令的目录', async () => {
-  // cd 失败时 `;`、`||` 之后的命令仍在原目录执行；管道各段和 & 后台命令在子 shell 中执行。
+test('cd 失败以及管道、后台中的 cd 之后，后续命令按所有可能的目录检查', async () => {
+  // cd 失败时 `;`、`||` 之后的命令可能仍在原目录执行（PWD 或 OLDPWD 只读时 cd 切换后才返回失败）；管道各段和 & 后台命令在子 shell 中执行。
   const f = await fixture()
   try {
     await (await load())(f.ctx)
@@ -111,7 +111,7 @@ test('cd 失败以及管道、后台中的 cd 不改变后续命令的目录', a
     await f.fire('tool.execute.before', allowed)
     for (const command of ['cd missing; echo x > .opencode/workflow/protection.json', 'cd missing || echo x > .opencode/workflow/protection.json',
       'cd src | echo x > .opencode/workflow/protection.json', 'cd src & echo x > .opencode/workflow/protection.json',
-      '! cd src; echo x > ../.opencode/workflow/protection.json']) {
+      '! cd src; echo x > ../.opencode/workflow/protection.json', 'readonly OLDPWD; cd src || echo x > ../.opencode/workflow/protection.json']) {
       await assert.rejects(f.fire('tool.execute.before', before('shell', { command, workdir: f.root })), /保护配置/, command)
     }
   } finally { await f.close() }
