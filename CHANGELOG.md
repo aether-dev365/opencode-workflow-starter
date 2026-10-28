@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+## [1.2.0] - 2026-10-28
+
+新增新项目流程 `/workflow-new`、接入向导的既有 AI 配置检测与子代理规划、质量扩展的关联检查和 `/review` 的同步审核单元，验收基线升到 OpenCode 2.2.0，并修复路径守卫的多处绕过以及插件、守卫、质量扩展和接入方 CI 执行项目目录中同名程序的问题。
+
 **升级须知：** 质量扩展新增关联检查，已安装的项目用新版本覆盖 `scripts/quality/` 下全部 `.py`（新增 `check-sync.py`、`quality_sync.py`、`test_check_sync.py`，`quality_snapshot.py`、`run-hook.py` 等共用模块也有改动），在此之前接入向导显示质量扩展未就绪，并把根 AGENTS.md 中的质量规则替换为质量扩展 README 启用第 3 步的新文字（五项报告及关联提醒的处理）；接入方 CI 的 `scripts/ci/run-quality.py` 必须同时更新，只更新 CI 脚本时关联检查报缺少入口、CI 失败。基础模板的审核目录新增 `sync` 单元：合并 `catalog.json`、`routing.json` 并复制 `checklists/sync.md`，不需要时删除这两处条目；启用发布扩展的项目要为 `sync` 补一条证据，否则正式审核报“存在没有关联证据的审核任务”。接入选择 `onboarding.json` 升为 version 2，新增 `agents` 与 `existing`；1.1.0 的档案照常读取，用 CLI 生成计划的 `answers.json` 需补充这两项；升级前预览但未应用的计划视为过期，需要重新预览。项目中有其他 AI 工具的配置，或有本模板以外的 OpenCode 配置（包括自行添加的代理、命令、技能、插件和子目录中的 `opencode.json(c)`）时，升级后需重新运行 `/workflow-setup` 逐项记录迁移或保留，在此之前 `verify`/`finish` 不就绪。插件目录需整体更新（新增了 `onboarding-existing.ts`、`onboarding-agents.ts`），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md`、`.opencode/commands/workflow-setup.md`、`docs/workflow/onboarding.md`、`docs/workflow/development.md`、`scripts/workflow/doctor.mjs`、`scripts/workflow/onboarding.mjs`：只更新插件时，向导缺少评估、迁移和子代理规划步骤，主代理也不会把任务派给生成的子代理；doctor 与插件版本不配套时 `onboarding` 检查出错。不再执行项目目录中同名程序的修复分布在插件目录、`scripts/workflow/doctor.mjs`、`scripts/workflow/setup.mjs`、`.opencode/workflow/checks/`、`scripts/quality/` 和 `scripts/ci/` 中，需要一起更新；只更新 doctor 或 setup 而不更新插件时它们无法启动，只更新插件时 setup 仍会按名字启动 `WORKFLOW_OPENCODE_BIN`。已接入的项目用不到 `/workflow-new`；覆盖 `docs/workflow/onboarding.md` 时一并复制 `docs/workflow/new-project.md`（前者链接到它，缺少时启用质量扩展的项目报断链、接入方 CI 失败），命令 `workflow-new.md` 和技能目录 `workflow-new-project/` 可以不复制。OpenCode 验收基线升到 2.2.0：更新插件依赖后同时把 CLI 升到 2.2.0，仍用 2.1.x 时 doctor 的 `opencode-version` 报 fail。
 
 ### 新增
@@ -137,5 +141,6 @@
 - 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
 - 规则文件为空或超过 40000 字符时，上下文组装不再抛错导致整个会话不可用，改为提示并拒绝修改该领域（规则文件本身仍可修复）；看门狗释放已删除会话的记录；`/review` 默认基线先使用远端默认分支（`origin/HEAD`）。
 
-[未发布]: https://github.com/aether-dev365/opencode-workflow-starter/compare/v1.1.0...HEAD
+[未发布]: https://github.com/aether-dev365/opencode-workflow-starter/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.2.0
 [1.1.0]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.1.0
