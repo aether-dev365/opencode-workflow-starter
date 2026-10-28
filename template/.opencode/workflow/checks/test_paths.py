@@ -29,6 +29,13 @@ class PathGuards(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def link(self, path, target, target_is_directory=False):
+        # Windows 上没有创建符号链接的权限时跳过用例，不报错。
+        try:
+            path.symlink_to(target, target_is_directory=target_is_directory)
+        except OSError:
+            self.skipTest('需要创建符号链接的权限')
+
     def result(self, tool='shell', paths=None, cwd=None, **tool_input):
         event = dict(version=1, phase='before', sessionId='s', callId='c',
                      directory=str(self.root), tool=tool, paths=paths or [], input=tool_input)
@@ -191,7 +198,7 @@ class PathGuards(unittest.TestCase):
 
     def test_protection_config_cannot_be_edited_through_a_link(self):
         path = self.root / '.opencode/workflow/protection.json'
-        (self.root / 'policy-link.json').symlink_to(path)
+        self.link(self.root / 'policy-link.json', path)
         self.assertEqual(self.guard(tool='write', paths=[str(self.root / 'policy-link.json')]), 'deny')
 
     def test_protection_config_cannot_be_edited_through_a_hardlink(self):
@@ -223,14 +230,14 @@ class PathGuards(unittest.TestCase):
         # 目标内的链接按真实路径检查；通过链接的目录进入的内容同样按真实路径检查。
         build = self.root / 'build'
         (build / 'lib').mkdir(parents=True)
-        (build / 'lib/link.txt').symlink_to(self.root / '.env')
+        self.link(build / 'lib/link.txt', self.root / '.env')
         self.assertEqual(self.guard(command='rm -rf build'), 'deny')
         (build / 'lib/link.txt').unlink()
         self.assertEqual(self.guard(command='rm -rf build'), 'allow')
         real = self.root / 'real'
         real.mkdir()
         (real / 'app.env').write_text('synthetic')
-        (self.root / 'alias').symlink_to(real, target_is_directory=True)
+        self.link(self.root / 'alias', real, target_is_directory=True)
         self.assertEqual(self.guard(command='rm -rf alias'), 'deny')
 
     def test_recursive_delete_skips_nested_git_directories(self):
@@ -377,11 +384,8 @@ class PathGuards(unittest.TestCase):
         (self.root / 'a').mkdir()
         (self.root / 'a/note.txt').write_text('public')
         (self.root / '.opencode/workflow/sub').mkdir()
-        try:
-            (self.root / 'a/PL').symlink_to(self.root / 'private/sub', target_is_directory=True)
-            (self.root / 'L').symlink_to(self.root / '.opencode/workflow/sub', target_is_directory=True)
-        except OSError:
-            self.skipTest('需要创建符号链接的权限')
+        self.link(self.root / 'a/PL', self.root / 'private/sub', target_is_directory=True)
+        self.link(self.root / 'L', self.root / '.opencode/workflow/sub', target_is_directory=True)
         for command in ['echo x > L/../protection.json', 'cat a/PL/../key', 'echo x > a/PL/../key', 'rm -rf a/PL/../key',
                         'sed -i s/a/b/ a/PL/../key', 'set -P; cd a/PL/..; cat key',
                         # 同一条命令里新建链接再经它的 `..`：检查时链接还不存在，无法确认落点，拒绝。
@@ -686,7 +690,7 @@ class PathGuards(unittest.TestCase):
     def test_all_patch_paths_and_symlink_targets_are_checked(self):
         self.assertEqual(self.guard(tool='patch', paths=[str(self.root / 'safe.txt'), str(self.root / 'vendor/new.txt')]), 'deny')
         (self.root / 'vendor').mkdir()
-        (self.root / 'alias').symlink_to(self.root / 'vendor', target_is_directory=True)
+        self.link(self.root / 'alias', self.root / 'vendor', target_is_directory=True)
         self.assertEqual(self.guard(tool='write', paths=[str(self.root / 'alias/new.txt')]), 'deny')
 
     def test_relative_symlink_targets_are_edit_candidates(self):
@@ -745,7 +749,8 @@ class PathGuards(unittest.TestCase):
             with self.subTest(command=command, workdir=workdir):
                 self.assertEqual(self.guard(command=command, workdir=workdir), 'deny')
         self.assertEqual(self.guard(command='cd links && ln -s ../public.txt alias'), 'allow')
-        self.assertEqual(self.guard(command=f'ln -s {shlex.quote(str(self.root / "public.txt"))} links/alias'), 'allow')
+        # Windows 上用正斜杠写法：ln 的操作数含反斜杠时拒绝。
+        self.assertEqual(self.guard(command=f'ln -s {shlex.quote((self.root / "public.txt").as_posix())} links/alias'), 'allow')
 
     def test_symlink_dynamic_and_unknown_forms_fail_closed(self):
         (self.root / 'links').mkdir()
@@ -794,8 +799,8 @@ class PathGuards(unittest.TestCase):
         for folder in ['links', 'records', 'old']:
             (self.root / folder).mkdir()
         (self.root / 'records/sub').mkdir()
-        (self.root / 'links-alias').symlink_to(self.root / 'links', target_is_directory=True)
-        (self.root / 'alias').symlink_to(self.root / 'old', target_is_directory=True)
+        self.link(self.root / 'links-alias', self.root / 'links', target_is_directory=True)
+        self.link(self.root / 'alias', self.root / 'old', target_is_directory=True)
         for command in ['ln -s ../records links-alias/new; printf x > links/new/locked.txt',
                         'ln -s ../records links/new; printf x > links-alias/new/locked.txt',
                         'ln -snf records alias; printf x > alias/locked.txt',
@@ -834,7 +839,7 @@ class PathGuards(unittest.TestCase):
         self.assertEqual(self.guard(command='mkdir "$PWD/build"'), 'allow')
 
     def test_hard_links_do_not_copy_symbolic_links(self):
-        (self.root / 'existing').symlink_to('workflow', target_is_directory=True)
+        self.link(self.root / 'existing', 'workflow', target_is_directory=True)
         for command in ['ln -s workflow alias; ln alias .opencode/indirect; '
                         'printf x > .opencode/indirect/protection.json',
                         'ln existing .opencode/indirect; printf x > .opencode/indirect/protection.json']:
@@ -851,10 +856,10 @@ class PathGuards(unittest.TestCase):
         config.write_text(json.dumps(policy), encoding='utf-8')
         (self.root / 'records').mkdir()
         (self.root / 'old').mkdir()
-        (self.root / 'indirect').symlink_to('alias', target_is_directory=True)
+        self.link(self.root / 'indirect', 'alias', target_is_directory=True)
         for existing in (False, True):
             if existing:
-                (self.root / 'alias').symlink_to('old', target_is_directory=True)
+                self.link(self.root / 'alias', 'old', target_is_directory=True)
             with self.subTest(existing=existing):
                 self.assertEqual(self.guard(command='ln -snf records alias; printf x > indirect/locked.txt'), 'deny')
 
@@ -866,13 +871,13 @@ class PathGuards(unittest.TestCase):
         config.write_text(json.dumps(policy), encoding='utf-8')
         for folder in ('old', 'records', 'secret'):
             (self.root / folder).mkdir()
-        (self.root / 'alias').symlink_to('old', target_is_directory=True)
+        self.link(self.root / 'alias', 'old', target_is_directory=True)
         self.assertEqual(self.guard(command='ln -snf records alias; ln -s ../secret alias/nested; '
                                     'printf x > records/nested/locked.txt'), 'deny')
 
     def test_symlink_physical_targets_are_not_conflicting_candidates(self):
         (self.root / 'public/sub').mkdir(parents=True)
-        (self.root / 'existing').symlink_to('public/sub', target_is_directory=True)
+        self.link(self.root / 'existing', 'public/sub', target_is_directory=True)
         self.assertEqual(self.guard(command='ln -s existing/../note.txt alias'), 'allow')
         self.assertEqual(self.guard(command='ln -s existing/../note.txt alias; printf x > alias'), 'allow')
 
@@ -883,7 +888,7 @@ class PathGuards(unittest.TestCase):
                                     actions=['edit'], paths=['records-view/locked.txt']))
         config.write_text(json.dumps(policy), encoding='utf-8')
         (self.root / 'records').mkdir()
-        (self.root / 'records-view').symlink_to('records', target_is_directory=True)
+        self.link(self.root / 'records-view', 'records', target_is_directory=True)
         self.assertEqual(self.guard(command='ln -s records-view alias; printf x > alias/locked.txt'), 'deny')
         self.assertEqual(self.guard(command='ln -s records-view alias; printf x > alias/public.txt'), 'allow')
 

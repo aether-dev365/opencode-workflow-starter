@@ -125,7 +125,7 @@ node scripts\workflow\doctor.mjs
 
 常见问题：
 
-- **PowerShell 里的 `bash` 不是 Git Bash。** 它通常是 WSL 启动器（`System32\bash.exe` 或 `WindowsApps\bash.exe`），会在 WSL 里执行命令。不要用它运行工作流脚本；`"shell"` 也不能指向它，插件会拒绝。在 PowerShell 中运行守卫测试：`py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`，依赖 bash 逻辑目录与目录符号链接的 3 个用例会跳过。
+- **PowerShell 里的 `bash` 不是 Git Bash。** 它通常是 WSL 启动器（`System32\bash.exe` 或 `WindowsApps\bash.exe`），会在 WSL 里执行命令。不要用它运行工作流脚本；`"shell"` 也不能指向它，插件会拒绝。在 PowerShell 中运行守卫测试：`py -3 -m unittest discover -s .opencode/workflow/checks -t .opencode/workflow/checks -p "test_*.py"`，依赖 bash 逻辑目录与目录符号链接的 3 个用例会跳过；没有创建符号链接的权限时（如未开启开发者模式），用到符号链接的路径用例也会跳过。
 - **`npm` 被执行策略拦截**（提示禁止运行 `npm.ps1`）：改用 `npm.cmd`，或执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 后重开终端。
 - **Gitleaks 的位置。** 默认装到 `%USERPROFILE%\.local\bin\gitleaks.exe`；提交扫描和 doctor 在 PATH 中找不到 `gitleaks` 时会回退到这里。需要加入用户 PATH 时：
 

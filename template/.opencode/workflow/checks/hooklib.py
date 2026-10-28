@@ -1409,8 +1409,9 @@ def static_command_words(segment):
 
 
 def _symlink_pairs(words, cwd):
-    """只支持两个字面操作数和不改变落点语义的 ln 选项；链接位置以实际父目录为准。"""
-    reason = '无法静态检查 ln，请使用 -s/-f/-n、两个字面路径和已存在的父目录，复杂链接操作请拆开执行'
+    """只支持两个字面操作数和不改变落点语义的 ln 选项；链接位置以实际父目录为准。不带 -s 时是硬链接：
+    源是已有的符号链接时拒绝（复制到别处后相对目标换了基准），否则不返回映射，按普通参数检查。"""
+    reason = '无法静态检查 ln，请使用 -s/-f/-n、两个字面路径和已存在的父目录，复杂链接操作请拆成多条工具调用'
     flags, operands, options = set(), [], True
     names = {'--symbolic': 's', '--force': 'f', '--no-dereference': 'n'}
     for word in words[1:]:
@@ -1453,7 +1454,7 @@ def _linked_paths(paths, links, changes=(), os_name=None):
     if not links:
         return []
     module = ntpath if (os_name or os.name) == 'nt' else posixpath
-    reason = '同一命令中的链接相互依赖、被重复改写或落点无法确定，请拆成多条命令'
+    reason = '同一命令中的链接相互依赖、被重复改写或落点无法确定，请拆成多条工具调用'
     if None in changes or None in paths:
         raise ValueError(reason)
     mapping, spellings = {}, {}
@@ -1466,7 +1467,7 @@ def _linked_paths(paths, links, changes=(), os_name=None):
             raise ValueError(reason)
         mapping[source] = target
     if len(mapping) > STATE_LIMIT:
-        raise ValueError('同一命令中的链接过多，请拆成多条命令')
+        raise ValueError('同一命令中的链接过多，请拆成多条工具调用')
 
     def inside(path, parent):
         path, parent = module.normcase(path), module.normcase(parent)
@@ -1523,7 +1524,8 @@ def _linked_paths(paths, links, changes=(), os_name=None):
 
 
 def _analyze(command, cwd, env, link_state=None):
-    """返回 (重定向目标, 其余 token, 是否确认只读)。每段在它可能所在的每个目录与变量组合下各取一次候选（见
+    """返回 (写目标, 其余 token, 是否确认只读)。写目标包括重定向目标、sed/sort 的输出文件、`ln -s` 的链接目标，
+    以及同一命令经新链接访问的具体子路径，整条命令只读时也保留、按编辑检查。每段在它可能所在的每个目录与变量组合下各取一次候选（见
     command_states）。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
     内层的重定向目标照样是候选，内层不只读整条就不只读；命令替换的结果当重定向目标时解不开，按不只读处理。"""
     outer = link_state is None
