@@ -4,6 +4,12 @@
 
 ## [未发布]
 
+## [1.2.1] - 2026-10-28
+
+修复路径守卫可被同一命令中新建的符号链接绕过的问题，以及 Windows 上 Python 3.13 及更高版本对根路径的判断；`ln` 的支持写法随之收紧。
+
+**升级须知：** 整体更新 `.opencode/workflow/checks/`。`ln` 现在只接受 `-s/-f/-n`（及对应长选项）和字面操作数，符号链接须恰好给出两个字面路径且链接位置的父目录已存在；此前放行的其他写法会被拒绝，按拒绝原因改写或拆成多条工具调用，支持边界见守卫说明。
+
 ### 修复
 
 - 路径守卫按符号链接所在的实际目录解析 `ln -s` 的相对目标，并检查同一命令经新链接访问的具体子路径；此前只按执行前的文件系统和 cwd 检查，可以先创建链接再经它修改保护配置或规则单独保护的子文件。`ln` 的支持选项收紧为 `-s/-f/-n`、对应完整长选项和 `--`；符号链接须给出两个字面路径和已存在的父目录，不接受目录操作数、动态参数、通过已有链接隐藏的依赖、链式或冲突链接及无法确定的路径变动。硬链接与符号链接的操作数均拒绝以 `~` 开头；复制符号链接的硬链接同样拒绝，普通文件硬链接保留。链接查询出错时拒绝，Windows 8.3 短名前缀逐段规范化后匹配映射；Windows 上同一命令含新符号链接时，新链接名含 `~` 后接数字（`0–9`），或路径分量逐段解析后仍含这种形态的拒绝，请改用长文件名；`proj~v2` 等普通名称不受此限制。复杂操作请拆成多条工具调用。具体支持边界见守卫 README；升级时整体更新 `.opencode/workflow/checks/`。
@@ -147,6 +153,7 @@
 - 配置引用的文件缺失时，报错显示配置中写的相对路径，不再显示各平台格式不同的系统错误。
 - 规则文件为空或超过 40000 字符时，上下文组装不再抛错导致整个会话不可用，改为提示并拒绝修改该领域（规则文件本身仍可修复）；看门狗释放已删除会话的记录；`/review` 默认基线先使用远端默认分支（`origin/HEAD`）。
 
-[未发布]: https://github.com/aether-dev365/opencode-workflow-starter/compare/v1.2.0...HEAD
+[未发布]: https://github.com/aether-dev365/opencode-workflow-starter/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.2.1
 [1.2.0]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.2.0
 [1.1.0]: https://github.com/aether-dev365/opencode-workflow-starter/releases/tag/v1.1.0

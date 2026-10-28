@@ -181,12 +181,12 @@ doctor 对 2.2.0 报 pass，对其他 2.2.x 报 warn（需在该版本做原生�
 
 ## 发布与分发
 
-正式版本见 [GitHub Releases](https://github.com/aether-dev365/opencode-workflow-starter/releases)，附分发包及其 SHA-256 文件；需要固定版本时也可以 `git clone --depth 1 --branch v1.2.0 …`。
+正式版本见 [GitHub Releases](https://github.com/aether-dev365/opencode-workflow-starter/releases)，附分发包及其 SHA-256 文件；需要固定版本时也可以 `git clone --depth 1 --branch v1.2.1 …`。
 
 维护者在套件根目录从已打标签的版本生成干净分发包（macOS 把 `sha256sum` 换成 `shasum -a 256`）：
 
 ```bash
-version=1.2.0
+version=1.2.1
 mkdir -p artifacts
 git archive --format=tar.gz --prefix=opencode-workflow-starter-$version/ --output=artifacts/opencode-workflow-starter-$version.tar.gz v$version
 (cd artifacts && sha256sum opencode-workflow-starter-$version.tar.gz > opencode-workflow-starter-$version.tar.gz.sha256)
