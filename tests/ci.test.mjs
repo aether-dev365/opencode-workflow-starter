@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, cpSync } from 'node:fs'
+import { appendFileSync, chmodSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, cpSync } from 'node:fs'
 import { runtimeBinary } from './fixtures/native-harness.mjs'
 import { join, delimiter } from 'node:path'
 import { makeRepo, scannerFixture, scope } from './fixtures/ci-fixture.mjs'
@@ -219,6 +219,14 @@ test('quality: range requires the checked out head and invalid modes cannot run'
   const run = args => r.py('scripts/ci/run-quality.py', args)
   assert.equal(run(['--range', `${base}..${head}`]).status, 0)
   for (const args of [[], ['--all', '--range', `${base}..${head}`], ['--range', `${head}..${base}`], ['--range', 'main..HEAD'], ['--all', '--fix']]) assert.equal(run(args).status, 2)
+})
+
+test('quality: a git planted in the project is not run', t => {
+  // 进程创建会在当前目录查找不带路径的命令：macOS 和 Linux 在 PATH 有空项时也查。
+  const r = qualityRepo(t)
+  chmodSync(r.write('git', '#!/bin/sh\necho planted\n'), 0o755)
+  const result = r.py('scripts/ci/run-quality.py', ['--all'], { env: { PATH: delimiter + r.env.PATH } })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
 })
 
 test('quality: timeouts continue but cancellation stops launching checks', t => {

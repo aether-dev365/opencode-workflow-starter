@@ -13,7 +13,7 @@ import unicodedata
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/quality'))
 try:
-    from quality_process import ProcessResult, run_process, termination_flag
+    from quality_process import ProcessResult, program, run_process, termination_flag
     from quality_lib import utf8_stdio
     IMPORTED = True
 except ImportError:
@@ -60,8 +60,12 @@ def run_quality(root: Path, mode: tuple[str, str | None], *, timeout: float = 30
         if not IMPORTED:
             raise ValueError('质量扩展缺失')
         utf8_stdio()
+        # 只按 PATH 中的绝对路径启动 git：PATH 有空项时，按名字启动会执行项目里的同名程序。
+        executable = program('git')
+        if executable is None:
+            raise ValueError('找不到 git 命令')
         def git(*args):
-            result = subprocess.run(['git', *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+            result = subprocess.run([executable, *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
             if result.returncode:
                 raise ValueError('Git 查询失败')
             return result.stdout.decode('utf-8', 'strict').rstrip('\n')
