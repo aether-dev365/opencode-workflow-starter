@@ -4,9 +4,11 @@
 
 ## [未发布]
 
+**升级须知：** 插件目录需整体更新（`onboarding-runtime.ts`、`onboarding.ts`、`onboarding-files.ts` 有改动），并同时覆盖 `.opencode/skills/workflow-onboarding/SKILL.md` 和 `docs/workflow/onboarding.md`：只更新插件时，向导不知道何时记 `existing`；只更新技能时，`status` 没有它引用的 `installed`、`pinned`。已保存为 `existing` 的接入档案升级后同样接受其他版本的 Superpowers，列为未经套件验收；要继续只接受固定版本，把它改为 `project` 或 `global`。`status` 中 `superpowers.available` 现在只表示来源结构通过，是否为固定版本看新增的 `pinned`。
+
 ### 变更
 
-- 完整模式可以沿用已经安装的其他版本 Superpowers，包括个人全局安装：在接入选择中把 `superpowers` 明确设为 `existing` 后，`/workflow-setup` 核对插件来源结构和本会话的真实读取，不再要求与固定的 v7.0.1 一致，并在 `verify`、`finish` 中把该版本列为未经套件验收。`superpowers` 为 `project` 或 `global` 时仍只接受固定版本，并提示可以改选 `existing`。`status` 的 `superpowers` 新增 `pinned`、`installed` 和 `pinIssues`。`bootstrap` 遇到其他来源或版本的 Superpowers 不再报错，改为返回不修改文件的计划并提示改选；当前已加载 Superpowers 时不再登记第二份。
+- 完整模式可以沿用已经安装的其他版本 Superpowers，包括个人全局安装：在接入选择中把 `superpowers` 明确设为 `existing` 后，`/workflow-setup` 核对插件来源结构和本会话的真实读取，不再要求与固定的 v7.0.1 一致，并在 `verify`、`finish` 中把该版本列为未经套件验收。`superpowers` 为 `project` 或 `global` 时仍只接受固定版本，并提示可以改选 `existing`。`status` 的 `superpowers` 新增 `pinned`、`installed` 和 `pinIssues`。`bootstrap` 遇到其他来源或版本的 Superpowers 不再报错，改为返回不修改文件的计划并提示改选；宿主已登记 Superpowers（包括加载失败的）时不再登记第二份。
 
 ## [1.2.1] - 2026-10-28
 
