@@ -235,8 +235,11 @@ def system_command(name, env=None):
 
 
 def is_absolute(path, os_name=None):
-    """`/` 开头总是绝对路径；`C:/` 只在 Windows 上是盘符绝对路径，POSIX 上它是名为 `C:` 的相对目录。"""
-    return path.startswith('/') or ((os_name or os.name) == 'nt' and DRIVE_ABSOLUTE.match(path) is not None)
+    """根路径总是绝对路径；Windows 同时接受两种分隔符和盘符，POSIX 上 `C:` 是相对目录名。"""
+    windows = (os_name or os.name) == 'nt'
+    if windows:
+        path = path.replace('\\', '/')
+    return path.startswith('/') or (windows and DRIVE_ABSOLUTE.match(path) is not None)
 
 
 # 整条路径的长度上限：Linux、macOS 按 UTF-8 字节（含结尾 NUL），Windows 按 UTF-16 码元。
@@ -275,13 +278,16 @@ MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP)
 MISSING_WINERRORS = (21, 123, 1920, 1921)
 
 
-def _stat(path):
+def _stat(path, follow_symlinks=True):
     """按 Python 3.12 的 Path.exists 口径查询，能确定不存在的超长名字也按不存在处理，其余错误照常抛出。
     Python 3.14 起 Path.exists、Path.is_dir 把所有 OSError 都当作不存在，守卫不能依赖它们拒绝查询出错的路径。"""
     try:
-        return os.stat(path)
+        return os.stat(path) if follow_symlinks else os.lstat(path)
     except OSError as error:
-        if error.errno in MISSING_ERRNOS or getattr(error, 'winerror', None) in MISSING_WINERRORS or missing_long_name(error):
+        # 链接自身的查询不能把循环或无法访问的重解析点视为普通路径。
+        missing = MISSING_ERRNOS if follow_symlinks else (errno.ENOENT, errno.ENOTDIR)
+        winerrors = MISSING_WINERRORS if follow_symlinks else (123,)
+        if error.errno in missing or getattr(error, 'winerror', None) in winerrors or missing_long_name(error):
             return None
         raise
     except ValueError:
@@ -296,6 +302,14 @@ def path_exists(path):
 def path_is_dir(path):
     info = _stat(path)
     return info is not None and stat.S_ISDIR(info.st_mode)
+
+
+def path_is_link(path, os_name=None):
+    """查询链接自身；Windows 联接点同样需要逐段跟随，无法确认时抛出错误。"""
+    info = _stat(path, follow_symlinks=False)
+    # IO_REPARSE_TAG_MOUNT_POINT：POSIX 的 stat 没有此常量，注入 Windows 平台时仍须识别。
+    return info is not None and (stat.S_ISLNK(info.st_mode) or (
+        (os_name or os.name) == 'nt' and getattr(info, 'st_reparse_tag', 0) == 0xA0000003))
 
 
 def _dequote(s):
@@ -1408,10 +1422,11 @@ def static_command_words(segment):
     return words
 
 
-def _symlink_pairs(words, cwd):
+def _symlink_pairs(words, cwd, os_name=None):
     """只支持两个字面操作数和不改变落点语义的 ln 选项；链接位置以实际父目录为准。不带 -s 时是硬链接：
     源是已有的符号链接时拒绝（复制到别处后相对目标换了基准），否则不返回映射，按普通参数检查。"""
     reason = '无法静态检查 ln，请使用 -s/-f/-n、两个字面路径和已存在的父目录，复杂链接操作请拆成多条工具调用'
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
     flags, operands, options = set(), [], True
     names = {'--symbolic': 's', '--force': 'f', '--no-dereference': 'n'}
     for word in words[1:]:
@@ -1429,24 +1444,26 @@ def _symlink_pairs(words, cwd):
             flags.update(word[1:])
         else:
             operands.append(word)
+    if any(p.startswith('~') for p in operands):
+        raise ValueError(reason)
     if 's' not in flags:
-        if any(os.path.islink(os.path.join(cwd or os.getcwd(), windows_path(p)))
+        if any(path_is_link(module.join(cwd or os.getcwd(), windows_path(p, os_name)), os_name)
                for p in (operands[:-1] if len(operands) > 1 else operands)):
             raise ValueError('无法确认硬链接复制符号链接后的落点，请直接创建字面目标的符号链接')
         return []
-    if len(operands) != 2 or any(p.startswith('~') for p in operands):
+    if len(operands) != 2:
         raise ValueError(reason)
-    target, name = map(windows_path, operands)
-    raw = os.path.join(cwd or os.getcwd(), name)
-    parent, leaf = os.path.split(raw)
+    target, name = (windows_path(p, os_name) for p in operands)
+    raw = module.join(cwd or os.getcwd(), name)
+    parent, leaf = module.split(raw)
     if not leaf or leaf in ('.', '..') or not path_is_dir(parent):
         raise ValueError(reason)
-    if path_is_dir(raw) and not ('n' in flags and os.path.islink(raw)):
+    if path_is_dir(raw) and not ('n' in flags and path_is_link(raw, os_name)):
         raise ValueError(reason)
-    parent = os.path.realpath(parent)
+    parent = module.realpath(parent)
     # 先挂到父目录，避免以 '-' 开头的字面目标被当成选项；目标的 .. 仍按内核语义解析。
     # 保留原始链接位置，不能因提前解析旧父链接而抹掉它对本命令其他链接的依赖。
-    return [(raw, os.path.join(parent, target))]
+    return [(raw, module.join(parent, target))]
 
 
 def _linked_paths(paths, links, changes=(), os_name=None):
@@ -1459,6 +1476,8 @@ def _linked_paths(paths, links, changes=(), os_name=None):
         raise ValueError(reason)
     mapping, spellings = {}, {}
     for source, target in links:
+        if module is ntpath and '~' in module.basename(source):
+            raise ValueError(reason)
         source = module.normcase(module.join(module.realpath(module.dirname(source)), module.basename(source)))
         spellings.setdefault(source, set()).add(module.normpath(target))
         # 字面与物理路径是两个策略候选，不是两次改写；映射只有一个实际目标。
@@ -1484,13 +1503,21 @@ def _linked_paths(paths, links, changes=(), os_name=None):
         for index, part in enumerate(parts):
             prefix = module.normpath(module.join(prefix, part))
             source = module.normcase(prefix)
+            linked = source not in mapping and path_is_link(prefix, os_name)
+            if source not in mapping and not linked:
+                # 普通前缀也展开 Windows 短名；不能整体 realpath 跳过中途即将被改写的链接。
+                prefix = module.realpath(prefix)
+                source = module.normcase(prefix)
+            # 未展开的 ~ 可能是已有或即将创建的链接的 8.3 别名，不能据此认定与映射无关。
+            if module is ntpath and '~' in module.basename(prefix):
+                raise ValueError(reason)
             if source in mapping:
                 suffix = parts[index + 1:]
                 if forbid or '..' in suffix:
                     raise ValueError(reason)
                 return module.normpath(module.join(mapping[source], *suffix)), (source, suffix)
             # 逐个跟随已有链接：一次 realpath 会跳过中途经过、但即将被改写的链接。
-            if module.islink(prefix) or (getattr(module, 'isjunction', lambda p: False)(prefix)):
+            if linked:
                 target = os.readlink(prefix)
                 if module is ntpath and target.startswith('\\\\?\\'):
                     target = '\\\\' + target[8:] if target[4:8] == 'UNC\\' else target[4:]
@@ -1605,7 +1632,7 @@ def _analyze(command, cwd, env, link_state=None):
                 found = paths(cur, tok)
                 tokens += found
                 if changes_kind:
-                    changes += [p for p in found if os.path.isabs(p)]
+                    changes += [p for p in found if is_absolute(p)]
     if outer:
         targets += _linked_paths(accesses, links, changes)
     return targets, tokens, readonly

@@ -2,8 +2,11 @@
 import errno
 import importlib.util
 import json
+import ntpath
 import os
 from pathlib import Path
+import stat
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -21,6 +24,93 @@ def load(name):
 
 
 class Platform(unittest.TestCase):
+    def test_link_queries_distinguish_missing_files_and_reparse_points(self):
+        for info, expected in [(SimpleNamespace(st_mode=stat.S_IFREG), False),
+                               (SimpleNamespace(st_mode=stat.S_IFLNK), True),
+                               (SimpleNamespace(st_mode=stat.S_IFDIR, st_reparse_tag=0xA0000003), True),
+                               (SimpleNamespace(st_mode=stat.S_IFREG, st_reparse_tag=0x8000001B), False)]:
+            with self.subTest(info=info), mock.patch('os.lstat', return_value=info):
+                self.assertEqual(hooklib.path_is_link('C:/repo/entry', 'nt'), expected)
+        for code in [errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG]:
+            with self.subTest(code=code), mock.patch('os.lstat', side_effect=OSError(code, 'missing', 'x' * 300)):
+                self.assertFalse(hooklib.path_is_link('x' * 300))
+
+    def test_symlink_mappings_match_windows_short_parent_names(self):
+        def realpath(path):
+            return ntpath.normpath(path).replace('EXAMPL~1', 'example-directory')
+        for source_root in [r'C:\workspace\EXAMPL~1\repo', r'C:\workspace\example-directory\repo']:
+            for access_root in [r'C:\workspace\EXAMPL~1\repo', r'C:\workspace\example-directory\repo']:
+                with self.subTest(source=source_root, access=access_root), mock.patch('ntpath.realpath', realpath), \
+                        mock.patch('os.lstat', return_value=SimpleNamespace(st_mode=stat.S_IFDIR)):
+                    self.assertEqual(hooklib._linked_paths([access_root + r'\alias\locked.txt'],
+                                     [(source_root + r'\alias', r'C:\records')], os_name='nt'),
+                                     [r'C:\records\locked.txt'])
+                    with self.assertRaises(ValueError):
+                        hooklib._linked_paths([], [(source_root + r'\alias', r'C:\records'),
+                                              (r'C:\second', access_root + r'\alias\nested')], os_name='nt')
+
+    def test_symlink_pairs_resolve_injected_windows_paths(self):
+        directories = {r'c:\repo\links', r'\\server\share\links'}
+        def query(path):
+            if ntpath.normcase(ntpath.normpath(path)) in directories:
+                return SimpleNamespace(st_mode=stat.S_IFDIR)
+            raise FileNotFoundError(errno.ENOENT, 'missing', path)
+        cases = [(['ln', '-s', '../records', 'links/alias'],
+                  (r'C:\repo\links\alias', r'C:\repo\links\../records')),
+                 (['ln', '-s', '/d/data', '/c/repo/links/alias'],
+                  (r'C:/repo/links/alias', 'D:/data')),
+                 (['ln', '-s', 'D:/data', 'C:/repo/links/alias'],
+                  ('C:/repo/links/alias', 'D:/data')),
+                 (['ln', '-s', '../records', '//server/share/links/alias'],
+                  ('//server/share/links/alias', r'\\server\share\links\../records'))]
+        with mock.patch('os.stat', query), mock.patch('ntpath.realpath', ntpath.normpath):
+            for words, expected in cases:
+                with self.subTest(words=words):
+                    pairs = hooklib._symlink_pairs(words, r'C:\repo', os_name='nt')
+                    self.assertEqual([(ntpath.normpath(a), ntpath.normpath(b)) for a, b in pairs],
+                                     [(ntpath.normpath(expected[0]), ntpath.normpath(expected[1]))])
+
+    def test_existing_windows_link_short_names_cannot_hide_replacements(self):
+        for mode, tag in [(stat.S_IFLNK, 0), (stat.S_IFDIR, 0xA0000003)]:
+            def query(path):
+                linked = ntpath.normcase(path) in {r'c:\repo\longal~1', r'c:\repo\long-alias', r'c:\repo\public-link'}
+                return SimpleNamespace(st_mode=mode if linked else stat.S_IFDIR,
+                                       st_reparse_tag=tag if linked else 0)
+            with self.subTest(tag=tag), mock.patch('os.lstat', query), \
+                    mock.patch('os.readlink', return_value=r'C:\old'), mock.patch('ntpath.realpath', ntpath.normpath):
+                links = [(r'C:\repo\long-alias', r'C:\records')]
+                with self.assertRaises(ValueError):
+                    hooklib._linked_paths([r'C:\repo\LONGAL~1\locked.txt'], links, os_name='nt')
+                with self.assertRaises(ValueError):
+                    hooklib._linked_paths([r'C:\repo\long-alias\locked.txt'],
+                                         [(r'C:\repo\LONGAL~1', r'C:\records')], os_name='nt')
+                self.assertEqual(hooklib._linked_paths([r'C:\repo\public-link\locked.txt'], links, os_name='nt'), [])
+
+    def test_missing_windows_short_names_cannot_guess_new_links(self):
+        with mock.patch('os.lstat', side_effect=FileNotFoundError(errno.ENOENT, 'missing')), \
+                mock.patch('ntpath.realpath', ntpath.normpath):
+            with self.assertRaises(ValueError):
+                hooklib._linked_paths([r'C:\repo\LONGAL~1\locked.txt'],
+                                     [(r'C:\repo\long-alias', r'C:\records')], os_name='nt')
+
+    def test_windows_link_targets_with_extended_prefixes_are_followed(self):
+        cases = [(r'\\?\C:\records\nested', r'C:\records\locked.txt'),
+                 (r'\\?\UNC\server\share\records\nested', r'\\server\share\records\locked.txt')]
+        for target, expected in cases:
+            for mode, tag in [(stat.S_IFLNK, 0), (stat.S_IFDIR, 0xA0000003)]:
+                def query(path):
+                    linked = ntpath.normcase(path) == r'c:\existing'
+                    return SimpleNamespace(st_mode=mode if linked else stat.S_IFDIR,
+                                           st_reparse_tag=tag if linked else 0)
+                def readlink(path):
+                    self.assertEqual(ntpath.normcase(path), r'c:\existing')
+                    return target
+                with self.subTest(target=target, tag=tag), mock.patch('os.lstat', query), \
+                        mock.patch('os.readlink', readlink), mock.patch('ntpath.realpath', ntpath.normpath):
+                    self.assertEqual(hooklib._linked_paths([r'C:\existing\..\alias\locked.txt'],
+                                     [(ntpath.dirname(expected) + r'\alias', r'C:\public')], os_name='nt'),
+                                     [r'C:\public\locked.txt'])
+
     def test_windows_path_matches_opencode(self):
         # 与 OpenCode FSUtil.windowsPath 相同的四种盘符写法。
         for value, expected in [('/c/Users/example', 'C:/Users/example'), ('/C:/x', 'C:/x'), ('/C:\\x', 'C:/x'), ('/cygdrive/d/x', 'D:/x'),
@@ -28,6 +118,25 @@ class Platform(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(hooklib.windows_path(value, 'nt'), expected)
         self.assertEqual(hooklib.windows_path('/c/Users/example', 'posix'), '/c/Users/example')
+
+    def test_absolute_paths_accept_windows_normalized_separators(self):
+        for path in [r'C:\repo', r'\repo', r'\\server\share\repo']:
+            with self.subTest(path=path):
+                self.assertTrue(hooklib.is_absolute(path, 'nt'))
+                self.assertFalse(hooklib.is_absolute(path, 'posix'))
+        self.assertFalse(hooklib.is_absolute('C:repo', 'nt'))
+
+    def test_rooted_windows_directory_changes_are_not_dropped(self):
+        def query(path):
+            if ntpath.normpath(path) == r'\repo':
+                return SimpleNamespace(st_mode=stat.S_IFDIR)
+            raise FileNotFoundError(errno.ENOENT, 'missing', path)
+        # Python 3.13 起 ntpath.isabs 不再把单分隔符根路径视为绝对路径。
+        with mock.patch.object(hooklib.os, 'name', 'nt'), mock.patch.object(hooklib.os, 'path', ntpath), \
+                mock.patch('ntpath.isabs', lambda path: bool(ntpath.splitdrive(path)[0])), \
+                mock.patch('ntpath.realpath', ntpath.normpath), mock.patch('os.stat', query), mock.patch('os.lstat', query):
+            with self.assertRaises(ValueError):
+                hooklib.command_paths('mkdir /repo/new; ln -s records /repo/new', '/repo')
 
     def test_tool_paths_match_opencode_file_access(self):
         # 与 OpenCode FileAccess.resolve 相同（插件 platform.ts 的 toolPath 用同一组例子）：盘符写法、`~` 与 `~/`、字面合并 `..`。

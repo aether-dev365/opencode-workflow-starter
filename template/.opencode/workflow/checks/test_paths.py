@@ -838,6 +838,14 @@ class PathGuards(unittest.TestCase):
                                             'printf x > .opencode/nested/workflow/protection.json'), 'deny')
         self.assertEqual(self.guard(command='mkdir "$PWD/build"'), 'allow')
 
+    def test_link_operands_starting_with_tilde_fail_closed(self):
+        for flags in ['', '-f ', '-s ']:
+            for source, target in [('~/public.txt', 'alias'), ('~example/public.txt', 'alias'),
+                                   ('public.txt', '~/alias'), ('public.txt', '~example/alias')]:
+                with self.subTest(flags=flags, source=source, target=target):
+                    self.assertEqual(self.guard(command=f'ln {flags}{source} {target}'), 'deny')
+        self.assertEqual(self.guard(command='ln public.txt alias'), 'allow')
+
     def test_hard_links_do_not_copy_symbolic_links(self):
         self.link(self.root / 'existing', 'workflow', target_is_directory=True)
         for command in ['ln -s workflow alias; ln alias .opencode/indirect; '
@@ -847,6 +855,27 @@ class PathGuards(unittest.TestCase):
                 self.assertEqual(self.guard(command=command), 'deny')
         (self.root / 'public.txt').write_text('public', encoding='utf-8')
         self.assertEqual(self.guard(command='ln public.txt alias'), 'allow')
+
+    def test_link_query_errors_deny_instead_of_hiding_links(self):
+        spec = importlib.util.spec_from_file_location('pre_guard_paths', HERE / 'pre-guard-paths.py')
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        (self.root / 'public.txt').write_text('public', encoding='utf-8')
+        (self.root / 'records').mkdir()
+        (self.root / 'elsewhere').mkdir()
+        lstat = os.lstat
+        for command, failed in [('ln public.txt alias', self.root / 'public.txt'),
+                                ('ln -s records alias; cat elsewhere/public.txt', self.root / 'elsewhere')]:
+            spellings = {os.path.normcase(str(failed)), os.path.normcase(os.path.realpath(failed))}
+            for code in [errno.EACCES, errno.EIO, errno.ELOOP]:
+                def query(path, *args, **kwargs):
+                    if os.path.normcase(os.fspath(path)) in spellings:
+                        raise OSError(code, 'link query failed', os.fspath(path))
+                    return lstat(path, *args, **kwargs)
+                with self.subTest(command=command, code=code), mock.patch('os.lstat', query):
+                    result = guard.check(dict(directory=str(self.root), tool='shell', paths=[], input=dict(command=command)))
+                    self.assertEqual(result['decision'], 'deny')
+                    self.assertIn('link query failed', result['reason'])
 
     def test_existing_aliases_cannot_hide_new_symlink_mappings(self):
         config = self.root / '.opencode/workflow/protection.json'
