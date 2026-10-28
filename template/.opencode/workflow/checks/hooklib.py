@@ -1408,10 +1408,136 @@ def static_command_words(segment):
     return words
 
 
-def _analyze(command, cwd, env):
+def _symlink_pairs(words, cwd):
+    """只支持两个字面操作数和不改变落点语义的 ln 选项；链接位置以实际父目录为准。"""
+    reason = '无法静态检查 ln，请使用 -s/-f/-n、两个字面路径和已存在的父目录，复杂链接操作请拆开执行'
+    flags, operands, options = set(), [], True
+    names = {'--symbolic': 's', '--force': 'f', '--no-dereference': 'n'}
+    for word in words[1:]:
+        if not word or any(c in word for c in ('$', '`', '\\', "'", '"')) or SUBST_REF.search(word):
+            raise ValueError(reason)
+        if options and word == '--':
+            options = False
+        elif options and word.startswith('--'):
+            if word not in names:
+                raise ValueError(reason)
+            flags.add(names[word])
+        elif options and word.startswith('-') and word != '-':
+            if any(c not in 'sfn' for c in word[1:]):
+                raise ValueError(reason)
+            flags.update(word[1:])
+        else:
+            operands.append(word)
+    if 's' not in flags:
+        if any(os.path.islink(os.path.join(cwd or os.getcwd(), windows_path(p)))
+               for p in (operands[:-1] if len(operands) > 1 else operands)):
+            raise ValueError('无法确认硬链接复制符号链接后的落点，请直接创建字面目标的符号链接')
+        return []
+    if len(operands) != 2 or any(p.startswith('~') for p in operands):
+        raise ValueError(reason)
+    target, name = map(windows_path, operands)
+    raw = os.path.join(cwd or os.getcwd(), name)
+    parent, leaf = os.path.split(raw)
+    if not leaf or leaf in ('.', '..') or not path_is_dir(parent):
+        raise ValueError(reason)
+    if path_is_dir(raw) and not ('n' in flags and os.path.islink(raw)):
+        raise ValueError(reason)
+    parent = os.path.realpath(parent)
+    # 先挂到父目录，避免以 '-' 开头的字面目标被当成选项；目标的 .. 仍按内核语义解析。
+    # 保留原始链接位置，不能因提前解析旧父链接而抹掉它对本命令其他链接的依赖。
+    return [(raw, os.path.join(parent, target))]
+
+
+def _linked_paths(paths, links, changes=(), os_name=None):
+    """对本命令的新链接补入具体子路径；只处理互不依赖的映射，不模拟链接链或命令执行顺序。"""
+    if not links:
+        return []
+    module = ntpath if (os_name or os.name) == 'nt' else posixpath
+    reason = '同一命令中的链接相互依赖、被重复改写或落点无法确定，请拆成多条命令'
+    if None in changes or None in paths:
+        raise ValueError(reason)
+    mapping, spellings = {}, {}
+    for source, target in links:
+        source = module.normcase(module.join(module.realpath(module.dirname(source)), module.basename(source)))
+        spellings.setdefault(source, set()).add(module.normpath(target))
+        # 字面与物理路径是两个策略候选，不是两次改写；映射只有一个实际目标。
+        target = module.realpath(target)
+        if source in mapping and mapping[source] != target:
+            raise ValueError(reason)
+        mapping[source] = target
+    if len(mapping) > STATE_LIMIT:
+        raise ValueError('同一命令中的链接过多，请拆成多条命令')
+
+    def inside(path, parent):
+        path, parent = module.normcase(path), module.normcase(parent)
+        return path == parent or path.startswith(parent.rstrip(module.sep) + module.sep)
+
+    def follow(path, forbid=False, depth=0):
+        if depth > STATE_LIMIT:
+            raise ValueError(reason)
+        drive, rest = module.splitdrive(path)
+        if module.altsep:
+            rest = rest.replace(module.altsep, module.sep)
+        parts = [part for part in rest.split(module.sep) if part not in ('', '.')]
+        prefix = drive + module.sep
+        for index, part in enumerate(parts):
+            prefix = module.normpath(module.join(prefix, part))
+            source = module.normcase(prefix)
+            if source in mapping:
+                suffix = parts[index + 1:]
+                if forbid or '..' in suffix:
+                    raise ValueError(reason)
+                return module.normpath(module.join(mapping[source], *suffix)), (source, suffix)
+            # 逐个跟随已有链接：一次 realpath 会跳过中途经过、但即将被改写的链接。
+            if module.islink(prefix) or (getattr(module, 'isjunction', lambda p: False)(prefix)):
+                target = os.readlink(prefix)
+                if module is ntpath and target.startswith('\\\\?\\'):
+                    target = '\\\\' + target[8:] if target[4:8] == 'UNC\\' else target[4:]
+                prefix, _ = follow(module.join(module.dirname(prefix), target), forbid=True, depth=depth + 1)
+        return prefix, None
+
+    for source, target in links:
+        follow(module.dirname(source), forbid=True)
+        follow(target, forbid=True)
+
+    for source, target in mapping.items():
+        for other in mapping:
+            if (source != other and (inside(source, other) or inside(other, source))) or any(
+                    inside(path, other) or inside(other, path) for path in (target, module.realpath(target))):
+                raise ValueError(reason)
+        for change in changes:
+            physical = module.join(module.realpath(module.dirname(change)), module.basename(change))
+            resolved, _ = follow(change, forbid=True)
+            if any(inside(path, place) or inside(place, path)
+                   for path in (change, physical, resolved) for place in (source, target)):
+                raise ValueError(reason)
+
+    found = []
+    for path in dict.fromkeys(paths):
+        resolved, mapped = follow(path)
+        if mapped:
+            found.append(resolved)
+            source, suffix = mapped
+            found += [module.normpath(module.join(target, *suffix)) for target in sorted(spellings[source])]
+    return list(dict.fromkeys(found))
+
+
+def _analyze(command, cwd, env, link_state=None):
     """返回 (重定向目标, 其余 token, 是否确认只读)。每段在它可能所在的每个目录与变量组合下各取一次候选（见
     command_states）。`$( )` 的内层用外层走到那一段时的 cwd 与变量递归判定：
     内层的重定向目标照样是候选，内层不只读整条就不只读；命令替换的结果当重定向目标时解不开，按不只读处理。"""
+    outer = link_state is None
+    links, accesses, changes = link_state if link_state is not None else ([], [], [])
+
+    def paths(cur, tok):
+        # 保留尚未合并 .. 的访问路径，供最外层统一匹配新链接；命令替换与管道也共享这份保守候选。
+        raw = windows_path(tok)
+        if '$' in raw or '`' in raw or SUBST_REF.search(raw) or raw.startswith('~'):
+            accesses.append(None)
+        elif raw:
+            accesses.append(raw if is_absolute(raw) else os.path.join(cur or os.getcwd(), raw))
+        return _shell_paths(cur, tok)
+
     text = "\n".join(_command_lines(command.split("\n"), literal=True))
     inners = []
     text, bad = _lift_substitutions(text, inners)
@@ -1419,14 +1545,22 @@ def _analyze(command, cwd, env):
     targets, tokens = [], []
     for seg, cur, env in command_states(text, cwd, env):
         parsed = static_command_words(seg)
+        changes_kind = parsed[:1] in (['mkdir'], ['rmdir'], ['mv'], ['rm'], ['cp'], ['install'])
+        if parsed[:1] == ['ln']:
+            pairs = _symlink_pairs(static_command_words(_strip_redirects(seg)), cur)
+            links += pairs
+            targets += [p for _, target in pairs for p in paths('', target)]
+            changes_kind = not pairs
+        if changes_kind and any('$' in w or '`' in w or SUBST_REF.search(w) for w in parsed[1:]):
+            changes.append(None)
         seg = _expand(_strip_comment(seg), env)
         for k in SUBST_REF.findall(seg):
-            sub_targets, sub_tokens, sub_ro = _analyze(inners[int(k)], cur, dict(env))
+            sub_targets, sub_tokens, sub_ro = _analyze(inners[int(k)], cur, dict(env), (links, accesses, changes))
             targets += sub_targets
             tokens += sub_tokens
             readonly = readonly and sub_ro
         for inner in _backtick_commands(seg):
-            sub_targets, sub_tokens, sub_ro = _analyze(inner, cur, dict(env))
+            sub_targets, sub_tokens, sub_ro = _analyze(inner, cur, dict(env), (links, accesses, changes))
             targets += sub_targets
             tokens += sub_tokens
             readonly = readonly and sub_ro
@@ -1441,7 +1575,7 @@ def _analyze(command, cwd, env):
                 raise ValueError(STATIC_SHELL_ERROR)
             if "$" in target or SUBST_REF.search(target):
                 raise ValueError(STATIC_SHELL_ERROR)
-            targets += _shell_paths(cur, SUBST_REF.sub("()", target))
+            targets += paths(cur, SUBST_REF.sub("()", target))
         decoded = shlex.split(seg, comments=True)
         seg = _strip_redirects(seg)
         # 命令本身（剥掉 env 前缀之后）的参数里有没有替换：替换出来的可能是写选项或脚本，见 ARG_SAFE_CMD
@@ -1449,9 +1583,9 @@ def _analyze(command, cwd, env):
         # sed 的 w 文件名常紧贴在脚本里（`s/a/b/w文件`），TOKEN 抠不出来，解析出来单独当写候选
         sed_core = SYS_BIN.sub("", raw, count=1)
         if sed_core.split(None, 1)[:1] == ["sed"]:
-            targets += [p for f in _sed_effects(sed_core)[1] for p in _shell_paths(cur, f)]
+            targets += [p for f in _sed_effects(sed_core)[1] for p in paths(cur, f)]
         elif sed_core.split(None, 1)[:1] == ["sort"]:
-            targets += [p for f in _sort_outputs(sed_core) for p in _shell_paths(cur, f)]
+            targets += [p for f in _sort_outputs(sed_core) for p in paths(cur, f)]
         # 占位换成 TOKEN 抠不出的 `()`：既不冒充路径，当首词时也不在只读白名单里（跑的是替换出来的命令，说不清）
         seg = SUBST_REF.sub("()", seg)
         if ">" in _mask_quotes(seg):
@@ -1459,14 +1593,19 @@ def _analyze(command, cwd, env):
         am = ASSIGN.match(seg.strip())
         core = raw
         if parsed[:1] == ['cd']:
-            tokens += _shell_paths(cur, parsed[1])
+            tokens += paths(cur, parsed[1])
         elif not am and core and not NEUTRAL_CMD.match(core) and not (
                 _readonly_segment(core, raw) and (not had_subst or _subst_args_safe(core))):
             readonly = False
         # 先做 shell 引号去除和反斜杠解码，再取候选；不能把 shell 转义误当路径分隔符。
         for word in ([] if parsed[:1] in (['echo'], ['printf']) else decoded):
             for tok in dict.fromkeys([word, *TOKEN.findall(_dequote(word))]):
-                tokens += _shell_paths(cur, tok)
+                found = paths(cur, tok)
+                tokens += found
+                if changes_kind:
+                    changes += [p for p in found if os.path.isabs(p)]
+    if outer:
+        targets += _linked_paths(accesses, links, changes)
     return targets, tokens, readonly
 
 
