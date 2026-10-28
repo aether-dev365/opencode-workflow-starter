@@ -390,7 +390,8 @@ def physical_path(path, os_name=None):
 
 def _shell_paths(cur, tok, os_name=None):
     """shell 命令中的路径候选：字面合并的路径；含 `..` 段时另加按内核方式解析的路径（见 physical_path）。
-    `..` 之前的段在检查时不存在时无法确认落点，拒绝。"""
+    `..` 之前的段在检查时不存在时无法确认落点，拒绝。os_name 只供跨平台测试，注入时不查存在性（见 physical_path），
+    守卫调用不传。"""
     module = ntpath if (os_name or os.name) == 'nt' else posixpath
     lexical = _resolve(cur, tok, os_name)
     raw = windows_path(_dequote(tok.replace("\\", "/")), os_name)
@@ -1645,7 +1646,8 @@ def _analyze(command, cwd, env, link_state=None, os_name=None):
 
 def command_paths(command, cwd="", include_readonly=False, os_name=None):
     """命令串里可能被写的路径候选（去重、保序）；整条命令确认只读时只剩重定向的目标（含 cat heredoc 的目标），
-    include_readonly=True 则只读命令的 token 也保留（给规则加载用，不给护栏用）。"""
+    include_readonly=True 则只读命令的 token 也保留（给规则加载用，不给护栏用）。os_name 只供跨平台测试：注入时
+    不查 `..` 之前的段是否存在（见 physical_path），守卫调用不传。"""
     targets, tokens, readonly = _analyze(command, cwd, {}, os_name=os_name)
     found = targets if (readonly and not include_readonly) else targets + tokens
     return list(dict.fromkeys(t for t in found if t))

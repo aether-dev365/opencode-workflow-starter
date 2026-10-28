@@ -217,7 +217,7 @@ class Platform(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertIn(r'\records\locked.txt', hooklib.command_paths(command, '/repo', os_name='nt'))
 
-    def test_rooted_paths_use_the_external_checkout_policy(self):
+    def test_external_checkout_policy_does_not_depend_on_os_path_isabs(self):
         guard = load('pre-guard-paths')
         with tempfile.TemporaryDirectory() as folder:
             root, external = Path(folder) / 'repo', Path(folder) / 'external'
@@ -229,7 +229,8 @@ class Platform(unittest.TestCase):
                     {'id': 'read', 'actions': ['read'], 'paths': ['*'], 'effect': effect, 'reason': '检出读取规则'}
                 ]}), encoding='utf-8')
             event = {'directory': str(root), 'tool': 'read', 'input': {}, 'paths': [str(external / 'locked.txt')]}
-            # 只模拟守卫判定根路径时的 Python 3.13 行为，不替换真实文件系统查询所用的 os.path。
+            # 让守卫模块自己的 os.path.isabs 把所有路径判作相对（Python 3.13 起 Windows 的单分隔符根路径即如此），
+            # 确认外部检出的规则选择改由 hooklib.is_absolute 判断；Windows 根路径写法由 is_absolute 的用例覆盖。
             with mock.patch.object(guard, 'os', SimpleNamespace(path=SimpleNamespace(isabs=lambda path: False))):
                 with self.assertRaisesRegex(ValueError, '检出读取规则'):
                     guard.check_event(event)
