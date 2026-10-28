@@ -1423,7 +1423,7 @@ def static_command_words(segment):
 
 
 def _symlink_pairs(words, cwd, os_name=None):
-    """只支持两个字面操作数和不改变落点语义的 ln 选项；链接位置以实际父目录为准。不带 -s 时是硬链接：
+    """所有 ln 只接受不改变落点语义的 -s/-f/-n 和字面操作数；符号链接须恰好两个操作数，链接位置以实际父目录为准。不带 -s 时是硬链接：
     源是已有的符号链接时拒绝（复制到别处后相对目标换了基准），否则不返回映射，按普通参数检查。"""
     reason = '无法静态检查 ln，请使用 -s/-f/-n、两个字面路径和已存在的父目录，复杂链接操作请拆成多条工具调用'
     module = ntpath if (os_name or os.name) == 'nt' else posixpath
