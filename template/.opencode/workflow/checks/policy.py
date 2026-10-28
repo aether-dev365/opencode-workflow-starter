@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import sys
 
-from hooklib import path_exists, path_is_dir
+from hooklib import is_absolute, path_exists, path_is_dir
 
 PROTECTION_PATH = '.opencode/workflow/protection.json'
 PROTECTION_REASON = '保护配置只允许读取；修改或修复 protection.json 需由用户在 OpenCode 之外完成。'
@@ -91,9 +91,9 @@ def main():
     try:
         request = json.load(sys.stdin)
         if (not isinstance(request, dict) or not isinstance(request.get('root'), str)
-                or not os.path.isabs(request['root']) or request.get('action') not in ['read', 'edit']
+                or not is_absolute(request['root']) or request.get('action') not in ['read', 'edit']
                 or not isinstance(request.get('paths'), list)
-                or any(not isinstance(path, str) or not path or os.path.isabs(path) or '\0' in path
+                or any(not isinstance(path, str) or not path or is_absolute(path) or '\0' in path
                        or '..' in path.replace('\\', '/').split('/') for path in request['paths'])):
             raise ValueError('策略检查输入无效')
         root = request['root']

@@ -1,6 +1,7 @@
 """Windows 与 Git Bash 的路径和进程差异；平台由参数或 mock 注入，在任何系统上都能运行。"""
 import errno
 import importlib.util
+import io
 import json
 import ntpath
 import os
@@ -216,6 +217,17 @@ class Platform(unittest.TestCase):
             for command in ['echo x > /repo/L/../locked.txt', 'cd /repo/L/.. && echo x > locked.txt']:
                 with self.subTest(command=command):
                     self.assertIn(r'\records\locked.txt', hooklib.command_paths(command, '/repo', os_name='nt'))
+
+    def test_policy_input_rejects_rooted_paths_without_os_path_isabs(self):
+        # 让 policy 模块所用的 os.path.isabs 只认检出根（Python 3.13 起 Windows 的单分隔符根路径即判作相对），
+        # 确认策略检查入口改由 hooklib.is_absolute 拒绝根路径参数。
+        with tempfile.TemporaryDirectory() as folder:
+            request = json.dumps({'root': folder, 'action': 'read', 'paths': ['/outside.txt']})
+            with mock.patch.object(policy.os.path, 'isabs', lambda path: path == folder), \
+                    mock.patch.object(policy.sys, 'stdin', io.StringIO(request)), \
+                    mock.patch.object(policy.sys, 'stdout', io.StringIO()) as output:
+                code = policy.main()
+            self.assertEqual((code, json.loads(output.getvalue())), (2, {'error': '策略检查输入无效'}))
 
     def test_external_checkout_policy_does_not_depend_on_os_path_isabs(self):
         guard = load('pre-guard-paths')
