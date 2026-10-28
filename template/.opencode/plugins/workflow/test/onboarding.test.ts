@@ -25,32 +25,67 @@ function trustedSource(root = join(process.cwd(), 'example', 'superpowers')) {
 }
 const successful = (skill: { id: string; path: string; content: string }) => ({ content: [{ type: 'text', text: `<skill_content name="${skill.id}">\n# Skill: ${skill.id}\n\n${skill.content}\n</skill_content>` }], metadata: { name: skill.id, directory: join(skill.path, '..') } })
 
-test('trusted source comparison checks active plugin, exact source, installed entries, path and full body; CRLF is equivalent', () => {
+test('Superpowers verification separates source structure from the fixed pin', () => {
   const { pin, snapshot } = trustedSource()
   assert.deepEqual(verifySuperpowers(snapshot, pin).issues, [])
+  assert.deepEqual(verifySuperpowers(snapshot, pin).pinIssues, [])
   const reordered = structuredClone(snapshot)
   reordered.skills.reverse()
   assert.equal(verifySuperpowers(reordered, pin).fingerprint, verifySuperpowers(snapshot, pin).fingerprint)
+  // 结构问题：任何选择都不放行
   for (const mutate of [
     (s: SourceSnapshot) => { s.plugins = [] },
     (s: SourceSnapshot) => { s.plugins[0].state = { status: 'failed', error: 'failed' } },
-    (s: SourceSnapshot) => { s.plugins[0].source = { type: 'package', target: pin.spec, version: 'other' } },
+    (s: SourceSnapshot) => { s.plugins.push({ ...structuredClone(s.plugins[0]), source: { type: 'package', target: 'superpowers@example', version: '1' } }) },
     (s: SourceSnapshot) => { s.plugins[0].source = { type: 'local', path: join(s.installation!.root, '..', 'other', 'index.js') } },
-    (s: SourceSnapshot) => { s.installation!.files['index.js'] += 'changed' },
     (s: SourceSnapshot) => { s.installation!.skills.brainstorming += 'changed' },
     (s: SourceSnapshot) => { s.skills[0].content = 'same name, different skill' },
     (s: SourceSnapshot) => { s.skills[0].path = join(s.installation!.root, '..', 'other', 'SKILL.md') },
+    (s: SourceSnapshot) => { delete s.installation!.skills['writing-plans'] },
   ]) {
     const altered = structuredClone(snapshot); mutate(altered)
     assert.ok(verifySuperpowers(altered, pin).issues.length)
   }
+  const duplicated = structuredClone(snapshot)
+  duplicated.plugins.push({ ...structuredClone(duplicated.plugins[0]), source: { type: 'package', target: 'superpowers@example', version: '1' } })
+  assert.equal(verifySuperpowers(duplicated, pin).installed.length, 2)
+  // 只与固定版本不同：明确选择沿用时可以放行
+  for (const mutate of [
+    (s: SourceSnapshot) => { s.plugins[0].source = { type: 'package', target: pin.spec, version: 'other' } },
+    (s: SourceSnapshot) => { s.plugins[0].source = { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v7.1.0', version: 'b'.repeat(40) } },
+    (s: SourceSnapshot) => { s.installation!.files['index.js'] += 'changed' },
+    (s: SourceSnapshot) => { delete s.installation!.files['index.js'] },
+    (s: SourceSnapshot) => { delete s.installation!.skills['using-superpowers']; s.skills = s.skills.filter(skill => skill.id !== 'using-superpowers') },
+    (s: SourceSnapshot) => { for (const skill of s.skills) { skill.content += 'user edit\n'; s.installation!.skills[skill.id] += 'user edit\n' } },
+  ]) {
+    const altered = structuredClone(snapshot); mutate(altered)
+    const result = verifySuperpowers(altered, pin)
+    assert.deepEqual(result.issues, []); assert.ok(result.pinIssues.length)
+    assert.deepEqual(result.skills.map(skill => skill.id).sort(), ['brainstorming', 'writing-plans'])
+  }
   const packageSource = structuredClone(snapshot)
   packageSource.plugins[0].source = { type: 'package', target: pin.spec, version: pin.revision }
   assert.deepEqual(verifySuperpowers(packageSource, pin).issues, [])
+  assert.deepEqual(verifySuperpowers(packageSource, pin).pinIssues, [])
   for (const [key, value] of Object.entries(snapshot.installation!.files)) snapshot.installation!.files[key] = value.replaceAll('\n', '\r\n')
   for (const [key, value] of Object.entries(snapshot.installation!.skills)) snapshot.installation!.skills[key] = value.replaceAll('\n', '\r\n')
   snapshot.skills.forEach(skill => { skill.content = skill.content.replaceAll('\n', '\r\n') })
   assert.deepEqual(verifySuperpowers(snapshot, pin).issues, [])
+  assert.deepEqual(verifySuperpowers(snapshot, pin).pinIssues, [])
+})
+
+test('a package Superpowers needs package.json named superpowers at the inferred root', () => {
+  const { pin, snapshot } = trustedSource(), target = 'superpowers@git+https://github.com/obra/superpowers.git#v7.1.0'
+  snapshot.plugins[0].source = { type: 'package', target, version: 'b'.repeat(40) }
+  snapshot.installation!.files['package.json'] = '{"name":"superpowers","version":"7.1.0"}\n'
+  const accepted = verifySuperpowers(snapshot, pin)
+  assert.deepEqual(accepted.issues, [])
+  assert.deepEqual(accepted.installed, [{ type: 'package', source: target, version: '7.1.0', status: 'active' }])
+  for (const manifest of [undefined, 'not json', '{"name":"other"}', '[]']) {
+    const altered = structuredClone(snapshot)
+    if (manifest === undefined) delete altered.installation!.files['package.json']; else altered.installation!.files['package.json'] = manifest
+    assert.ok(verifySuperpowers(altered, pin).issues.some(x => /package\.json/.test(x)), String(manifest))
+  }
 })
 
 test('skill evidence needs a started native call and complete successful content in the same session and binding', () => {
@@ -202,6 +237,26 @@ async function setup(mode?: 'basic' | 'full') {
     return JSON.parse(typeof result.content === 'string' ? result.content : result.content.map((p: any) => p.text ?? '').join(''))
   }
   return { ...f, invoke, close: async () => { try { await dispose(); await f.close() } finally { await restore() } } }
+}
+
+// 磁盘上的非固定 Superpowers：本地来源直接指向目录，包来源由技能路径推断目录。
+async function installUserSuperpowers(f: Awaited<ReturnType<typeof fixture>>, type: 'local' | 'package', version = '9.0.0') {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'workflow-superpowers-')))
+  await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'superpowers', version }))
+  await writeFile(join(root, 'index.js'), 'export default {}\n')
+  for (const id of ['brainstorming', 'writing-plans']) {
+    const body = `\n# ${id}\n用户自己的版本。\n`, path = join(root, 'skills', id, 'SKILL.md')
+    await mkdir(join(root, 'skills', id), { recursive: true })
+    await writeFile(path, `---\nname: ${id}\n---\n${body}`)
+    f.skills.set(id, { id, name: id, path, content: body })
+  }
+  f.plugins.push({ id: 'superpowers', source: type === 'local' ? { type, path: root } : { type, target: 'superpowers@git+https://github.com/obra/superpowers.git#v9.0.0', version: 'b'.repeat(40) }, features: { server: true }, state: { status: 'active' } })
+  return root
+}
+async function readSkill(f: Awaited<ReturnType<typeof fixture>>, id: string) {
+  const call = before('skill', { id })
+  await f.fire('tool.execute.before', call)
+  await f.fire('tool.execute.after', { ...call, status: 'completed', result: successful(f.skills.get(id)!) })
 }
 
 test('registration is lazy and legacy plugin initializes without optional probe domains', async () => {
@@ -473,6 +528,51 @@ test('full configure plan/apply/finish fail closed without actual trusted skill 
     }
     const result = await f.invoke({ action: 'finish', verified: true })
     assert.equal(result.ready, false)
+  } finally { await f.close() }
+})
+
+for (const type of ['local', 'package'] as const) test(`an explicitly chosen existing ${type} Superpowers of another version passes full gates and is reported as unverified`, async () => {
+  const f = await setup('full'), root = await installUserSuperpowers(f, type)
+  try {
+    for (const id of ['brainstorming', 'writing-plans']) await readSkill(f, id)
+    const status = await f.invoke({ action: 'status' })
+    assert.equal(status.superpowers.available, true, JSON.stringify(status.superpowers))
+    assert.equal(status.superpowers.pinned, false)
+    assert.deepEqual(status.superpowers.read, ['brainstorming', 'writing-plans'])
+    assert.equal(status.superpowers.installed[0].version, '9.0.0')
+    const verified = await f.invoke({ action: 'verify' })
+    assert.equal(verified.ready, true, JSON.stringify(verified.issues))
+    assert.ok(verified.unverified.some((x: string) => /未经套件验收.*9\.0\.0/.test(x)), JSON.stringify(verified.unverified))
+    assert.equal(verified.unverified.some((x: string) => /技能路径推断/.test(x)), type === 'package')
+    const planned = await f.invoke({ action: 'plan', choices: choices('full') })
+    assert.equal(typeof planned.id, 'string', JSON.stringify(planned))
+    assert.ok(planned.unverified.some((x: string) => /未经套件验收/.test(x)))
+    for (const scope of ['project', 'global']) {
+      const refused = await f.invoke({ action: 'plan', choices: { ...choices('full'), superpowers: scope } })
+      assert.equal(refused.ready, false); assert.equal(refused.id, undefined)
+      assert.ok(refused.issues.some((x: string) => /改为 existing/.test(x)), JSON.stringify(refused.issues))
+    }
+    // 读取后升级：指纹变化，旧证据作废
+    await writeFile(join(root, 'skills/brainstorming/SKILL.md'), '---\nname: brainstorming\n---\n\n# brainstorming\n升级后的正文。\n')
+    f.skills.get('brainstorming')!.content = '\n# brainstorming\n升级后的正文。\n'
+    assert.equal((await f.invoke({ action: 'verify' })).ready, false)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('a same-name project skill cannot stand in for a package Superpowers', async () => {
+  const f = await setup('full')
+  try {
+    for (const id of ['brainstorming', 'writing-plans']) {
+      const body = `\n# ${id}\n项目里的同名技能。\n`, path = join(f.root, '.opencode/skills', id, 'SKILL.md')
+      await mkdir(join(f.root, '.opencode/skills', id), { recursive: true })
+      await writeFile(path, `---\nname: ${id}\n---\n${body}`)
+      f.skills.set(id, { id, name: id, path, content: body })
+    }
+    f.plugins.push({ id: 'superpowers', source: { type: 'package', target: 'superpowers@git+https://github.com/obra/superpowers.git#v9.0.0', version: 'b'.repeat(40) }, features: { server: true }, state: { status: 'active' } })
+    for (const id of ['brainstorming', 'writing-plans']) await readSkill(f, id)
+    const status = await f.invoke({ action: 'status' })
+    assert.equal(status.superpowers.available, false)
+    assert.ok(status.superpowers.issues.some((x: string) => /package\.json/.test(x)), JSON.stringify(status.superpowers.issues))
   } finally { await f.close() }
 })
 

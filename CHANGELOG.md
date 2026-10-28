@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 变更
+
+- 完整模式可以沿用已经安装的其他版本 Superpowers，包括个人全局安装：在接入选择中把 `superpowers` 明确设为 `existing` 后，`/workflow-setup` 核对插件来源结构和本会话的真实读取，不再要求与固定的 v7.0.1 一致，并在 `verify`、`finish` 中把该版本列为未经套件验收。`superpowers` 为 `project` 或 `global` 时仍只接受固定版本，并提示可以改选 `existing`。`status` 的 `superpowers` 新增 `pinned`、`installed` 和 `pinIssues`。
+
 ## [1.2.1] - 2026-10-28
 
 修复路径守卫可被同一命令中新建的符号链接绕过的问题，以及 Windows 上 Python 3.13 及更高版本对根路径的判断；`ln` 的支持写法随之收紧。

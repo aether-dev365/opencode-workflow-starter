@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { start, runCase, put, until } from './fixtures/native-harness.mjs'
@@ -8,12 +8,22 @@ import { superpowersDirectory, verifySuperpowers } from '../scripts/fetch-superp
 import { SUPERPOWERS_SOURCE, SUPERPOWERS_SPEC } from '../template/.opencode/plugins/workflow/onboarding-source.ts'
 
 const choices = mode => ({ version: 2, mode, superpowers: mode === 'full' ? 'existing' : 'none', models: { implementer: { mode: 'inherit' }, reviewer: { mode: 'inherit' } }, agents: [], existing: {}, components: { quality: 'off', ci: false, release: false, mcp: false } })
+// superpowers 为 true 时加载固定来源；为 'modified' 时加载改过 brainstorming 正文的副本，模拟用户自己的版本。
 async function setupFixture({ mode, superpowers = false, profile } = {}) {
   if (superpowers) assert.ok(verifySuperpowers(), '先运行 node scripts/fetch-superpowers.mjs 准备固定来源；缺失不能跳过验收')
   const h = await start({ prepare: directory => {
     const path = join(directory, 'opencode.jsonc'), config = JSON.parse(readFileSync(path, 'utf8'))
     for (const role of ['implementer', 'reviewer']) delete config.agents[role].model
-    if (superpowers) config.plugins = [...config.plugins ?? [], superpowersDirectory]
+    if (superpowers) {
+      let plugin = superpowersDirectory
+      if (superpowers === 'modified') {
+        // 副本放在夹具的临时目录内，随 close 删除；取 realpath，避免 macOS 的 /var 链接。
+        plugin = join(realpathSync(join(directory, '..')), 'superpowers')
+        cpSync(superpowersDirectory, plugin, { recursive: true })
+        appendFileSync(join(plugin, 'skills/brainstorming/SKILL.md'), '\n模拟用户自己的版本。\n')
+      }
+      config.plugins = [...config.plugins ?? [], plugin]
+    }
     put(path, JSON.stringify(config))
     if (mode || profile) put(join(directory, '.opencode/workflow/onboarding.json'), JSON.stringify(profile ?? choices(mode)))
   } })
@@ -89,6 +99,21 @@ test('full onboarding requires both actual skill reads in the finishing session'
     assert.equal(setupResults(completed).at(-1)?.ready, true, JSON.stringify(setupResults(completed).at(-1)?.issues))
     const otherSession = await runCase(h, [[{ name: 'workflow_setup', input: { action: 'finish' } }]])
     assert.equal(setupResults(otherSession).at(-1)?.ready, false)
+    assert.deepEqual(h.model.failures, [])
+  } finally { await h.close() }
+})
+
+test('full onboarding accepts another Superpowers version only when existing is chosen', { timeout: 300000 }, async () => {
+  const h = await setupFixture({ mode: 'full', superpowers: 'modified' })
+  try {
+    const accepted = setupResults(await runCase(h, [...readSkills(), [{ name: 'workflow_setup', input: { action: 'finish' } }]])).at(-1)
+    assert.equal(accepted?.ready, true, JSON.stringify(accepted?.issues))
+    assert.equal(accepted.superpowers.pinned, false)
+    assert.ok(accepted.unverified.some(x => /未经套件验收/.test(x)), JSON.stringify(accepted.unverified))
+    put(join(h.directory, '.opencode/workflow/onboarding.json'), JSON.stringify({ ...choices('full'), superpowers: 'project' }))
+    const refused = setupResults(await runCase(h, [...readSkills(), [{ name: 'workflow_setup', input: { action: 'finish' } }]])).at(-1)
+    assert.equal(refused?.ready, false)
+    assert.ok(refused.issues.some(x => /改为 existing/.test(x)), JSON.stringify(refused.issues))
     assert.deepEqual(h.model.failures, [])
   } finally { await h.close() }
 })

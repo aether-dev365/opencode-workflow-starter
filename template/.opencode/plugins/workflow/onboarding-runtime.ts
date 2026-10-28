@@ -3,7 +3,7 @@ import type { AgentInfo, ModelInfo, ModelRef, PluginInfo, SkillInfo } from '@ope
 import { createHash } from 'node:crypto'
 import { open, lstat, realpath } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { dirname, join, resolve, isAbsolute } from 'node:path'
+import { basename, dirname, join, resolve, isAbsolute } from 'node:path'
 import { spawn } from 'node:child_process'
 import { childOptions, killTree, findExecutable, containedRelative, samePath, nodeCheckCommand, pythonEnv } from './platform.ts'
 import { scopeRoot } from './scopes.ts'
@@ -24,27 +24,47 @@ export type SourceSnapshot = {
   plugins: PluginInfo[]; skills: SkillInfo[]
   installation?: { root: string; files: Record<string, string>; skills: Record<string, string> }
 }
+export type InstalledSuperpowers = { type: PluginInfo['source']['type']; source: string; version: string | null; status: PluginInfo['state']['status'] }
+export type SuperpowersCheck = { issues: string[]; pinIssues: string[]; installed: InstalledSuperpowers[]; skills: SkillInfo[]; fingerprint: string }
 const fixedPin: SourcePin = { spec: SUPERPOWERS_SPEC, revision: SUPERPOWERS_REVISION, files: SUPERPOWERS_SOURCE.files, skills: SUPERPOWERS_SOURCE.skills }
 
+// 列出全部同 id 插件，供展示和 bootstrap 判断；版本优先取唯一 active 那份安装目录中的 package.json。
+export function installedSuperpowers(plugins: PluginInfo[], manifest?: unknown): InstalledSuperpowers[] {
+  const candidates = plugins.filter(plugin => plugin.id === 'superpowers')
+  const active = candidates.length === 1 && candidates[0].state.status === 'active' ? candidates[0] : undefined
+  return candidates.map(plugin => {
+    const source = plugin.source, declared = source.type === 'package' ? source.version ?? null : null
+    const version = plugin === active && object(manifest) && typeof manifest.version === 'string' ? manifest.version : declared
+    return { type: source.type, source: source.type === 'package' ? source.target : source.type === 'local' ? source.path : source.type, version, status: plugin.state.status }
+  })
+}
+
 // pin 由调用方信任的代码提供；原生工具只使用本模块的固定来源，不接受模型传入摘要。
-export function verifySuperpowers(snapshot: SourceSnapshot, pin: SourcePin = fixedPin): { issues: string[]; skills: SkillInfo[]; fingerprint: string } {
-  const issues: string[] = [], candidates = snapshot.plugins.filter(plugin => plugin.id === 'superpowers')
-  const plugin = candidates.length === 1 ? candidates[0] : undefined, installed = snapshot.installation
+// issues 是任何版本都要满足的来源结构；pinIssues 是与固定版本的差异，只有明确选择沿用已有安装时不拦截。
+export function verifySuperpowers(snapshot: SourceSnapshot, pin: SourcePin = fixedPin): SuperpowersCheck {
+  const issues: string[] = [], pinIssues: string[] = [], candidates = snapshot.plugins.filter(plugin => plugin.id === 'superpowers')
+  const plugin = candidates.length === 1 ? candidates[0] : undefined, installation = snapshot.installation
+  let manifest: unknown
+  try { manifest = installation && typeof installation.files['package.json'] === 'string' ? JSON.parse(installation.files['package.json']) : undefined } catch { manifest = undefined }
   if (!plugin || plugin.state.status !== 'active' || !plugin.features.server) issues.push('未检测到唯一且 active 的 Superpowers 服务插件')
-  if (!installed) issues.push('无法核对宿主报告的 Superpowers 安装路径与源码')
-  if (plugin && installed) {
+  if (!installation) issues.push('无法核对宿主报告的 Superpowers 安装路径与源码')
+  if (plugin && installation) {
     const source = plugin.source
     if (source.type === 'package') {
-      if (source.target !== pin.spec || source.version !== pin.revision) issues.push('Superpowers 包来源或版本不是已核对的固定提交；保留原安装，请人工处理或选择基础模式')
-    } else if (source.type !== 'local' || ![installed.root, join(installed.root, 'index.js')].some(path => samePath(path, source.path))) issues.push('Superpowers 实际 local 入口与技能安装目录不一致')
-    for (const [name, digest] of Object.entries(pin.files)) if (typeof installed.files[name] !== 'string' || hash(installed.files[name]) !== digest) issues.push(`Superpowers 安装源码摘要不符：${name}`)
-    for (const [id, digest] of Object.entries(pin.skills)) {
-      const found = snapshot.skills.filter(skill => skill.id === id), skill = found.length === 1 ? found[0] : undefined
-      if (!skill || skill.name !== id || !samePath(skill.path, join(installed.root, 'skills', id, 'SKILL.md')) || hash(skill.content) !== digest || typeof installed.skills[id] !== 'string' || hash(skillBody(installed.skills[id])) !== digest) issues.push(`Superpowers 技能来源、路径或完整正文不符：${id}`)
+      // 包插件的安装目录由技能路径推断，靠 package.json 排除恰好同名的其他技能目录。
+      if (!object(manifest) || manifest.name !== 'superpowers') issues.push('Superpowers 包安装目录无法确认：package.json 缺失、无效或 name 不是 superpowers')
+      if (source.target !== pin.spec || source.version !== pin.revision) pinIssues.push('Superpowers 包来源或版本不是已核对的固定提交')
+    } else if (source.type !== 'local' || ![installation.root, join(installation.root, 'index.js')].some(path => samePath(path, source.path))) issues.push('Superpowers 实际 local 入口与技能安装目录不一致')
+    const matches = (id: string, digest?: string) => {
+      const found = snapshot.skills.filter(skill => skill.id === id), skill = found.length === 1 ? found[0] : undefined, text = installation.skills[id]
+      return !!skill && skill.name === id && samePath(skill.path, join(installation.root, 'skills', id, 'SKILL.md')) && typeof text === 'string' && hash(skill.content) === hash(skillBody(text)) && (digest === undefined || hash(skill.content) === digest)
     }
+    for (const id of requiredSkills) if (!matches(id)) issues.push(`Superpowers 技能来源、路径或完整正文不符：${id}`)
+    for (const [name, digest] of Object.entries(pin.files)) if (typeof installation.files[name] !== 'string' || hash(installation.files[name]) !== digest) pinIssues.push(`Superpowers 安装源码摘要不符：${name}`)
+    for (const [id, digest] of Object.entries(pin.skills)) if (!matches(id, digest)) pinIssues.push(`Superpowers 技能正文不是已核对的固定版本：${id}`)
   }
-  const fingerprint = hash(stable({ plugins: sorted(snapshot.plugins), skills: sorted(snapshot.skills.map(skill => ({ ...skill, content: hash(skill.content) }))), installation: installed && { root: installed.root, files: Object.fromEntries(Object.entries(installed.files).map(([name, text]) => [name, hash(text)])), skills: Object.fromEntries(Object.entries(installed.skills).map(([name, text]) => [name, hash(text)])) } }))
-  return { issues, skills: issues.length ? [] : snapshot.skills.filter(skill => requiredSkills.includes(skill.id as typeof requiredSkills[number])), fingerprint }
+  const fingerprint = hash(stable({ plugins: sorted(snapshot.plugins), skills: sorted(snapshot.skills.map(skill => ({ ...skill, content: hash(skill.content) }))), installation: installation && { root: installation.root, files: Object.fromEntries(Object.entries(installation.files).map(([name, text]) => [name, hash(text)])), skills: Object.fromEntries(Object.entries(installation.skills).map(([name, text]) => [name, hash(text)])) } }))
+  return { issues, pinIssues, installed: installedSuperpowers(snapshot.plugins, manifest), skills: issues.length ? [] : snapshot.skills.filter(skill => requiredSkills.includes(skill.id as typeof requiredSkills[number])), fingerprint }
 }
 
 export class SkillEvidence {
@@ -133,14 +153,24 @@ async function sourceSnapshot(plugins: PluginInfo[], skills: SkillInfo[]): Promi
     const path = plugin.source.path
     if (!isAbsolute(path)) throw new Error('Superpowers 宿主安装路径不是绝对路径')
     root = await realpath((await lstat(path)).isDirectory() ? path : dirname(path))
-  } else if (plugin.source.type === 'package' && plugin.source.target === SUPERPOWERS_SPEC && plugin.source.version === SUPERPOWERS_REVISION) {
+  } else if (plugin.source.type === 'package') {
+    // 宿主不报告包插件的安装目录：只在技能文件位于 <根>/skills/brainstorming/ 时由它推断，不读取无关的上级目录。
     const skill = skills.find(skill => skill.id === 'brainstorming')
     if (!skill || !isAbsolute(skill.path)) return snapshot
-    root = await realpath(resolve(dirname(skill.path), '../..'))
+    const directory = dirname(skill.path)
+    if (basename(skill.path) !== 'SKILL.md' || basename(directory) !== 'brainstorming' || basename(dirname(directory)) !== 'skills') return snapshot
+    root = await realpath(resolve(directory, '../..'))
   } else return snapshot
+  // 固定版本独有的文件可以缺失，只算与固定版本不同；越界、链接、超限或非 UTF-8 仍然整体拒绝。
   const files: Record<string, string> = {}, contents: Record<string, string> = {}
-  for (const name of Object.keys(SUPERPOWERS_SOURCE.files)) files[name] = await boundedText(join(root, name), root)
-  for (const id of Object.keys(SUPERPOWERS_SOURCE.skills)) contents[id] = await boundedText(join(root, 'skills', id, 'SKILL.md'), root)
+  for (const name of Object.keys(SUPERPOWERS_SOURCE.files)) {
+    const text = await optionalText(root, name)
+    if (text !== null) files[name] = text
+  }
+  for (const id of new Set<string>([...requiredSkills, ...Object.keys(SUPERPOWERS_SOURCE.skills)])) {
+    const text = await optionalText(root, join('skills', id, 'SKILL.md'))
+    if (text !== null) contents[id] = text
+  }
   snapshot.installation = { root, files, skills: contents }
   return snapshot
 }
@@ -157,12 +187,16 @@ export async function probeSetupRuntime(ctx: Plugin.Context, sessionID: Paramete
   const extra = await Promise.all(managed.map(agentID => ctx.agent.get({ agentID, location }).then(result => result.data ?? undefined, () => undefined)))
   const agents: Record<string, AgentInfo> = { implementer: implementer.data, reviewer: reviewer.data }
   managed.forEach((name, index) => { const agent = extra[index]; if (agent) agents[name] = agent })
-  let superpowers: ReturnType<typeof verifySuperpowers>
+  let superpowers: SuperpowersCheck, plugins: PluginInfo[] = []
   try {
-    const [plugins, skills] = await Promise.all([ctx.plugin.list({ location }), ctx.skill.list({ location })])
-    if (!Array.isArray(plugins.data) || !Array.isArray(skills.data)) throw new Error('宿主插件或技能目录返回无效')
-    superpowers = verifySuperpowers(await sourceSnapshot(plugins.data, skills.data))
-  } catch (error) { superpowers = { issues: [`Superpowers 运行时核验失败：${(error as Error).message}`], skills: [], fingerprint: 'unavailable' } }
+    const [pluginList, skills] = await Promise.all([ctx.plugin.list({ location }), ctx.skill.list({ location })])
+    if (Array.isArray(pluginList.data)) plugins = pluginList.data
+    if (!Array.isArray(pluginList.data) || !Array.isArray(skills.data)) throw new Error('宿主插件或技能目录返回无效')
+    superpowers = verifySuperpowers(await sourceSnapshot(plugins, skills.data))
+  } catch (error) {
+    // 读取安装文件出错时仍按已取得的插件列表报告已登记的 Superpowers，bootstrap 据此不再登记第二份。
+    superpowers = { issues: [`Superpowers 运行时核验失败：${(error as Error).message}`], pinIssues: [], installed: installedSuperpowers(plugins), skills: [], fingerprint: 'unavailable' }
+  }
   const config = await Promise.all(['opencode.json', 'opencode.jsonc', SETUP_PROFILE, '.opencode/agents/implementer.md', '.opencode/agents/reviewer.md', '.opencode/agent/implementer.md', '.opencode/agent/reviewer.md', '.opencode/workflow/protection.json', ...managed.map(agentPath)].map(async name => [name, hash(await optionalText(root, name) ?? '<missing>')]))
   // 宿主异步刷新目录会重排；证据绑定模型身份与可用能力，不绑定价格和显示字段。
   const models = sorted(modelList.data.map(model => ({ providerID: model.providerID, id: model.id, enabled: model.enabled, tools: model.capabilities.tools, variants: model.variants.map(variant => variant.id).sort() })))

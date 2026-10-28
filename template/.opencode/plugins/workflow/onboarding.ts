@@ -3,7 +3,7 @@ import type { ModelRef } from '@opencode/client'
 import { isAbsolute } from 'node:path'
 import { managedRoles, validateSetupChoices, type SetupChoices } from './onboarding-config.ts'
 import { planSetup, readSetupPlan, pendingSetupPlan, setupWritePaths, applySetup, inspectSetup, type SetupPlan } from './onboarding-files.ts'
-import { checkModels, describeEffort, probeSetupRuntime, runSetupDoctor, SkillEvidence, type DoctorReport } from './onboarding-runtime.ts'
+import { checkModels, describeEffort, probeSetupRuntime, runSetupDoctor, SkillEvidence, type DoctorReport, type SuperpowersCheck } from './onboarding-runtime.ts'
 import { normalizeCall, type WorkflowEvent } from './protocol.ts'
 import { REVIEWER } from './review.ts'
 import { sessionQueue } from './serial.ts'
@@ -18,6 +18,12 @@ const modelSummary = (model?: ModelRef) => model ? { providerID: model.providerI
 function planningNotes(plan: SetupPlan | null): string[] {
   const request = plan?.request
   return request?.kind === 'configure' ? managedRoles(request.choices).filter(([, choice]) => choice.mode === 'inherit').map(([role]) => `${role} 的候选继承计划只移除本项目模型覆盖；上级或全局覆盖尚未确认，须应用并重载后由 verify/finish 核对真正有效配置`) : []
+}
+// 明确沿用的非固定版本照常放行，交付时列为未经套件验收。
+function superpowersNotes(choices: SetupChoices | null, superpowers: SuperpowersCheck): string[] {
+  if (choices?.mode !== 'full' || choices.superpowers !== 'existing' || superpowers.issues.length || !superpowers.pinIssues.length) return []
+  const [plugin] = superpowers.installed
+  return [`沿用未经套件验收的 Superpowers：${plugin.source}，版本 ${plugin.version ?? '未知'}`, ...(plugin.type === 'package' ? ['Superpowers 以包方式安装，安装目录由技能路径推断，未证明就是宿主实际加载的包'] : [])]
 }
 
 export async function registerSetupTools(ctx: Plugin.Context, validateMutation: (event: WorkflowEvent, signal: AbortSignal) => Promise<void>): Promise<() => Promise<void>> {
@@ -42,6 +48,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
     if (choices.mode === 'full') {
       if (!eventsHealthy) issues.push('原生失效事件流已中断，无法验证 Location、配置与压缩边界；请重载 OpenCode 并重新读取技能')
       issues.push(...runtime.superpowers.issues)
+      if (choices.superpowers !== 'existing' && runtime.superpowers.pinIssues.length) issues.push(...runtime.superpowers.pinIssues, '所选 Superpowers 来源要求已核对的固定版本；如要沿用当前生效的安装（含个人全局安装），请把接入选择的 superpowers 改为 existing')
       const read = ledger.reads(sessionID, runtime.fingerprint)
       for (const id of requiredSkills) if (!read.includes(id)) issues.push(`完整模式需要当前会话真实成功读取 ${id} 技能；列表、自报完成、其他会话或过期证据不算`)
     }
@@ -55,7 +62,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
     return pendingSetupPlan(runtime.root, id)
   }
   const status = async (runtime: Runtime, sessionID: string, checkpoint: object, doctor?: DoctorReport) => {
-    const installed = await inspectSetup(runtime.root), pendingPlan = await pending(runtime), issues = [...installed.issues], unverified = [...installed.unverified, ...external, ...planningNotes(pendingPlan)]
+    const installed = await inspectSetup(runtime.root), pendingPlan = await pending(runtime), issues = [...installed.issues], unverified = [...installed.unverified, ...external, ...planningNotes(pendingPlan), ...superpowersNotes(installed.choices, runtime.superpowers)]
     if (!installed.choices) issues.push('尚未记录完整、明确的接入选择；请先调查并向用户提问，不能默认代答')
     else issues.push(...gates(installed.choices, runtime, sessionID, true, checkpoint))
     if (reloadRequired.has(runtime.root)) issues.push('配置已变更，请重载 OpenCode 后重新核对运行时并读取技能；不会沿用旧会话证据')
@@ -67,7 +74,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
       pendingPlan, components: installed.components, existing: installed.existing,
       steps: ['评估检测到的既有 AI 配置，逐项取得迁移或保留决定', '调查项目并逐项询问接入选择', '完整模式先预览安装 Superpowers；授权应用后重载', '真实读取 brainstorming 与 writing-plans，再规划子代理并设计完整配置计划', '预览具体摘要、子代理全文及项目/个人全局影响，申请权限后应用', '按决定逐项迁移既有配置，每项先展示差异并取得确认', '重载后核对有效模型与技能，运行 finish 执行 doctor，交付未验证事项'],
       models: { candidates: runtime.models.filter(model => model.enabled && model.capabilities.tools).map(model => ({ providerID: model.providerID, id: model.id, name: model.name, enabled: model.enabled, tools: model.capabilities.tools, variants: model.variants.map(variant => variant.id) })), effective: Object.fromEntries(Object.entries(runtime.agents).map(([role, agent]) => [role, { id: agent.id, model: modelSummary(agent.model) }])), session: modelSummary(runtime.session.model), current: modelSummary(runtime.currentModel) },
-      superpowers: { available: !runtime.superpowers.issues.length, issues: runtime.superpowers.issues, read: ledger.reads(sessionID, runtime.fingerprint) },
+      superpowers: { available: !runtime.superpowers.issues.length, pinned: !runtime.superpowers.issues.length && !runtime.superpowers.pinIssues.length, installed: runtime.superpowers.installed, issues: runtime.superpowers.issues, pinIssues: runtime.superpowers.pinIssues, read: ledger.reads(sessionID, runtime.fingerprint) },
       ...(doctor ? { doctor } : {}),
     }
   }
@@ -135,7 +142,7 @@ export async function registerSetupTools(ctx: Plugin.Context, validateMutation: 
             if (issues.length) return respond({ ready: false, issues, unverified: external })
           }
           const effort = plan.request.kind === 'configure' ? { effort: describeEffort(plan.request.choices, runtime.models) } : {}
-          return respond({ ...plan, ...effort, ready: false, issues: [], unverified: ['计划尚未应用；请向用户说明目标摘要、范围与冲突后，使用此 id 作为 planID 申请权限', ...planningNotes(plan)] })
+          return respond({ ...plan, ...effort, ready: false, issues: [], unverified: ['计划尚未应用；请向用户说明目标摘要、范围与冲突后，使用此 id 作为 planID 申请权限', ...planningNotes(plan), ...superpowersNotes(plan.request.kind === 'configure' ? plan.request.choices : null, runtime.superpowers)] })
         }
         if (action === 'apply') {
           if (typeof input.planID !== 'string') throw new Error('apply 必须指定已预览的具体 planID，不能默认应用上次计划')
